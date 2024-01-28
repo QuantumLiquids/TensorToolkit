@@ -1,0 +1,988 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+/*
+* Author: Rongyang Sun <sun-rongyang@outlook.com>
+* Creation Date: 2020-11-26 19:00
+*
+* Description: QuantumLiquids/tensor project. Implementation details for symmetry-blocked
+* sparse tensor class.
+*/
+
+/**
+@file qltensor_impl.h
+@brief  Implementation details for symmetry-blocked sparse tensor class.
+*/
+#ifndef QLTEN_QLTENSOR_QLTENSOR_IMPL_H
+#define QLTEN_QLTENSOR_QLTENSOR_IMPL_H
+
+#include <iostream>     // cout, endl, istream, ostream
+#include <iterator>     // next
+#include <algorithm>    // is_sorted
+
+#include "qlten/framework/hp_numeric/mpi_fun.h"
+#include <boost/serialization/serialization.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/mpi.hpp>
+#include <boost/mpi/request.hpp>
+
+#include "qlten/qltensor/qltensor.h"                                // QLTensor
+#include "qlten/qltensor/index.h"                                   // IndexVec, GetQNSctNumOfIdxs, CalcDiv
+#include "qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h"     // BlockSparseDataTensor
+#include "qlten/utility/utils_inl.h"                                // GenAllCoors, Rand, Reorder, CalcScalarNorm, CalcConj
+
+#ifdef Release
+#define NDEBUG
+#endif
+
+#include <cassert>     // assert
+
+namespace qlten {
+
+/**
+Create an empty QLTensor using indexes.
+
+@param indexes Vector of Index of the tensor.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT>::QLTensor(
+    const IndexVec<QNT> &indexes
+) : indexes_(indexes) {
+  rank_ = indexes_.size();
+  shape_ = CalcShape_();
+  size_ = CalcSize_();
+  if (!IsDefault()) {
+    pblk_spar_data_ten_ = new BlockSparseDataTensor<ElemT, QNT>(&indexes_);
+  }
+}
+
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT>::QLTensor(
+    const IndexVec<QNT> &&indexes
+) : indexes_(std::move(indexes)) {
+  rank_ = indexes_.size();
+  shape_ = CalcShape_();
+  size_ = CalcSize_();
+  if (!IsDefault()) {
+    pblk_spar_data_ten_ = new BlockSparseDataTensor<ElemT, QNT>(&indexes_);
+  }
+}
+
+/**
+Create an empty QLTensor by moving indexes.
+
+@param indexes Vector of Index of the tensor.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT>::QLTensor(IndexVec<QNT> &&indexes) : indexes_(indexes) {
+  rank_ = indexes_.size();
+  shape_ = CalcShape_();
+  size_ = CalcSize_();
+  if (!IsDefault()) {
+    pblk_spar_data_ten_ = new BlockSparseDataTensor<ElemT, QNT>(&indexes_);
+  }
+}
+
+/**
+Copy a QLTensor.
+
+@param qlten Another QLTensor.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT>::QLTensor(const QLTensor &qlten) :
+    rank_(qlten.rank_),
+    shape_(qlten.shape_),
+    size_(qlten.size_),
+    indexes_(qlten.indexes_) {
+  if (qlten.IsDefault()) {
+    // Do nothing
+  } else {
+    pblk_spar_data_ten_ = new BlockSparseDataTensor<ElemT, QNT>(
+        *qlten.pblk_spar_data_ten_
+    );
+    pblk_spar_data_ten_->pqlten_indexes = &indexes_;
+  }
+}
+
+/**
+Assign a QLTensor.
+
+@param rhs Another QLTensor.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> &QLTensor<ElemT, QNT>::operator=(const QLTensor &rhs) {
+  rank_ = rhs.rank_;
+  shape_ = rhs.shape_;
+  size_ = rhs.size_;
+  indexes_ = rhs.indexes_;
+  delete pblk_spar_data_ten_;
+  if (rhs.IsDefault()) {
+    pblk_spar_data_ten_ = nullptr;
+  } else {
+    pblk_spar_data_ten_ = new BlockSparseDataTensor<ElemT, QNT>(
+        *rhs.pblk_spar_data_ten_
+    );
+    pblk_spar_data_ten_->pqlten_indexes = &indexes_;
+  }
+  return *this;
+}
+
+/**
+Move a QLTensor.
+
+@param qlten Another QLTensor to-be moved.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT>::QLTensor(QLTensor &&qlten) noexcept :
+    rank_(qlten.rank_),
+    shape_(qlten.shape_),
+    size_(qlten.size_) {
+  if (qlten.IsDefault()) {
+    // Do nothing
+  } else {
+    indexes_ = std::move(qlten.indexes_);
+    pblk_spar_data_ten_ = qlten.pblk_spar_data_ten_;
+    qlten.pblk_spar_data_ten_ = nullptr;
+    pblk_spar_data_ten_->pqlten_indexes = &indexes_;
+  }
+}
+
+/**
+Move and assign a QLTensor.
+
+@param rhs Another QLTensor to-be moved.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> &QLTensor<ElemT, QNT>::operator=(QLTensor &&rhs) noexcept {
+  rank_ = rhs.rank_;
+  shape_ = rhs.shape_;
+  size_ = rhs.size_;
+  delete pblk_spar_data_ten_;
+  if (rhs.IsDefault()) {
+    pblk_spar_data_ten_ = nullptr;
+  } else {
+    indexes_ = std::move(rhs.indexes_);
+    pblk_spar_data_ten_ = rhs.pblk_spar_data_ten_;
+    rhs.pblk_spar_data_ten_ = nullptr;
+    pblk_spar_data_ten_->pqlten_indexes = &indexes_;
+  }
+  return *this;
+}
+
+template<typename ElemT, typename QNT>
+struct QLTensor<ElemT, QNT>::QLTensorElementAccessDeref {
+  const QLTensor &const_this_ten;
+  std::vector<size_t> coors;
+
+  QLTensorElementAccessDeref(
+      const QLTensor &qlten,
+      const std::vector<size_t> &coors
+  ) : const_this_ten(qlten), coors(coors) {
+    assert(const_this_ten.Rank() == coors.size());
+  }
+
+  operator ElemT() const {
+    return const_this_ten.GetElem(coors);
+  }
+
+  void operator=(const ElemT elem) {
+    const_cast<QLTensor &>(const_this_ten).SetElem(coors, elem);
+  }
+
+  bool operator==(const ElemT elem) const {
+    return const_this_ten.GetElem(coors) == elem;
+  }
+
+  bool operator!=(const ElemT elem) const {
+    return !(*this == elem);
+  }
+};
+
+/**
+Access to the tensor element using its coordinates.
+
+@param coors The coordinates of the element.
+*/
+template<typename ElemT, typename QNT>
+typename QLTensor<ElemT, QNT>::QLTensorElementAccessDeref
+QLTensor<ElemT, QNT>::operator()(const std::vector<size_t> &coors) {
+  return QLTensorElementAccessDeref(*this, coors);
+}
+
+template<typename ElemT, typename QNT>
+typename QLTensor<ElemT, QNT>::QLTensorElementAccessDeref
+QLTensor<ElemT, QNT>::operator()(const std::vector<size_t> &coors) const {
+  return QLTensorElementAccessDeref(*this, coors);
+}
+
+/**
+Access to the rank 0 (scalar) tensor element.
+*/
+template<typename ElemT, typename QNT>
+typename QLTensor<ElemT, QNT>::QLTensorElementAccessDeref
+QLTensor<ElemT, QNT>::operator()(void) {
+  assert(IsScalar());
+  return QLTensorElementAccessDeref(*this, {});
+}
+
+template<typename ElemT, typename QNT>
+typename QLTensor<ElemT, QNT>::QLTensorElementAccessDeref
+QLTensor<ElemT, QNT>::operator()(void) const {
+  assert(IsScalar());
+  return QLTensorElementAccessDeref(*this, {});
+}
+
+/**
+Access to the tensor element of a non-scalar tensor.
+
+@tparam OtherCoorsT The types of the second, third, etc coordinates.
+@param coor0 The first coordinate.
+@param other_coors The second, third, ... coordiantes. They should be
+       non-negative integers.
+*/
+template<typename ElemT, typename QNT>
+template<typename... OtherCoorsT>
+typename QLTensor<ElemT, QNT>::QLTensorElementAccessDeref
+QLTensor<ElemT, QNT>::operator()(
+    const size_t coor0,
+    const OtherCoorsT... other_coors
+) {
+  return QLTensorElementAccessDeref(
+      *this,
+      {coor0, static_cast<size_t>(other_coors)...}
+  );
+}
+
+template<typename ElemT, typename QNT>
+template<typename... OtherCoorsT>
+typename QLTensor<ElemT, QNT>::QLTensorElementAccessDeref
+QLTensor<ElemT, QNT>::operator()(
+    const size_t coor0,
+    const OtherCoorsT... other_coors
+) const {
+  return QLTensorElementAccessDeref(
+      *this,
+      {coor0, static_cast<size_t>(other_coors)...}
+  );
+}
+
+/**
+Calculate the quantum number divergence of the QLTensor.
+
+@return The quantum number divergence.
+*/
+template<typename ElemT, typename QNT>
+QNT QLTensor<ElemT, QNT>::Div(void) const {
+  assert(!IsDefault());
+  if (IsScalar()) {
+    std::cout << "Tensor is a scalar. Return empty quantum number."
+              << std::endl;
+    return QNT();
+  } else {
+    auto qnblk_num = GetQNBlkNum();
+    if (qnblk_num == 0) {
+      std::cout << "Tensor does not have a block. Return empty quantum number."
+                << std::endl;
+      return QNT();
+    } else {
+      auto blk_idx_data_blk_map = GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+      auto indexes = GetIndexes();
+      auto first_blk_idx_data_blk = blk_idx_data_blk_map.begin();
+      auto div = CalcDiv(indexes, first_blk_idx_data_blk->second.blk_coors);
+#ifndef NDEBUG
+      for (
+          auto it = std::next(first_blk_idx_data_blk);
+          it != blk_idx_data_blk_map.end();
+          ++it
+          ) {
+        auto blki_div = CalcDiv(indexes, it->second.blk_coors);
+        if (blki_div != div) {
+          std::cout << "Tensor does not have a special divergence. Return empty quantum number."
+                    << std::endl;
+          assert(blki_div == div);
+          return QNT();
+        }
+      }
+#endif
+      return div;
+    }
+  }
+}
+
+/**
+Get the tensor element using its coordinates.
+
+@coors The coordinates of the tensor element. An empty vector for scalar.
+*/
+template<typename ElemT, typename QNT>
+ElemT QLTensor<ElemT, QNT>::GetElem(const std::vector<size_t> &coors) const {
+  assert(!IsDefault());
+  assert(coors.size() == rank_);
+  auto blk_coors_data_coors = CoorsToBlkCoorsDataCoors_(coors);
+  return pblk_spar_data_ten_->ElemGet(blk_coors_data_coors);
+}
+
+/**
+Set the tensor element using its coordinates.
+
+@param coors The coordinates of the tensor element. An empty vector for scalar.
+@param elem The value of the tensor element.
+*/
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::SetElem(
+    const std::vector<size_t> &coors,
+    const ElemT elem
+) {
+  assert(!IsDefault());
+  assert(coors.size() == rank_);
+  auto blk_coors_data_coors = CoorsToBlkCoorsDataCoors_(coors);
+  pblk_spar_data_ten_->ElemSet(blk_coors_data_coors, elem);
+}
+
+/**
+Equivalence check.
+
+@param rhs The QLTensor at the right hand side.
+
+@return Equivalence check result.
+*/
+template<typename ElemT, typename QNT>
+bool QLTensor<ElemT, QNT>::operator==(const QLTensor &rhs) const {
+  // Default check
+  if (IsDefault() || rhs.IsDefault()) {
+    if (IsDefault() && rhs.IsDefault()) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+  // Indexes check
+  if (indexes_ != rhs.indexes_) { return false; }
+  // Block sparse data tensor check
+  return (*pblk_spar_data_ten_ == *rhs.pblk_spar_data_ten_);
+}
+
+/**
+Random set tensor elements in [0, 1] with given quantum number divergence.
+Original data of this tensor will be destroyed.
+
+@param div Target quantum number divergence.
+*/
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::Random(const QNT &div) {
+  assert(!IsDefault());
+  if (IsScalar()) { assert(div == QNT()); }
+  pblk_spar_data_ten_->Clear();
+  if (IsScalar()) {
+    pblk_spar_data_ten_->Random();
+    return;
+  }
+  if (pblk_spar_data_ten_->blk_shape.size() == 2) {
+    ShapeT shape = pblk_spar_data_ten_->blk_shape;
+    std::vector<CoorsT> blk_coors_s;
+    blk_coors_s.reserve(shape[0]);
+    for (size_t i = 0; i < shape[0]; i++) {
+      for (size_t j = 0; j < shape[1]; j++) {
+        if (CalcDiv(indexes_, {i, j}) == div) {
+          blk_coors_s.push_back({i, j});
+        }
+      }
+    }
+    pblk_spar_data_ten_->DataBlksInsert(blk_coors_s, false, false);     // NO allocate memory on this stage.
+  } else {
+    for (auto &blk_coors : GenAllCoors(pblk_spar_data_ten_->blk_shape)) {
+      if (CalcDiv(indexes_, blk_coors) == div) {
+        pblk_spar_data_ten_->DataBlkInsert(blk_coors, false);     // NO allocate memory on this stage.
+      }
+    }
+  }
+  pblk_spar_data_ten_->Random();
+}
+
+/**
+Transpose the tensor using a new indexes order.
+
+@param transed_idxes_order Transposed order of indexes.
+*/
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::Transpose(
+    const std::vector<size_t> &transed_idxes_order
+) {
+  assert(!IsDefault());
+
+  if (IsScalar()) { return; }
+
+  assert(transed_idxes_order.size() == rank_);
+  // Give a shorted order, do nothing
+  if (std::is_sorted(transed_idxes_order.begin(), transed_idxes_order.end())) {
+    return;
+  }
+  InplaceReorder(shape_, transed_idxes_order);
+  InplaceReorder(indexes_, transed_idxes_order);
+  pblk_spar_data_ten_->Transpose(transed_idxes_order);
+}
+
+/**
+ * Calculate the 2-norm of the tensor, square root of summation of element squares
+ * @return the 2-norm
+ */
+template<typename ElemT, typename QNT>
+QLTEN_Double QLTensor<ElemT, QNT>::Get2Norm(void) const {
+  assert(!IsDefault());
+  QLTEN_Double norm = pblk_spar_data_ten_->Norm();
+  return norm;
+}
+
+/**
+Normalize the tensor and return its norm.
+
+@return The norm before the normalization.
+*/
+template<typename ElemT, typename QNT>
+QLTEN_Double QLTensor<ElemT, QNT>::Normalize(void) {
+  assert(!IsDefault());
+  QLTEN_Double norm = pblk_spar_data_ten_->Normalize();
+  return norm;
+}
+
+/**
+Switch the direction of the indexes, complex conjugate of the elements.
+*/
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::Dag(void) {
+  assert(!IsDefault());
+  for (auto &index : indexes_) { index.Inverse(); }
+  pblk_spar_data_ten_->Conj();
+
+}
+
+/**
+Calculate \f$ -1 * T \f$.
+
+@return \f$ -T \f$.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> QLTensor<ElemT, QNT>::operator-(void) const {
+  assert(!IsDefault());
+  QLTensor<ElemT, QNT> res(*this);
+  res *= -1.0;
+  return res;
+}
+
+/**
+Add this QLTensor \f$ A \f$ and another QLTensor \f$ B \f$.
+
+@param rhs Another QLTensor \f$ B \f$.
+
+@return \f$ A + B \f$.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> QLTensor<ElemT, QNT>::operator+(
+    const QLTensor &rhs
+) const {
+  assert(!(IsDefault() || rhs.IsDefault()));
+  assert(indexes_ == rhs.indexes_);
+//  assert(Div() == rhs.Div());
+  QLTensor<ElemT, QNT> res(indexes_);
+  res.pblk_spar_data_ten_->AddTwoBSDTAndAssignIn(
+      *pblk_spar_data_ten_,
+      *rhs.pblk_spar_data_ten_
+  );
+  return res;
+}
+
+/**
+Add and assign another QLTensor \f$ B \f$ to this tensor.
+
+@param rhs Another QLTensor \f$ B \f$.
+
+@return \f$ A = A + B \f$.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> &QLTensor<ElemT, QNT>::operator+=(const QLTensor &rhs) {
+  assert(!(IsDefault() || rhs.IsDefault()));
+  assert(indexes_ == rhs.indexes_);
+  pblk_spar_data_ten_->AddAndAssignIn(*rhs.pblk_spar_data_ten_);
+  return *this;
+}
+
+/**
+Multiply a QLTensor by a scalar (real/complex number).
+
+@param s A scalar.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> QLTensor<ElemT, QNT>::operator*(const ElemT s) const {
+  assert(!IsDefault());
+  QLTensor<ElemT, QNT> res(*this);
+  res.pblk_spar_data_ten_->MultiplyByScalar(s);
+  return res;
+}
+
+/**
+Multiply a QLTensor by a scalar (real/complex number) and assign back.
+
+@param s A scalar.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> &QLTensor<ElemT, QNT>::operator*=(const ElemT s) {
+  assert(!IsDefault());
+  pblk_spar_data_ten_->MultiplyByScalar(s);
+  return *this;
+}
+
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> ElementWiseInv(const QLTensor<ElemT, QNT> &tensor) {
+  QLTensor<ElemT, QNT> res(tensor);
+  res.ElementWiseInv();
+  return res;
+}
+
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> ElementWiseInv(const QLTensor<ElemT, QNT> &tensor, const double tolerance) {
+  QLTensor<ElemT, QNT> res(tensor);
+  res.ElementWiseInv(tolerance);
+  return res;
+}
+
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> ElementWiseSqrt(const QLTensor<ElemT, QNT> &tensor) {
+  QLTensor<ElemT, QNT> res(tensor);
+  res.ElementWiseSqrt();
+  return res;
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::StreamRead(std::istream &is) {
+  assert(IsDefault());    // Only default tensor can read data
+  is >> rank_;
+  indexes_ = IndexVec<QNT>(rank_);
+  for (auto &index : indexes_) { is >> index; }
+  shape_ = CalcShape_();
+  size_ = CalcSize_();
+  pblk_spar_data_ten_ = new BlockSparseDataTensor<ElemT, QNT>(&indexes_);
+  is >> (*pblk_spar_data_ten_);
+}
+
+/**
+Boost serialization
+*/
+template<typename ElemT, typename QNT>
+template<class Archive>
+void QLTensor<ElemT, QNT>::load(Archive &ar, const unsigned int version) {
+  assert(IsDefault());
+  ar & rank_;
+  ar & indexes_;
+  ar & shape_;
+  ar & size_;
+  if (size_ > 0) {// not default
+    pblk_spar_data_ten_ = new BlockSparseDataTensor<ElemT, QNT>(&indexes_);
+    ar & (*pblk_spar_data_ten_);
+  }
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::StreamWrite(std::ostream &os) const {
+  assert(!IsDefault());
+  os << rank_ << "\n";
+  for (auto &index : indexes_) { os << index; }
+  os << (*pblk_spar_data_ten_);
+}
+
+/**
+Boost serialization
+*/
+template<typename ElemT, typename QNT>
+template<class Archive>
+void QLTensor<ElemT, QNT>::save(Archive &ar, const unsigned int version) const {
+  assert(!IsDefault());
+  ar & rank_;
+  ar & indexes_;
+  ar & shape_;
+  ar & size_;
+  ar & (*pblk_spar_data_ten_);
+}
+
+template<typename VecElemT>
+inline void VectorPrinter(const std::vector<VecElemT> &vec) {
+  auto size = vec.size();
+  for (size_t i = 0; i < size; ++i) {
+    std::cout << vec[i];
+    if (i != size - 1) {
+      std::cout << ", ";
+    }
+  }
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::Show(const size_t indent_level) const {
+  std::cout << IndentPrinter(indent_level) << "QLTensor:" << std::endl;
+  std::cout << IndentPrinter(indent_level + 1) << "Shape: (";
+  VectorPrinter(shape_);
+  std::cout << ")" << std::endl;
+  std::cout << IndentPrinter(indent_level + 1) << "Indices:" << std::endl;
+  for (auto &index : indexes_) {
+    index.Show(indent_level + 2);
+  }
+  if (!IsDefault()) {
+    std::cout << IndentPrinter(indent_level + 1) << "Divergence:" << std::endl;
+    Div().Show(indent_level + 2);
+    std::cout << IndentPrinter(indent_level + 1) << "Nonzero elements:" << std::endl;
+    for (auto &coors : GenAllCoors(shape_)) {
+      auto elem = GetElem(coors);
+      if (elem != ElemT(0.0)) {
+        std::cout << IndentPrinter(indent_level + 2) << "[";
+        VectorPrinter(coors);
+        std::cout << "]: " << elem << std::endl;
+      }
+    }
+  }
+}
+
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> &QLTensor<ElemT, QNT>::RemoveTrivialIndexes(void) {
+  if (this->IsDefault()) {
+    return *this;
+  }
+  std::vector<size_t> trivial_idx_nums;
+  std::vector<Index<QNT>> trivial_idxs;
+  for (size_t i = 0; i < rank_; i++) {
+    if (shape_[i] == 1) {
+      trivial_idx_nums.push_back(i);
+      trivial_idxs.push_back(InverseIndex(GetIndex(i)));
+    }
+  }
+
+  QLTensor scale_ten({trivial_idxs});
+  std::vector<size_t> zero_coor(trivial_idx_nums.size(), 0);
+  scale_ten(zero_coor) = ElemT(1);
+  std::vector<size_t> natural_num_coor(trivial_idx_nums.size());
+  for (size_t i = 0; i < natural_num_coor.size(); i++) {
+    natural_num_coor[i] = i;
+  }
+  QLTensor tmp;
+  Contract(this, trivial_idx_nums, &scale_ten, natural_num_coor, &tmp);
+  *this = std::move(tmp);
+  return *this;
+}
+
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> &QLTensor<ElemT, QNT>::RemoveTrivialIndexes(const std::vector<size_t> &trivial_idx_axes) {
+  if (this->IsDefault()) {
+    return *this;
+  }
+  std::vector<Index<QNT>> trivial_idxs;
+  for (auto trivial_idx_axe : trivial_idx_axes) {
+    trivial_idxs.push_back(InverseIndex(GetIndex(trivial_idx_axe)));
+  }
+
+  QLTensor scale_ten({trivial_idxs});
+  std::vector<size_t> zero_coor(trivial_idx_axes.size(), 0);
+  scale_ten(zero_coor) = ElemT(1);
+  std::vector<size_t> natural_num_coor(trivial_idx_axes.size());
+  for (size_t i = 0; i < natural_num_coor.size(); i++) {
+    natural_num_coor[i] = i;
+  }
+  QLTensor tmp;
+  Contract(this, trivial_idx_axes, &scale_ten, natural_num_coor, &tmp);
+  *this = std::move(tmp);
+  return *this;
+}
+
+template<typename QNT>
+std::string ElemenTypeOfTensor(const QLTensor<QLTEN_Double, QNT> &t) {
+  return "QLTEN_Double";
+}
+
+template<typename QNT>
+std::string ElemenTypeOfTensor(const QLTensor<QLTEN_Complex, QNT> &t) {
+  return "QLTEN_Complex";
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ConciseShow(const size_t indent_level) const {
+  using std::cout;
+  using std::endl;
+  cout << IndentPrinter(indent_level) << "QLTensor Concise Info: " << "\n";
+  cout << IndentPrinter(indent_level + 1) << "tensor shape:" << "\t[";
+  VectorPrinter(shape_);
+  cout << "]\n";
+  cout << IndentPrinter(indent_level + 1) << "tensor elementary type:\t"
+       << ElemenTypeOfTensor(*this) << "\n";
+  cout << IndentPrinter(indent_level + 1)
+       << "tensor qumtum number block number:\t"
+       << GetQNBlkNum() << "\n";
+  cout << IndentPrinter(indent_level + 1)
+       << "tensor size(product of shape):\t" << size_ << "\n";
+  if (IsDefault()) {
+    cout << IndentPrinter(indent_level + 1) << "default tensor" << endl;
+    return;
+  }
+  unsigned data_size = pblk_spar_data_ten_->GetActualRawDataSize();
+  cout << IndentPrinter(indent_level + 1)
+       << "actual data size:\t" << data_size << "\n";
+  cout << IndentPrinter(indent_level + 1)
+       << "tensor sparsity:\t" << double(data_size) / double(size_) << endl;
+}
+
+template<typename ElemT, typename QNT>
+size_t QLTensor<ElemT, QNT>::GetActualDataSize(void) const {
+  return pblk_spar_data_ten_->GetActualRawDataSize();
+}
+
+template<typename ElemT, typename QNT>
+const ElemT *QLTensor<ElemT, QNT>::GetRawDataPtr(void) const {
+  return pblk_spar_data_ten_->GetActualRawDataPtr();
+}
+
+template<typename ElemT, typename QNT>
+ElemT *QLTensor<ElemT, QNT>::GetRawDataPtr(void) {
+  return pblk_spar_data_ten_->GetActualRawDataPtr();
+}
+
+/**
+Calculate shape from tensor rank.
+*/
+template<typename ElemT, typename QNT>
+inline ShapeT QLTensor<ElemT, QNT>::CalcShape_(void) const {
+  ShapeT shape(rank_);
+  for (size_t i = 0; i < rank_; ++i) {
+    shape[i] = indexes_[i].dim();
+  }
+  return shape;
+}
+
+/**
+Calculate size from tensor shape.
+*/
+template<typename ElemT, typename QNT>
+inline size_t QLTensor<ElemT, QNT>::CalcSize_(void) const {
+  size_t size = 1;
+  for (auto dim : shape_) { size *= dim; }
+  return size;
+}
+
+/**
+Convert tensor element coordinates to data block coordinates and in-block data
+coordinates.
+
+@param coors Tensor element coordinates.
+*/
+template<typename ElemT, typename QNT>
+inline
+std::pair<CoorsT, CoorsT> QLTensor<ElemT, QNT>::CoorsToBlkCoorsDataCoors_(
+    const CoorsT &coors
+) const {
+  assert(coors.size() == rank_);
+  CoorsT blk_coors{};
+  blk_coors.reserve(rank_);
+  CoorsT data_coors{};
+  data_coors.reserve(rank_);
+  for (size_t i = 0; i < rank_; ++i) {
+    auto blk_coor_data_coor = indexes_[i].CoorToBlkCoorDataCoor(coors[i]);
+    blk_coors.push_back(blk_coor_data_coor.first);
+    data_coors.push_back(blk_coor_data_coor.second);
+  }
+  return make_pair(blk_coors, data_coors);
+}
+
+const int kMPIDataTagMultiplyFactor = 11;
+
+/**
+ * Note use this function rather world.send() directly
+ * @tparam ElemT
+ * @tparam QNT
+ * @param world
+ * @param dest
+ * @param tag
+ * @param qlten
+ */
+template<typename ElemT, typename QNT>
+inline void send_qlten(boost::mpi::communicator world,
+                       int dest, int tag,
+                       const QLTensor<ElemT, QNT> &qlten) {
+  world.send(dest, tag, qlten.IsDefault());
+  if (qlten.IsDefault()) {
+    return;
+  }
+#ifdef QLTEN_MPI_TIMING_MODE
+  Timer mpi_send_qlten_wrapper_timer("mpi_send_qlten_wrapper: from rank "
+                                         + std::to_string(world.rank())
+                                         + " to "
+                                         + std::to_string(dest)
+  );
+#endif
+  world.send(dest, tag, qlten);
+#ifdef QLTEN_MPI_TIMING_MODE
+  mpi_send_qlten_wrapper_timer.PrintElapsed();
+#endif
+  int tag_data = tag * kMPIDataTagMultiplyFactor + 1;
+  const BlockSparseDataTensor<ElemT, QNT> &bsdt = qlten.GetBlkSparDataTen();
+  const ElemT *data_pointer = bsdt.GetActualRawDataPtr();
+  size_t data_size = bsdt.GetActualRawDataSize();
+  ElemT zero = ElemT(0.0);
+  if (qlten.IsScalar() && data_size == 0) {
+    data_pointer = &zero;
+    data_size = 1;
+  }
+#ifdef QLTEN_MPI_TIMING_MODE
+  Timer mpi_send_qlten_data_timer("mpi_send_qlten_data: from rank "
+                                      + std::to_string(world.rank())
+                                      + " to "
+                                      + std::to_string(dest)
+                                      + ", data size = "
+                                      + std::to_string(data_size)
+  );
+#endif
+  hp_numeric::MPI_Send(data_pointer, data_size, dest, tag_data, MPI_Comm(world));
+#ifdef QLTEN_MPI_TIMING_MODE
+  mpi_send_qlten_data_timer.PrintElapsed();
+#endif
+}
+
+template<typename ElemT, typename QNT>
+inline boost::mpi::status recv_qlten(boost::mpi::communicator world,
+                                     int source, int tag,
+                                     QLTensor<ElemT, QNT> &qlten) {
+  assert(qlten.IsDefault());
+  bool is_default;
+  boost::mpi::status recv_ten_status = world.recv(source, tag, is_default);
+  if (is_default) {
+    return recv_ten_status;
+  }
+  if (source == boost::mpi::any_source) {
+    source = recv_ten_status.source();
+    tag = recv_ten_status.tag();
+  }
+  // boost::mpi::request reqs[2];
+#ifdef QLTEN_MPI_TIMING_MODE
+  Timer mpi_recv_qlten_wrapper_timer("mpi_recv_qlten_wrapper: from rank "
+                                         + std::to_string(source)
+                                         + " to "
+                                         + std::to_string(world.rank())
+  );
+#endif
+  auto s = world.recv(source, tag, qlten);
+#ifdef QLTEN_MPI_TIMING_MODE
+  mpi_recv_qlten_wrapper_timer.PrintElapsed();
+#endif
+  int tag_data = tag * kMPIDataTagMultiplyFactor + 1;
+  BlockSparseDataTensor<ElemT, QNT> &bsdt = qlten.GetBlkSparDataTen();
+  ElemT *data_pointer = bsdt.pactual_raw_data_;
+  size_t data_size = bsdt.GetActualRawDataSize();
+#ifdef QLTEN_MPI_TIMING_MODE
+  Timer mpi_recv_qlten_data_timer("mpi_recv_qlten_data: from rank "
+                                      + std::to_string(source)
+                                      + " to "
+                                      + std::to_string(world.rank())
+                                      + ", data size = "
+                                      + std::to_string(data_size)
+  );
+#endif
+  hp_numeric::MPI_Recv(data_pointer, data_size, source, tag_data, MPI_Comm(world));
+#ifdef QLTEN_MPI_TIMING_MODE
+  mpi_recv_qlten_data_timer.PrintElapsed();
+#endif
+
+  // boost::mpi::wait_all(reqs+1,reqs+2);
+  return s;
+}
+
+template<typename ElemT, typename QNT>
+inline void SendBroadCastQLTensor(
+    boost::mpi::communicator world,
+    const QLTensor<ElemT, QNT> &qlten,
+    const int root
+) {
+  assert(world.rank() == root);
+  bool is_default = qlten.IsDefault();
+  boost::mpi::broadcast(world, is_default, root); //also a signal start communication
+  if (qlten.IsDefault()) {
+    return;
+  }
+  boost::mpi::broadcast(world, const_cast<QLTensor<ElemT, QNT> &>(qlten), root);
+
+  const BlockSparseDataTensor<ElemT, QNT> &bsdt = qlten.GetBlkSparDataTen();
+  const ElemT *raw_data_pointer = bsdt.GetActualRawDataPtr();
+  size_t raw_data_size = bsdt.GetActualRawDataSize();
+  ElemT zero = ElemT(0.0);
+  if (qlten.IsScalar() && raw_data_size == 0) {
+    raw_data_pointer = &zero;
+    raw_data_size = 1;
+  }
+#ifdef QLTEN_MPI_TIMING_MODE
+  Timer mpi_bcast_send_qlten_data_timer("mpi_bcast_send_qlten_data: root = "
+                                            + std::to_string(root)
+                                            + " data size = "
+                                            + std::to_string(raw_data_size)
+  );
+#endif
+  //below broadcast need safely remove const
+  hp_numeric::MPI_Bcast(const_cast<ElemT *>(raw_data_pointer), raw_data_size, root, MPI_Comm(world));
+#ifdef QLTEN_MPI_TIMING_MODE
+  mpi_bcast_send_qlten_data_timer.PrintElapsed();
+#endif
+}
+
+template<typename ElemT, typename QNT>
+inline void RecvBroadCastQLTensor(
+    boost::mpi::communicator world,
+    QLTensor<ElemT, QNT> &qlten,
+    const int root
+) {
+  assert(world.rank() != root);
+  assert(qlten.IsDefault());
+  bool is_default;
+  boost::mpi::broadcast(world, is_default, root);
+  if (is_default) {
+    return;
+  }
+  boost::mpi::broadcast(world, qlten, root);
+
+  BlockSparseDataTensor<ElemT, QNT> &bsdt = qlten.GetBlkSparDataTen();
+  ElemT *raw_data_pointer = bsdt.pactual_raw_data_;
+  size_t raw_data_size = bsdt.GetActualRawDataSize();
+#ifdef QLTEN_MPI_TIMING_MODE
+  Timer mpi_bcast_recv_qlten_data_timer("mpi_bcast_send_qlten_data: root = "
+                                            + std::to_string(root)
+                                            + " data size = "
+                                            + std::to_string(raw_data_size)
+  );
+#endif
+  hp_numeric::MPI_Bcast(raw_data_pointer, raw_data_size, root, MPI_Comm(world));
+#ifdef QLTEN_MPI_TIMING_MODE
+  mpi_bcast_recv_qlten_data_timer.PrintElapsed();
+#endif
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseInv(void) {
+  pblk_spar_data_ten_->ElementWiseInv();
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseInv(double tolerance) {
+  pblk_spar_data_ten_->ElementWiseInv(tolerance);
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseSqrt(void) {
+  pblk_spar_data_ten_->ElementWiseSqrt();
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseSign() {
+  pblk_spar_data_ten_->ElementWiseSign();
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
+  pblk_spar_data_ten_->ElementWiseBoundTo(bound);
+}
+
+template<typename ElemT, typename QNT>
+template<typename RandGenerator>
+void QLTensor<ElemT, QNT>::ElementWiseRandSign(std::uniform_real_distribution<double> &dist,
+                                               RandGenerator &g) {
+  pblk_spar_data_ten_->ElementWiseRandSign(dist, g);
+}
+} /* qlten */
+#endif /* ifndef QLTEN_QLTENSOR_QLTENSOR_IMPL_H */
