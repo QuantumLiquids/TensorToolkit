@@ -105,7 +105,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataInsert_(
     ElemT *new_pdata = (ElemT *) malloc(new_data_size * sizeof(ElemT));
     hp_numeric::VectorCopy(pactual_raw_data_, offset, new_pdata);
     if (init) {
-      std::fill(pactual_raw_data_ + offset, pactual_raw_data_ + offset + size, ElemT(0));
+      std::fill(new_pdata + offset, new_pdata + offset + size, ElemT(0));
     }
     hp_numeric::VectorCopy(
         pactual_raw_data_ + offset,
