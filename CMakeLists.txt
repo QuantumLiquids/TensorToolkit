@@ -3,14 +3,14 @@
 # Author: Hao-Xin Wang <wanghaoxin1996@gmail.com>
 # Creation Date: 2019-04-24 16:28
 #
-# Description: QuantumLiquids/TensorKit project. Main CMake file.
+# Description: QuantumLiquids/TensorToolkit project. Main CMake file.
 #
 
 
 # CMake basic setting
 cmake_minimum_required(VERSION 3.12)
 
-project("TensorKit"
+project("TensorToolkit"
         DESCRIPTION "a high-performance tensor basic operation library written in C++"
         LANGUAGES CXX
 )

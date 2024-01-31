@@ -375,7 +375,7 @@ void SubMatMemCpy(
 
 //// Free the resources of a QLTensor.
 //template <typename TenElemType>
-//inline void GQTenFree(QLTensor<TenElemType> *pt) {
+//inline void QLTenFree(QLTensor<TenElemType> *pt) {
   //for (auto &pblk : pt->blocks()) { delete pblk; }
 //}
 

@@ -1,13 +1,13 @@
-# QuantumLiquids/TensorKit
+# QuantumLiquids/TensorToolkit
 
-TensorKit is a high-performance tensor basic operation library written in C++.
+TensorToolit is a high-performance tensor basic operation library written in C++.
 It serves as the foundation for tensor network algorithms (like Density Matrix Renormalization Group,
 Project Entanglement Pair State)
 and provides essential functionalities such as tensor contraction, transpose, and more.
 
 ## Functionality
 
-TensorKit offers the following key features:
+TensorToolit offers the following key features:
 
 - [x] Abelian Quantum Numbers
 - [x] MPI Parallelization Support
@@ -33,8 +33,8 @@ to be installed in order to build and run successfully:
 Clone the repository into a desired directory and change into that location:
 
 ```
-git clone https://github.com/QuantumLiquids/TensorKit.git
-cd TensorKit
+git clone https://github.com/QuantumLiquids/TensorToolit.git
+cd TensorToolit
 ```
 
 Using CMake:
@@ -57,21 +57,21 @@ you can reach out to Hao-Xin via email at wanghaoxin1996@gmail.com.
 
 ## Acknowledgments
 
-TensorKit is built upon the foundation laid by the [GraceQ/tensor](https://tensor.gracequantum.org) project.
+TensorToolit is built upon the foundation laid by the [GraceQ/tensor](https://tensor.gracequantum.org) project.
 While initially inspired by GraceQ/tensor,
-TensorKit expands upon its capabilities by adding additional basic tensor operations, improving performance, and most
+TensorToolit expands upon its capabilities by adding additional basic tensor operations, improving performance, and most
 importantly, introducing support for MPI parallelization.
 We would like to express our gratitude to the following individuals for their contributions and guidance:
 
 - Rong-Yang Sun, the author of [GraceQ/tensor](https://tensor.gracequantum.org), for creating the initial framework that
-  served as the basis for TensorKit.
+  served as the basis for TensorToolit.
 - Yi-Fan Jiang, providing me with extensive help and guidance in writing parallel DMRG
 - Hong Yao, my PhD advisor. His encouragement and continuous support
-  of computational resources played crucial roles in the implementation of parallel DMRG in TensorKit.
-- Zhen-Cheng Gu, my postdoc advisor, one of the pioneers of the field of tensor network.
+  of computational resources played crucial roles in the implementation of parallel DMRG in TensorToolit.
+- Zhen-Cheng Gu, my postdoc advisor, one of the pioneers in the field of tensor network.
 
-Their expertise and support have been invaluable in the development of TensorKit.
+Their expertise and support have been invaluable in the development of TensorToolit.
 
 ## License
 
-TensorKit is released under the LGPL3 License. Please see the LICENSE file for more details.
+TensorToolit is released under the LGPL3 License. Please see the LICENSE file for more details.

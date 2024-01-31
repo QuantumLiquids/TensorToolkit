@@ -13,7 +13,7 @@
 namespace qlten {
 
 // QLTensor storage file suffix.
-const std::string kGQTenFileSuffix = "qlten";
+const std::string kQLTenFileSuffix = "qlten";
 
 // Double numerical error.
 const double kDoubleEpsilon = 1.0E-15;
