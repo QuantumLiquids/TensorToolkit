@@ -157,6 +157,9 @@ class QLTensor : public Showable {
   void ElementWiseRandSign(std::uniform_real_distribution<double> &dist,
                            RandGenerator &g);
 
+  double GetMaxAbs(void) const {
+    return pblk_spar_data_ten_->GetMaxAbs();
+  }
   // Operators overload.
   bool operator==(const QLTensor &) const;
 

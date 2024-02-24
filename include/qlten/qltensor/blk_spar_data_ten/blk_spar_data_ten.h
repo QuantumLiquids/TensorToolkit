@@ -258,6 +258,8 @@ class BlockSparseDataTensor : public Streamable {
   void ElementWiseRandSign(std::uniform_real_distribution<double> &dist,
                            RandGenerator &g);
 
+  double GetMaxAbs(void) const;
+
   // Operators overload
   bool operator==(const BlockSparseDataTensor &) const;
 

@@ -553,5 +553,15 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
   }
 }
 
+template<typename ElemT, typename QNT>
+double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
+  auto max_abs_value_iter = std::max_element(pactual_raw_data_,
+                                             pactual_raw_data_ + actual_raw_data_size_,
+                                             [](double a, double b) {
+                                               return std::abs(a) < std::abs(b);
+                                             }
+  );
+  return std::abs(*max_abs_value_iter);
+}
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATIONS_H */
