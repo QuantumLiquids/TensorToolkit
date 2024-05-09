@@ -501,10 +501,11 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSign(void) {
 template<typename RandGenerator>
 inline void RandSign(QLTEN_Double *number,
                      std::uniform_real_distribution<double> &dist,
-                     RandGenerator &g) {
-  if (*number > 1e-5) {
+                     RandGenerator &g,
+                     double tolerance) {
+  if (*number > tolerance) {
     *number = dist(g);
-  } else if (*number < -1e-5) {
+  } else if (*number < -tolerance) {
     *number = -dist(g);
   }
 }
@@ -512,16 +513,17 @@ inline void RandSign(QLTEN_Double *number,
 template<typename RandGenerator>
 inline void RandSign(QLTEN_Complex *number,
                      std::uniform_real_distribution<double> &dist,
-                     RandGenerator &g) {
-  if (number->real() > 1e-5) {
+                     RandGenerator &g,
+                     double tolerance) {
+  if (number->real() > tolerance) {
     number->real(dist(g));
-  } else if (number->real() < -1e-5) {
+  } else if (number->real() < -tolerance) {
     number->real(-dist(g));
   }
 
-  if (number->imag() > 1e-5) {
+  if (number->imag() > tolerance) {
     number->imag(dist(g));
-  } else if (number->imag() < -1e-5) {
+  } else if (number->imag() < -tolerance) {
     number->imag(-dist(g));
   }
 }
@@ -530,8 +532,12 @@ template<typename ElemT, typename QNT>
 template<typename RandGenerator>
 void BlockSparseDataTensor<ElemT, QNT>::ElementWiseRandSign(std::uniform_real_distribution<double> &dist,
                                                             RandGenerator &g) {
+  const ElemT *max_ele = std::max_element(pactual_raw_data_, pactual_raw_data_ + actual_raw_data_size_,
+                                          [](const ElemT &a, const ElemT &b) {
+                                            return std::abs(a) < std::abs(b);
+                                          });
   for (size_t i = 0; i < actual_raw_data_size_; i++) {
-    RandSign(pactual_raw_data_ + i, dist, g);
+    RandSign(pactual_raw_data_ + i, dist, g, std::abs(*max_ele) * 1e-3);
   }
 }
 
