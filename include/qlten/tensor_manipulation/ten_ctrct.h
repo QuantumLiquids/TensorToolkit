@@ -190,13 +190,13 @@ void Contract(
   Contract(pa, &cplx_b, axes_set, pc);
 }
 
-template<typename TenElemT, typename QNT>
+template<typename TenElemT1, typename TenElemT2, typename TenElemT3, typename QNT>
 void Contract(
-    const QLTensor<TenElemT, QNT> *pa,
+    const QLTensor<TenElemT1, QNT> *pa,
     const std::vector<size_t> &axes_a,
-    const QLTensor<TenElemT, QNT> *pb,
+    const QLTensor<TenElemT2, QNT> *pb,
     const std::vector<size_t> &axes_b,
-    QLTensor<TenElemT, QNT> *pc
+    QLTensor<TenElemT3, QNT> *pc
 ) {
   std::vector<std::vector<size_t>> axes_set = {axes_a, axes_b};
   Contract(pa, pb, axes_set, pc);

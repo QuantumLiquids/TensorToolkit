@@ -563,7 +563,7 @@ template<typename ElemT, typename QNT>
 double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
   auto max_abs_value_iter = std::max_element(pactual_raw_data_,
                                              pactual_raw_data_ + actual_raw_data_size_,
-                                             [](double a, double b) {
+                                             [](ElemT a, ElemT b) {
                                                return std::abs(a) < std::abs(b);
                                              }
   );

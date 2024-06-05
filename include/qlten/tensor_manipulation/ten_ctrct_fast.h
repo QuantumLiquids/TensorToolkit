@@ -168,8 +168,8 @@ void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::
     const auto &a_bsdt = pa_->GetBlkSparDataTen();
     const size_t a_raw_data_size = a_bsdt.GetActualRawDataSize();
     a_trans_data_ = (TenElemT *) malloc(a_raw_data_size * sizeof(TenElemT));
-    set<size_t> selected_data_blk_idxs;
-    for (auto &task : raw_data_ctrct_tasks_) {
+    set < size_t > selected_data_blk_idxs;
+    for (auto &task: raw_data_ctrct_tasks_) {
       selected_data_blk_idxs.insert(task.a_blk_idx);
     }
     a_bsdt.OutOfPlaceMatrixTransposeForSelectedDataBlk(
@@ -182,8 +182,8 @@ void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::
     const auto &b_bsdt = pb_->GetBlkSparDataTen();
     const size_t b_raw_data_size = b_bsdt.GetActualRawDataSize();
     b_trans_data_ = (TenElemT *) malloc(b_raw_data_size * sizeof(TenElemT));
-    set<size_t> selected_data_blk_idxs;
-    for (auto &task : raw_data_ctrct_tasks_) {
+    set < size_t > selected_data_blk_idxs;
+    for (auto &task: raw_data_ctrct_tasks_) {
       selected_data_blk_idxs.insert(task.b_blk_idx);
     }
     b_bsdt.OutOfPlaceMatrixTransposeForSelectedDataBlk(
@@ -274,6 +274,41 @@ void Contract(
   extra_contraction_executor.Execute();
 }
 
+template<typename TenElemT, typename QNT, bool a_ctrct_tail = true, bool b_ctrct_head = true>
+void Contract(
+    const QLTensor<QLTEN_Complex, QNT> &pa, //use ref to make sure it is not a null pointer
+    const QLTensor<QLTEN_Double, QNT> &pb, //TODO: unify the style of code
+    const size_t a_ctrct_axes_start,
+    const size_t b_ctrct_axes_start,
+    const size_t ctrct_axes_size,
+    QLTensor<QLTEN_Complex, QNT> &pc
+) {
+  auto pb_complex = ToComplex(pb);
+  Contract<QLTEN_Complex, QNT, a_ctrct_tail, b_ctrct_head>(pa,
+                                                           pb_complex,
+                                                           a_ctrct_axes_start,
+                                                           b_ctrct_axes_start,
+                                                           ctrct_axes_size,
+                                                           pc);
+}
+
+template<typename TenElemT, typename QNT, bool a_ctrct_tail = true, bool b_ctrct_head = true>
+void Contract(
+    const QLTensor<QLTEN_Double, QNT> &pa, //use ref to make sure it is not a null pointer
+    const QLTensor<QLTEN_Complex, QNT> &pb, //TODO: unify the style of code
+    const size_t a_ctrct_axes_start,
+    const size_t b_ctrct_axes_start,
+    const size_t ctrct_axes_size,
+    QLTensor<QLTEN_Complex, QNT> &pc
+) {
+  auto pa_complex = ToComplex(pa);
+  Contract<QLTEN_Complex, QNT, a_ctrct_tail, b_ctrct_head>(pa_complex,
+                                                           pb,
+                                                           a_ctrct_axes_start,
+                                                           b_ctrct_axes_start,
+                                                           ctrct_axes_size,
+                                                           pc);
+}
 }//qlten
 
 
