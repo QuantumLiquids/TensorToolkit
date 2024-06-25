@@ -14,16 +14,13 @@
 #ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATION_TASKS_H
 #define QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATION_TASKS_H
 
-
 #include "qlten/framework/value_t.h"    // ShapeT, CoorsT
 
 #include <vector>       // vector
 #include <map>          // map
 #include <algorithm>    // sort
 
-
 namespace qlten {
-
 
 /**
 Task for data transpose.
@@ -41,6 +38,9 @@ struct RawDataTransposeTask {
   ShapeT transed_shape;
   size_t transed_data_offset = 0;
 
+  double scale_factor =
+      1; //for Bosonic tensor, tranpose scale factors are always 1; For Ferminoic tensor, it is sometimes -1.
+
   RawDataTransposeTask(
       const size_t ten_rank,
       const std::vector<size_t> &transed_order,
@@ -48,22 +48,23 @@ struct RawDataTransposeTask {
       const ShapeT &original_shape,
       const size_t original_data_offset,
       const size_t transed_blk_idx,
-      const ShapeT &transed_shape
+      const ShapeT &transed_shape,
+      double scale_factor
   ) : ten_rank(ten_rank),
       transed_order(transed_order),
       original_blk_idx(original_blk_idx),
       original_shape(original_shape),
       original_data_offset(original_data_offset),
       transed_blk_idx(transed_blk_idx),
-      transed_shape(transed_shape) {}
+      transed_shape(transed_shape), scale_factor(scale_factor) {}
 
   static void SortTasksByOriginalBlkIdx(
-      std::vector<RawDataTransposeTask> & tasks
+      std::vector<RawDataTransposeTask> &tasks
   ) {
     std::sort(
         tasks.begin(),
         tasks.end(),
-        [] (
+        [](
             const RawDataTransposeTask &task_a,
             const RawDataTransposeTask &task_b
         ) -> bool {
@@ -73,12 +74,12 @@ struct RawDataTransposeTask {
   }
 
   static void SortTasksByTranspoedBlkIdx(
-      std::vector<RawDataTransposeTask> & tasks
+      std::vector<RawDataTransposeTask> &tasks
   ) {
     std::sort(
         tasks.begin(),
         tasks.end(),
-        [] (
+        [](
             const RawDataTransposeTask &task_a,
             const RawDataTransposeTask &task_b
         ) -> bool {
@@ -87,7 +88,6 @@ struct RawDataTransposeTask {
     );
   }
 };
-
 
 /**
 Task for data copy.
@@ -115,7 +115,7 @@ struct RawDataCopyTask {
       src_data_offset(src_data_offset),
       src_data_size(src_data_size),
       copy_and_add(copy_and_add) {}
-      
+
   RawDataCopyTask(
       const CoorsT &src_blk_coors,
       const size_t src_data_offset,
@@ -129,11 +129,10 @@ struct RawDataCopyTask {
       copy_and_add(copy_and_add) {}
 };
 
-
 /**
 Task for tensor linear combination data copy.
 */
-template <typename CoefT>
+template<typename CoefT>
 struct RawDataCopyAndScaleTask {
   size_t src_data_offset;
   size_t src_data_size;
@@ -155,7 +154,25 @@ struct RawDataCopyAndScaleTask {
       copy_and_add(copy_and_add) {}
 };
 
+struct RawDataInplaceReverseTask {
+  size_t data_offset;
+  size_t data_size;
+  RawDataInplaceReverseTask(
+      const size_t data_offset,
+      const size_t data_size
+  ) : data_offset(data_offset), data_size(data_size) {}
+};
 
+struct RawDataFermionNormTask {
+  size_t data_offset;
+  size_t data_size;
+  int sign;
+  RawDataFermionNormTask(
+      const size_t data_offset,
+      const size_t data_size,
+      const int sign
+  ) : data_offset(data_offset), data_size(data_size), sign(sign) {}
+};
 /**
 Task to set a piece of raw data zeros.
 */
@@ -176,7 +193,6 @@ struct RawDataSetZerosTask {
       extra_data_offset(extra_data_offset) {}
 };
 
-
 struct RawDataCtrctTask {
   size_t a_blk_idx;
   size_t a_data_offset;
@@ -190,6 +206,7 @@ struct RawDataCtrctTask {
   size_t m;
   size_t k;
   size_t n;
+  double f_ex_sign;     // fermion exchange sign, equals +1 or -1
   QLTEN_Double beta;
 
   RawDataCtrctTask(
@@ -200,12 +217,14 @@ struct RawDataCtrctTask {
       const size_t m,
       const size_t k,
       const size_t n,
+      const double f_ex_sign,
       const QLTEN_Double beta
   ) : a_blk_idx(a_blk_idx),
       a_data_offset(a_data_offset),
       b_blk_idx(b_blk_idx),
       b_data_offset(b_data_offset),
       m(m), k(k), n(n),
+      f_ex_sign(f_ex_sign),
       beta(beta) {}
 
   RawDataCtrctTask(
@@ -217,6 +236,7 @@ struct RawDataCtrctTask {
       const size_t m,
       const size_t k,
       const size_t n,
+      const double f_ex_sign,
       const QLTEN_Double beta
   ) : a_blk_idx(a_blk_idx),
       a_data_offset(a_data_offset),
@@ -224,15 +244,16 @@ struct RawDataCtrctTask {
       b_data_offset(b_data_offset),
       c_blk_idx(c_blk_idx),
       m(m), k(k), n(n),
+      f_ex_sign(f_ex_sign),
       beta(beta) {}
 
   static void SortTasksByCBlkIdx(
-      std::vector<RawDataCtrctTask> & tasks
+      std::vector<RawDataCtrctTask> &tasks
   ) {
     std::sort(
         tasks.begin(),
         tasks.end(),
-        [] (
+        [](
             const RawDataCtrctTask &task_a,
             const RawDataCtrctTask &task_b
         ) -> bool {
@@ -248,8 +269,7 @@ struct RawDataCtrctTask {
   }
 };
 
-
-template <typename ElemT>
+template<typename ElemT>
 struct DataBlkMatSvdRes {
   size_t m = 0;
   size_t n = 0;
@@ -270,21 +290,31 @@ struct DataBlkMatSvdRes {
   ) : m(m), n(n), k(k), u(u), s(s), vt(vt) {}
 };
 
-
-template <typename ElemT>
+template<typename ElemT>
 void DeleteDataBlkMatSvdResMap(
-    std::map<size_t, DataBlkMatSvdRes<ElemT>> &idx_svd_res_map
+    std::map<size_t, DataBlkMatSvdRes<ElemT>>
+    &idx_svd_res_map
 ) {
-  for (auto &idx_svd_res : idx_svd_res_map) {
+  for (
+    auto &idx_svd_res
+      : idx_svd_res_map) {
     auto svd_res = idx_svd_res.second;
-    free(svd_res.u); svd_res.u = nullptr;
-    free(svd_res.s); svd_res.s = nullptr;
-    free(svd_res.vt); svd_res.vt = nullptr;
+    free(svd_res
+             .u);
+    svd_res.
+        u = nullptr;
+    free(svd_res
+             .s);
+    svd_res.
+        s = nullptr;
+    free(svd_res
+             .vt);
+    svd_res.
+        vt = nullptr;
   }
 }
 
-
-template <typename ElemT>
+template<typename ElemT>
 struct DataBlkMatQrRes {
   size_t m = 0;
   size_t n = 0;
@@ -303,15 +333,17 @@ struct DataBlkMatQrRes {
   ) : m(m), n(n), k(k), q(q), r(r) {}
 };
 
-
-template <typename ElemT>
+template<typename ElemT>
 void DeleteDataBlkMatQrResMap(
-    std::map<size_t, DataBlkMatQrRes<ElemT>> &idx_qr_res_map
+    std::map<size_t, DataBlkMatQrRes<ElemT>>
+    &idx_qr_res_map
 ) {
-  for (auto &idx_qr_res : idx_qr_res_map) {
+  for (auto &idx_qr_res: idx_qr_res_map) {
     auto qr_res = idx_qr_res.second;
-    free(qr_res.q); qr_res.q = nullptr;
-    free(qr_res.r); qr_res.r = nullptr;
+    free(qr_res.q);
+    qr_res.q = nullptr;
+    free(qr_res.r);
+    qr_res.r = nullptr;
   }
 }
 } /* qlten */

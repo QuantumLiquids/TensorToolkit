@@ -75,7 +75,7 @@ class U1U1QN : public Showable {
     return U1U1QN(0, 0);
   }
 
- private:
+ protected:
   size_t CalcHash_(void) const;
 
   int vals_[2];

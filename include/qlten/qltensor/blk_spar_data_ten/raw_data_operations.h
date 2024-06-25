@@ -136,14 +136,15 @@ template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataTranspose_(
     const std::vector<RawDataTransposeTask> &raw_data_trans_tasks) {
   ElemT *ptransed_actual_raw_data = (ElemT *) malloc(actual_raw_data_size_ * sizeof(ElemT));
-  for (auto &trans_task : raw_data_trans_tasks) {
+  for (auto &trans_task: raw_data_trans_tasks) {
     hp_numeric::TensorTranspose(
         trans_task.transed_order,
         trans_task.ten_rank,
         pactual_raw_data_ + trans_task.original_data_offset,
         trans_task.original_shape,
         ptransed_actual_raw_data + trans_task.transed_data_offset,
-        trans_task.transed_shape
+        trans_task.transed_shape,
+        trans_task.scale_factor
     );
   }
   free(pactual_raw_data_);
@@ -160,14 +161,26 @@ QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::RawDataNorm_(void) {
   return hp_numeric::Vector2Norm(pactual_raw_data_, actual_raw_data_size_);
 }
 
+template<typename ElemT, typename QNT>
+QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::RawDataFermionNorm_(
+    const std::vector<RawDataFermionNormTask> &tasks) {
+  double sum_square = 0.0;
+  for (auto &task: tasks) {
+    sum_square += task.sign * VectorSumSquares(pactual_raw_data_ + task.data_offset, task.data_size);
+  }
+  if (sum_square < 0) {
+    std::cerr << "warning : Norm^2 < 0." << std::endl;
+  }
+  return std::sqrt(sum_square);
+}
+
 /**
 Normalize the raw data array.
 
 @return The norm before normalization.
 */
 template<typename ElemT, typename QNT>
-QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::RawDataNormalize_(void) {
-  double norm = hp_numeric::Vector2Norm(pactual_raw_data_, actual_raw_data_size_);
+QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::RawDataNormalize_(double norm) {
   double inv_norm = 1.0 / norm;
   hp_numeric::VectorScale(pactual_raw_data_, actual_raw_data_size_, inv_norm);
   return norm;
@@ -178,12 +191,23 @@ Complex conjugate for raw data.
 */
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataConj_(void) {
-  if (std::is_same<ElemT, QLTEN_Double>::value) {
+  if constexpr (std::is_same<ElemT, QLTEN_Double>::value) {
     // Do nothing
   } else {
     for (size_t i = 0; i < actual_raw_data_size_; ++i) {
       pactual_raw_data_[i] = CalcConj(pactual_raw_data_[i]);
     }
+  }
+}
+
+/**
+Complex conjugate for raw data in fermionic tensor network
+*/
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::FermionicRawDataConj_(const std::vector<RawDataInplaceReverseTask> &tasks) {
+  RawDataConj_();
+  for (auto &task: tasks) {
+    hp_numeric::VectorScale(pactual_raw_data_ + task.data_offset, task.data_size, -1.0);
   }
 }
 
@@ -199,7 +223,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataCopy_(
     const std::vector<RawDataCopyTask> &raw_data_copy_tasks,
     const ElemT *psrc_raw_data
 ) {
-  for (auto &task : raw_data_copy_tasks) {
+  for (auto &task: raw_data_copy_tasks) {
     if (task.copy_and_add) {
       hp_numeric::VectorAddTo(
           psrc_raw_data + task.src_data_offset,
@@ -328,7 +352,7 @@ template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataSetZeros_(
     const std::vector<RawDataSetZerosTask> &set_zeros_tasks
 ) {
-  for (auto &task : set_zeros_tasks) {
+  for (auto &task: set_zeros_tasks) {
     RawDataSetZeros_(task.data_offset, task.data_size);
   }
 }
@@ -339,10 +363,10 @@ Duplicate a whole same size real raw data array from another place.
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataDuplicateFromReal_(
     const QLTEN_Double *preal_raw_data_, const size_t size) {
-  if (std::is_same<ElemT, QLTEN_Complex>::value) {
+  if constexpr (std::is_same<ElemT, QLTEN_Complex>::value) {
     hp_numeric::VectorRealToCplx(preal_raw_data_, size, pactual_raw_data_);
   } else {
-    assert(false);    // TODO: To-be implemented!
+    assert(false);
   }
 }
 
@@ -369,10 +393,12 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataTwoMatMultiplyAndAssignIn_(
     const ElemT *b,
     const size_t c_data_offset,
     const size_t m, const size_t k, const size_t n,
+    const double alpha, //for fermion sign
     const ElemT beta
 ) {
   assert(actual_raw_data_size_ != 0);
   hp_numeric::MatMultiply(
+      alpha,
       a,
       b,
       m, k, n,
@@ -388,7 +414,7 @@ ElemT *BlockSparseDataTensor<ElemT, QNT>::RawDataGenDenseDataBlkMat_(
   auto rows = data_blk_mat.rows;
   auto cols = data_blk_mat.cols;
   ElemT *mat = (ElemT *) calloc(rows * cols, sizeof(ElemT));
-  for (auto &elem : data_blk_mat.elems) {
+  for (auto &elem: data_blk_mat.elems) {
     auto i = elem.first[0];
     auto j = elem.first[1];
     auto row_offset = std::get<1>(data_blk_mat.row_scts[i]);

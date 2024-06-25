@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 /*
 * Author: Hao-Xin Wang <wanghx18@mails.tsinghua.edu.cn>
-* Creation Date: 20201-9-28
+* Creation Date: 2021-9-28
 *
 * Description: QuantumLiquids/tensor project. U(1) QN class.
 */
@@ -71,7 +71,7 @@ class U1QN : public Showable {
 
   //Generate QN 0 element
   static U1QN Zero(void) {
-    return U1QN((const int) 0, (const size_t) 0);
+    return U1QN(0);
   }
 
  private:

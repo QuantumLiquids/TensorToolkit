@@ -115,20 +115,33 @@ class BlockSparseDataTensor : public Streamable {
       const std::vector<std::vector<size_t>> &
   );
 
-  std::vector<RawDataCtrctTask> DataBlkGenForExtraTenCtrct(
-      const BlockSparseDataTensor &,
-      const BlockSparseDataTensor &,
-      const size_t,
-      const size_t,
-      const size_t
-  );
-
-  std::vector<RawDataCtrctTask> DataBlkGenForTenCtrct(
+  ///< Boson case
+  template<typename T = QNT>
+  typename std::enable_if<!Fermionicable<T>::IsFermionic(), std::vector<RawDataCtrctTask>>::type
+  DataBlkGenFor1SectTenCtrct(
       const std::map<size_t, qlten::DataBlk<QNT>> &,
       const std::map<size_t, qlten::DataBlk<QNT>> &,
       const std::vector<std::vector<size_t>> &,
       const std::vector<std::vector<size_t>> &,
       std::vector<size_t> &
+  );
+
+  ///< Fermion case
+  template<typename T = QNT>
+  typename std::enable_if<Fermionicable<T>::IsFermionic(), std::vector<RawDataCtrctTask>>::type
+  DataBlkGenFor1SectTenCtrct(
+      const std::map<size_t, qlten::DataBlk<QNT>> &,
+      const std::map<size_t, qlten::DataBlk<QNT>> &,
+      const std::vector<std::vector<size_t>> &,
+      const std::vector<std::vector<size_t>> &,
+      std::vector<size_t> &,
+      const std::vector<TenIndexDirType>&
+  );
+
+  std::map<size_t, int> CountResidueFermionSignForMatBasedCtrct(
+      const std::set<size_t> &selected_blk_idx,
+      const std::vector<size_t> &saved_axes_set,
+      const size_t trans_critical_axe
   );
 
   std::map<size_t, DataBlkMatSvdRes<ElemT>> DataBlkDecompSVD(
@@ -183,6 +196,8 @@ class BlockSparseDataTensor : public Streamable {
       const std::vector<std::tuple<size_t, size_t, size_t, size_t>> &
   );
 
+  std::vector<RawDataFermionNormTask> GenFermionNormTask(void) const;
+
   QLTEN_Double Norm(void);
 
   QLTEN_Double Normalize(void);
@@ -210,7 +225,9 @@ class BlockSparseDataTensor : public Streamable {
   void CtrctAccordingTask(
       const ElemT *a_raw_data,
       const ElemT *b_raw_data,
-      const std::vector<RawDataCtrctTask> &raw_data_ctrct_tasks
+      const std::vector<RawDataCtrctTask> &raw_data_ctrct_tasks,
+      const std::map<size_t, int> &,
+      const std::map<size_t, int> &
   );
 
   void ConstructExpandedDataOnFirstIndex(
@@ -418,9 +435,13 @@ class BlockSparseDataTensor : public Streamable {
 
   QLTEN_Double RawDataNorm_(void);
 
-  QLTEN_Double RawDataNormalize_(void);
+  QLTEN_Double RawDataFermionNorm_(const std::vector<RawDataFermionNormTask> &);
+
+  QLTEN_Double RawDataNormalize_(double norm);  //input the 2-norm
 
   void RawDataConj_(void);
+
+  void FermionicRawDataConj_(const std::vector<RawDataInplaceReverseTask> &);
 
   void RawDataMultiplyByScalar_(const ElemT);
 
@@ -429,6 +450,7 @@ class BlockSparseDataTensor : public Streamable {
       const ElemT *,
       const size_t,
       const size_t, const size_t, const size_t,
+      const double,
       const ElemT
   );
 
@@ -584,9 +606,15 @@ ElemT BlockSparseDataTensor<ElemT, QNT>::ElemGet(
         blk_idx_data_blk_it->second.DataCoorsToInBlkDataIdx(
             blk_coors_data_coors.second
         );
-    return *(
-        pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx
-    );
+    if constexpr (Fermionicable<QNT>::IsFermionic()) {
+      return *(
+          pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx
+      ) * (blk_idx_data_blk_it->second.GetBlkFermionicSign());
+    } else {
+      return *(
+          pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx
+      );
+    }
   }
 }
 
@@ -682,8 +710,8 @@ Write a BlockSparseDataTensor to a stream.
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::StreamWrite(std::ostream &os) const {
   os << blk_idx_data_blk_map_.size() << "\n";
-  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_) {
-    for (auto &blk_coor : blk_idx_data_blk.second.blk_coors) {
+  for (auto &blk_idx_data_blk: blk_idx_data_blk_map_) {
+    for (auto &blk_coor: blk_idx_data_blk.second.blk_coors) {
       os << blk_coor << "\n";
     }
   }
@@ -705,9 +733,9 @@ template<typename ElemT, typename QNT>
 template<class Archive>
 void BlockSparseDataTensor<ElemT, QNT>::save(Archive &ar, const unsigned int version) const {
   ar & blk_idx_data_blk_map_.size();
-  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_) {
+  for (auto &blk_idx_data_blk: blk_idx_data_blk_map_) {
     ar & blk_idx_data_blk.first;
-    for (auto &blk_coor : blk_idx_data_blk.second.blk_coors) {
+    for (auto &blk_coor: blk_idx_data_blk.second.blk_coors) {
       ar & blk_coor;
     }
   }
@@ -795,7 +823,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ResetDataOffset(
     BlkIdxDataBlkMap &blk_idx_data_blk_map
 ) {
   size_t data_offset = 0;
-  for (auto &blk_idx_data_blk : blk_idx_data_blk_map) {
+  for (auto &blk_idx_data_blk: blk_idx_data_blk_map) {
     blk_idx_data_blk.second.data_offset = data_offset;
     data_offset += blk_idx_data_blk.second.size;
   }
@@ -817,10 +845,10 @@ BlockSparseDataTensor<ElemT, QNT>::GenBlkIdxQNBlkInfoPartHashMap(
 ) {
   std::vector<size_t> blk_idx_qnblk_info_part_hash_map;
   blk_idx_qnblk_info_part_hash_map.reserve(2 * blk_idx_data_blk_map.size());
-  for (auto &blk_idx_data_blk : blk_idx_data_blk_map) {
+  for (auto &blk_idx_data_blk: blk_idx_data_blk_map) {
     blk_idx_qnblk_info_part_hash_map[
         blk_idx_data_blk.first
-    ] = blk_idx_data_blk.second.GetQNBlkInfo().PartHash(axes);
+    ] = blk_idx_data_blk.second.GetBlkQNInfo().PartHash(axes);
   }
   return blk_idx_qnblk_info_part_hash_map;
 }
@@ -841,7 +869,7 @@ BlockSparseDataTensor<ElemT, QNT>::GenBlkIdxQNBlkCoorPartHashMap(
 ) {
   std::vector<size_t> blk_idx_qnblk_info_part_hash_map;
   blk_idx_qnblk_info_part_hash_map.reserve(2 * blk_idx_data_blk_map.size());
-  for (auto &blk_idx_data_blk : blk_idx_data_blk_map) {
+  for (auto &blk_idx_data_blk: blk_idx_data_blk_map) {
     blk_idx_qnblk_info_part_hash_map.push_back(blk_idx_data_blk.first);
     const ShapeT &blk_coors = blk_idx_data_blk.second.blk_coors;
     blk_idx_qnblk_info_part_hash_map.push_back(VecPartHasher(blk_coors, axes));
@@ -866,9 +894,15 @@ bool BlockSparseDataTensor<ElemT, QNT>::operator==(
 
   auto data_blk_size = blk_idx_data_blk_map_.size();
   if (data_blk_size != rhs.blk_idx_data_blk_map_.size()) { return false; }
+
+//  if constexpr (Fermionicable<QNT>::IsFermionic()) {
+//
+//
+//  } else {  //bosonic case
   auto lhs_idx_blk_it = blk_idx_data_blk_map_.begin();
   auto rhs_idx_blk_it = rhs.blk_idx_data_blk_map_.begin();
   for (size_t i = 0; i < data_blk_size; ++i) {
+    // test if the indices of the datablk are the same, as the indices reflect the position and shape of the datablk
     if (lhs_idx_blk_it->first != rhs_idx_blk_it->first) { return false; }
     lhs_idx_blk_it++;
     rhs_idx_blk_it++;
@@ -877,6 +911,7 @@ bool BlockSparseDataTensor<ElemT, QNT>::operator==(
       pactual_raw_data_, actual_raw_data_size_,
       rhs.pactual_raw_data_, rhs.actual_raw_data_size_
   );
+//  }
 }
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_BLK_SPAR_DATA_TEN_H */

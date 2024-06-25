@@ -100,7 +100,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkQuasiInsert(
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::DataBlksOffsetRefresh() {
   raw_data_size_ = 0;
-  for (auto &idx_data_blk : blk_idx_data_blk_map_) {
+  for (auto &idx_data_blk: blk_idx_data_blk_map_) {
     auto &data_blk = idx_data_blk.second;
     data_blk.data_offset = raw_data_size_;
     raw_data_size_ += data_blk.size;
@@ -122,13 +122,13 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlksInsert(
   //it's better that every CoorsT is unique.
   //if not unique, it will also work
   auto iter = blk_idxs.begin();
-  for (auto &blk_coors : blk_coors_s) {
+  for (auto &blk_coors: blk_coors_s) {
     size_t blk_idx = *iter;
     blk_idx_data_blk_map_[blk_idx] = DataBlk<QNT>(blk_coors, *pqlten_indexes);
     iter++;
   }
   raw_data_size_ = 0;
-  for (auto &idx_data_blk : blk_idx_data_blk_map_) {
+  for (auto &idx_data_blk: blk_idx_data_blk_map_) {
     auto &data_blk = idx_data_blk.second;
     data_blk.data_offset = raw_data_size_;
     raw_data_size_ += data_blk.size;
@@ -155,7 +155,7 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlksInsert(
   //if not unique, it will also work
   std::vector<size_t> blk_idxs;
   blk_idxs.reserve(blk_coors_s.size());
-  for (auto &blk_coors : blk_coors_s) {
+  for (auto &blk_coors: blk_coors_s) {
     blk_idxs.push_back(std::move(BlkCoorsToBlkIdx(blk_coors)));
   }
   DataBlksInsert(blk_idxs, blk_coors_s, alloc_mem, init);
@@ -169,7 +169,7 @@ DataBlk<QNT> BlockSparseDataTensor<ElemT, QNT>::GetMaxSizeDataBlk(void) const {
 
   size_t max_size = 0;
   size_t max_idx;
-  for (auto &idx_data_blk : blk_idx_data_blk_map_) {
+  for (auto &idx_data_blk: blk_idx_data_blk_map_) {
     size_t this_blk_size = idx_data_blk.second.size();
     if (this_blk_size > max_size) {
       max_size = this_blk_size;
@@ -185,7 +185,7 @@ size_t BlockSparseDataTensor<ElemT, QNT>::GetMaxDataBlkSize(void) const {
     return 0;
   }
   size_t max_size = 0;
-  for (auto &idx_data_blk : blk_idx_data_blk_map_) {
+  for (auto &idx_data_blk: blk_idx_data_blk_map_) {
     size_t this_blk_size = idx_data_blk.second.size();
     max_size = std::max(max_size, this_blk_size);
   }
@@ -200,6 +200,30 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopyAndScale(
     const ElemT *pten_raw_data
 ) {
   RawDataCopyAndScale_(task, pten_raw_data);
+}
+
+template<typename ElemT, typename QNT>
+std::vector<RawDataFermionNormTask> BlockSparseDataTensor<ElemT, QNT>::GenFermionNormTask() const {
+  std::vector<size_t> in_indices;
+  for (size_t i = 0; i < ten_rank; ++i) {
+    if (this->pqlten_indexes[i].GetDir() == TenIndexDirType::IN) {
+      in_indices.push_back(i);
+    }
+  }
+
+  std::vector<RawDataFermionNormTask> tasks;
+  tasks.reserve(blk_idx_data_blk_map_.size());
+
+  for (const auto &[idx, data_blk]: blk_idx_data_blk_map_) {
+    const std::vector<bool> &parities = data_blk.GetBlkFermionParities();
+    int in_count = std::count_if(in_indices.begin(), in_indices.end(),
+                                 [&parities](size_t index) { return parities[index]; });
+
+    int ex_sign = (in_count % 2 == 0) ? 1 : -1;
+    tasks.emplace_back(data_blk.data_offset, data_blk.size, ex_sign);
+  }
+
+  return tasks;
 }
 
 // Some helpers for tensor contraction
@@ -275,13 +299,67 @@ inline CoorsT GenTenCtrctDataBlkCoors(
 ) {
   CoorsT c_blk_coors;
   c_blk_coors.reserve(saved_axes_set[0].size() + saved_axes_set[1].size());
-  for (auto axis : saved_axes_set[0]) {
+  for (auto axis: saved_axes_set[0]) {
     c_blk_coors.push_back(a_blk_coors[axis]);
   }
-  for (auto axis : saved_axes_set[1]) {
+  for (auto axis: saved_axes_set[1]) {
     c_blk_coors.push_back(b_blk_coors[axis]);
   }
   return c_blk_coors;
+}
+
+/// Contract(OUT--->IN) give 1
+/// Contract(IN--->OUT) gives potential -1
+inline int FermionExchangeSignForCtrct(
+    const std::vector<bool> &a_ten_blk_qn_parities,
+    const std::vector<bool> &b_ten_blk_qn_parities,
+    const std::vector<size_t> &a_ctrct_axes,
+    const std::vector<size_t> &b_ctrct_axes,
+    const std::vector<TenIndexDirType> &a_ctrct_idx_dir
+) {
+  int exchange_num = 0;
+  std::vector<bool> concatenated_parities = a_ten_blk_qn_parities;
+  concatenated_parities.insert(concatenated_parities.end(), b_ten_blk_qn_parities.begin(), b_ten_blk_qn_parities.end());
+
+  size_t rank_a = a_ten_blk_qn_parities.size();
+  std::vector<size_t> concatenated_axes(2 * a_ctrct_axes.size());
+
+  for (size_t i = 0; i < a_ctrct_axes.size(); i++) {
+    concatenated_axes[2 * i] = a_ctrct_axes[i];
+    concatenated_axes[2 * i + 1] = b_ctrct_axes[i] + rank_a;
+  }
+
+  for (size_t i = 0; i < a_ctrct_axes.size(); i++) {
+    // move concatenated_axes[2 * i + 1] so that it equals concatenated_axes[2 * i] + 1
+    // at the same time, count the fermion exchange times and move elements in concatenated_parities
+    // also, other elements in concatenated_axes may need to be redefined
+    size_t axes1 = concatenated_axes[2 * i];
+    bool exist_particle1 = concatenated_parities[axes1];
+    size_t axes2 = concatenated_axes[2 * i + 1];
+    bool exist_particle2 = concatenated_parities[axes2];
+    assert(exist_particle2 == exist_particle1);
+
+    if (exist_particle2) {
+      int fermion_num_between_ctrct_axes = std::count(
+          concatenated_parities.begin() + axes1 + 1, concatenated_parities.begin() + axes2, true);
+      exchange_num += fermion_num_between_ctrct_axes;
+    }
+
+    // Use std::rotate to shift elements left
+    std::rotate(concatenated_parities.begin() + axes1 + 1,
+                concatenated_parities.begin() + axes2,
+                concatenated_parities.begin() + axes2 + 1);
+
+    for (auto &axes: concatenated_axes) {
+      if (axes > axes1 && axes < axes2) {
+        axes++;
+      }
+    }
+    concatenated_axes[2 * i + 1] = axes1 + 1;
+
+    exchange_num += exist_particle1 && (a_ctrct_idx_dir[i] == IN);
+  }
+  return (exchange_num & 1) ? -1 : 1;
 }
 
 /**
@@ -317,6 +395,15 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
   std::vector<RawDataCtrctTask> raw_data_ctrct_tasks;
   std::unordered_map<size_t, size_t> b_blk_idx_n_map;
 
+  std::vector<TenIndexDirType> a_ctrct_idx_dir; // use for fermion sign
+  if constexpr (Fermionicable<QNT>::IsFermionic()) {
+    a_ctrct_idx_dir.resize(ctrct_axes_set[0].size());
+    for (size_t i = 0; i < ctrct_axes_set[0].size(); i++) {
+      const Index<QNT> &index = bsdt_a->pqlten_indexes[ctrct_axes_set[0][i]];
+      a_ctrct_idx_dir[i] = index.GetDir();
+    }
+  }
+
   bool c_is_scalar = IsScalar();
 #ifndef NDEBUG
   if (c_is_scalar) {
@@ -326,7 +413,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
   if (c_is_scalar) {
     raw_data_ctrct_tasks.reserve(a_blk_idx_coor_part_hash_map.size() / 2);
     const size_t m(1), n(1);
-    QLTEN_Double beta(1.0);
+    QLTEN_Double beta(1.0), f_sign(1.0);  //fermion sign is set as 1.0 by default for boson cases.
     for (size_t i = 0; i < a_blk_idx_coor_part_hash_map.size(); i += 2) {
       for (size_t j = 0; j < b_blk_idx_coor_part_hash_map.size(); j += 2) {
         if (a_blk_idx_coor_part_hash_map[i + 1] == b_blk_idx_coor_part_hash_map[j + 1]) {
@@ -335,6 +422,12 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
           const auto &a_data_blk = a_blk_idx_data_blk_map.at(a_blk_idx);
           const auto &b_data_blk = b_blk_idx_data_blk_map.at(b_blk_idx);
           size_t k = VecMultiSelectElemts(a_data_blk.shape, ctrct_axes_set[0]);
+          if constexpr (Fermionicable<QNT>::IsFermionic()) {
+            f_sign = FermionExchangeSignForCtrct(a_data_blk.GetBlkFermionParities(),
+                                                 b_data_blk.GetBlkFermionParities(),
+                                                 ctrct_axes_set[0], ctrct_axes_set[1],
+                                                 a_ctrct_idx_dir);
+          }
           raw_data_ctrct_tasks.push_back(
               RawDataCtrctTask(
                   a_blk_idx,
@@ -342,6 +435,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
                   b_blk_idx,
                   b_data_blk.data_offset,
                   m, k, n,
+                  f_sign,
                   beta
               )
           );
@@ -354,7 +448,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
       raw_data_ctrct_tasks[0].beta = 0.0;
     }
 //#pragma omp parallel for default(shared) num_threads(ompth) schedule(static)
-    for (auto &task : raw_data_ctrct_tasks) {
+    for (auto &task: raw_data_ctrct_tasks) {
       task.c_data_offset = 0;
     }
   } else { //if c is not scalar
@@ -403,6 +497,15 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
                 DataBlk<QNT>(std::move(c_blk_coors), std::move(c_blk_shape));
             beta = 0.0;
           }
+
+          double f_sign = 1.0;
+          if constexpr (Fermionicable<QNT>::IsFermionic()) {
+            f_sign = FermionExchangeSignForCtrct(a_data_blk.GetBlkFermionParities(),
+                                                 b_data_blk.GetBlkFermionParities(),
+                                                 ctrct_axes_set[0], ctrct_axes_set[1],
+                                                 a_ctrct_idx_dir);
+          }
+
           raw_data_ctrct_tasks.push_back(
               RawDataCtrctTask(
                   a_blk_idx,
@@ -411,6 +514,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
                   b_data_blk.data_offset,
                   c_blk_idx,
                   m, k, n,
+                  f_sign,
                   beta
               )
           );
@@ -430,16 +534,33 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
 }
 
 template<typename ElemT, typename QNT>
-std::vector<RawDataCtrctTask>
-BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForExtraTenCtrct(
-    const BlockSparseDataTensor &bsdt_a,
-    const BlockSparseDataTensor &bsdt_b,
-    const size_t a_ctrct_axes_end,
-    const size_t b_ctrct_axes_end,
-    const size_t ctrct_axes_size
+std::map<size_t, int>
+BlockSparseDataTensor<ElemT, QNT>::CountResidueFermionSignForMatBasedCtrct(
+    const std::set<size_t> &selected_blk_idx,
+    const std::vector<size_t> &saved_axes_set,
+    const size_t trans_critical_axe
 ) {
-  //TODO...
-  return std::vector<RawDataCtrctTask>();
+  std::map<size_t, int> idx_fermion_sign_map;
+  std::vector<size_t> saved_axes_first, saved_axes_second; //also should be continuous numbers
+  for (auto axe: saved_axes_set) {
+    if (axe < trans_critical_axe) {
+      saved_axes_first.push_back(axe);
+      assert(saved_axes_first[0] == 0);
+      assert(saved_axes_first.back() == saved_axes_first.size() - 1);
+    } else {
+      saved_axes_second.push_back(axe);
+    }
+  }
+  for (auto &idx: selected_blk_idx) {
+    const DataBlk<QNT> &data_blk = blk_idx_data_blk_map_[idx];
+    const std::vector<double> fermion_parities = data_blk.GetBlkFermionParities();
+    size_t fermion_num1 = std::count(
+        fermion_parities.begin(), fermion_parities.begin() + saved_axes_first.size(), true);
+    size_t fermion_num2 = std::count(
+        fermion_parities.begin() + saved_axes_second[0], fermion_parities.end(), true);
+    idx_fermion_sign_map[idx] = ((fermion_num1 & 1) && (fermion_num2 & 1)) ? -1 : 1;
+  }
+  return idx_fermion_sign_map;
 }
 
 /**D
@@ -456,7 +577,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVD(
   Timer svd_mkl_timer("matrix svd");
   svd_mkl_timer.Suspend();
 #endif
-  for (auto &[idx, data_blk_mat] : idx_data_blk_mat_map) {
+  for (auto &[idx, data_blk_mat]: idx_data_blk_mat_map) {
     ElemT *mat = RawDataGenDenseDataBlkMat_(data_blk_mat);
     ElemT *u = nullptr;
     ElemT *vt = nullptr;
@@ -581,7 +702,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
    */
   size_t m, n; //m : rows; n : cols;
   int idx; // data blk idx
-  for (auto &[idx_next, data_blk_mat_next] : idx_data_blk_mat_map) {
+  for (auto &[idx_next, data_blk_mat_next]: idx_data_blk_mat_map) {
     // Wait for a worker to become available
     MPI_Status status;
     MPI_Recv(&idx, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_Comm(world), &status);
@@ -812,7 +933,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompQR(
     const IdxDataBlkMatMap<QNT> &idx_data_blk_mat_map
 ) const {
   std::map<size_t, DataBlkMatQrRes<ElemT>> idx_qr_res_map;
-  for (auto &idx_data_blk_mat : idx_data_blk_mat_map) {
+  for (auto &idx_data_blk_mat: idx_data_blk_mat_map) {
     auto idx = idx_data_blk_mat.first;
     auto data_blk_mat = idx_data_blk_mat.second;
     ElemT *mat = RawDataGenDenseDataBlkMat_(data_blk_mat);

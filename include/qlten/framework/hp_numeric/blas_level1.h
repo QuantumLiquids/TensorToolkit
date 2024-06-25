@@ -153,6 +153,43 @@ inline void VectorRealToCplx(
 ) {
   for (size_t i = 0; i < size; ++i) { cplx[i] = real[i]; }
 }
+
+/**
+ * @brief Calculate the sum of squares of the elements in the vector.
+ * @param x Pointer to the vector elements.
+ * @param size Number of elements in the vector.
+ * @return Sum of squares of the vector elements.
+ */
+inline double VectorSumSquares(
+    const QLTEN_Double *x,
+    const size_t size
+) {
+  return cblas_ddot(size, x, 1, x, 1);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 2 * size;
+#endif
+}
+
+/**
+ * @brief Calculate the sum of squares of the elements in the complex vector.
+ * @param x Pointer to the complex vector elements.
+ * @param size Number of elements in the vector.
+ * @return Sum of squares of the complex vector elements.
+ */
+inline double VectorSumSquares(
+    const QLTEN_Complex *x,
+    const size_t size
+) {
+  double sum_squares_real =
+      cblas_ddot(size, reinterpret_cast<const double *>(x), 2, reinterpret_cast<const double *>(x), 2);
+  double sum_squares_imag =
+      cblas_ddot(size, reinterpret_cast<const double *>(x) + 1, 2, reinterpret_cast<const double *>(x) + 1, 2);
+  return sum_squares_real + sum_squares_imag;
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 4 * size;
+#endif
+}
+
 } /* hp_numeric */
 } /* qlten */
 

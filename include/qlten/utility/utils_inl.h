@@ -8,7 +8,6 @@
 #ifndef QLTEN_UTILITY_UTILS_INL_H
 #define QLTEN_UTILITY_UTILS_INL_H
 
-
 #include "qlten/framework/value_t.h"    // CoorsT, ShapeT
 #include "qlten/framework/consts.h"
 
@@ -20,17 +19,15 @@
 
 #include <string.h>     // memcpy
 #ifdef Release
-  #define NDEBUG
+#define NDEBUG
 #endif
 #include <cassert>     // assert
 
-
 namespace qlten {
-
 
 //// Algorithms
 // Inplace reorder a vector.
-template <typename T>
+template<typename T>
 void InplaceReorder(std::vector<T> &v, const std::vector<size_t> &order) {
   std::vector<size_t> indices(order);
   for (size_t i = 0; i < indices.size(); ++i) {
@@ -42,13 +39,40 @@ void InplaceReorder(std::vector<T> &v, const std::vector<size_t> &order) {
       current = next;
     }
     indices[current] = current;
- }
+  }
 }
 
-inline std::vector<int> Reorder(const std::vector<size_t> &v1, const std::vector<int> &order){
+// parity = false = 0 means even sector; parity =true = 1 means odd sector
+template<typename T>
+bool FermionicInplaceReorder(std::vector<T> &v, const std::vector<size_t> &order,
+                             std::vector<bool> &parities) {
+  int exchange_sign = 0;
+  std::vector<size_t> indices(order);
+  for (size_t i = 0; i < indices.size(); ++i) {
+    auto current = i;
+    while (i != indices[current]) {
+      auto next = indices[current];
+      std::swap(v[current], v[next]);
+      int sign_between = 0;
+      for (size_t j = std::min(current, next) + 1; j < std::max(current, next); j++) {
+        sign_between += parities[j];
+      }
+      exchange_sign += sign_between * (parities[current] + parities[next]) + (parities[current] * parities[next]);
+
+      std::swap(parities[current], parities[next]);
+      indices[current] = current;
+      current = next;
+    }
+    indices[current] = current;
+  }
+  return exchange_sign & 1;
+}
+
+inline std::vector<int> Reorder(const std::vector<size_t> &v1, const std::vector<int> &order) {
   size_t data_size = v1.size();
-  std::vector<int> v2; v2.reserve(data_size);
-  for (size_t i = 0; i < data_size; i++ ) {
+  std::vector<int> v2;
+  v2.reserve(data_size);
+  for (size_t i = 0; i < data_size; i++) {
     v2.push_back(v1[order[i]]);
   }
   return v2;
@@ -58,11 +82,11 @@ inline std::vector<int> Reorder(const std::vector<size_t> &v1, const std::vector
 template<typename T>
 T CalcCartProd(T v) {
   T s = {{}};
-  for (const auto &u : v) {
+  for (const auto &u: v) {
     T r;
     r.reserve(s.size() * u.size());
-    for (const auto &x : s) {
-      for (const auto y : u) {
+    for (const auto &x: s) {
+      for (const auto y: u) {
         r.push_back(x);
         r.back().push_back(y);
       }
@@ -92,18 +116,16 @@ inline std::vector<CoorsT> GenAllCoors(const ShapeT &shape) {
   return CalcCartProd(each_coors);
 }
 
-
 inline std::vector<size_t> CalcMultiDimDataOffsets(const ShapeT &shape) {
   auto ndim = shape.size();
   if (ndim == 0) { return {}; }
   std::vector<size_t> offsets(ndim);
   offsets[ndim - 1] = 1;
-  for(int i = ndim-2; i>=0;--i){
-    offsets[i]=offsets[i+1]*shape[i+1];
+  for (int i = ndim - 2; i >= 0; --i) {
+    offsets[i] = offsets[i + 1] * shape[i + 1];
   }
   return offsets;
 }
-
 
 // Calculate offset for the effective one dimension array.
 inline size_t CalcEffOneDimArrayOffset(
@@ -119,15 +141,14 @@ inline size_t CalcEffOneDimArrayOffset(
   return offset;
 }
 
-
 // Multiply selected elements in a vector
-template <typename T>
+template<typename T>
 inline T VecMultiSelectElemts(
     const std::vector<T> &v,
     const std::vector<size_t> elem_idxes
 ) {
   auto selected_elem_num = elem_idxes.size();
-  if(selected_elem_num == 0){
+  if (selected_elem_num == 0) {
     return T(1);
   }
   T res;
@@ -142,7 +163,6 @@ inline T VecMultiSelectElemts(
   return res;
 }
 
-
 // Add two coordinates together
 inline CoorsT CoorsAdd(const CoorsT &coors1, const CoorsT &coors2) {
   assert(coors1.size() == coors2.size());
@@ -154,30 +174,27 @@ inline CoorsT CoorsAdd(const CoorsT &coors1, const CoorsT &coors2) {
   return res;
 }
 
-
 //// Equivalence check
 inline bool DoubleEq(const QLTEN_Double a, const QLTEN_Double b) {
-  if (std::abs(a-b) < kDoubleEpsilon) {
+  if (std::abs(a - b) < kDoubleEpsilon) {
     return true;
   } else {
     return false;
   }
 }
-
 
 inline bool ComplexEq(const QLTEN_Complex a, const QLTEN_Complex b) {
-  if (std::abs(a-b) < kDoubleEpsilon) {
+  if (std::abs(a - b) < kDoubleEpsilon) {
     return true;
   } else {
     return false;
   }
 }
-
 
 inline bool ArrayEq(
     const QLTEN_Double *parray1, const size_t size1,
     const QLTEN_Double *parray2, const size_t size2) {
-  if (size1 !=  size2) {
+  if (size1 != size2) {
     return false;
   }
   for (size_t i = 0; i < size1; ++i) {
@@ -188,11 +205,10 @@ inline bool ArrayEq(
   return true;
 }
 
-
 inline bool ArrayEq(
     const QLTEN_Complex *parray1, const size_t size1,
     const QLTEN_Complex *parray2, const size_t size2) {
-  if (size1 !=  size2) {
+  if (size1 != size2) {
     return false;
   }
   for (size_t i = 0; i < size1; ++i) {
@@ -203,76 +219,63 @@ inline bool ArrayEq(
   return true;
 }
 
-
 //// Random
 inline QLTEN_Double drand(void) {
   return QLTEN_Double(rand()) / RAND_MAX;
 }
 
-
 inline QLTEN_Complex zrand(void) {
   return QLTEN_Complex(drand(), drand());
 }
-
 
 inline void Rand(QLTEN_Double &d) {
   d = drand();
 }
 
-
 inline void Rand(QLTEN_Complex &z) {
   z = zrand();
 }
 
-
-template <typename ElemType>
+template<typename ElemType>
 inline ElemType RandT() {
   ElemType val;
   Rand(val);
   return val;
 }
 
-
 //// Math
 inline QLTEN_Double CalcScalarNorm2(QLTEN_Double d) {
   return d * d;
 }
 
-
 inline QLTEN_Double CalcScalarNorm2(QLTEN_Complex z) {
   return std::norm(z);
 }
-
 
 inline QLTEN_Double CalcScalarNorm(QLTEN_Double d) {
   return std::abs(d);
 }
 
-
 inline QLTEN_Double CalcScalarNorm(QLTEN_Complex z) {
   return std::sqrt(CalcScalarNorm2(z));
 }
-
 
 inline QLTEN_Double CalcConj(QLTEN_Double d) {
   return d;
 }
 
-
 inline QLTEN_Complex CalcConj(QLTEN_Complex z) {
   return std::conj(z);
 }
 
-
-template <typename TenElemType>
+template<typename TenElemType>
 inline std::vector<TenElemType> SquareVec(const std::vector<TenElemType> &v) {
   std::vector<TenElemType> res(v.size());
   for (size_t i = 0; i < v.size(); ++i) { res[i] = std::pow(v[i], 2.0); }
   return res;
 }
 
-
-template <typename TenElemType>
+template<typename TenElemType>
 inline std::vector<TenElemType> NormVec(const std::vector<TenElemType> &v) {
   TenElemType sum = std::accumulate(v.begin(), v.end(), 0.0);
   std::vector<TenElemType> res(v.size());
@@ -280,23 +283,20 @@ inline std::vector<TenElemType> NormVec(const std::vector<TenElemType> &v) {
   return res;
 }
 
-
 //// Matrix operation
 template<typename T>
 inline std::vector<T> SliceFromBegin(const std::vector<T> &v, size_t to) {
   auto first = v.cbegin();
-  return std::vector<T>(first, first+to);
+  return std::vector<T>(first, first + to);
 }
-
 
 template<typename T>
 inline std::vector<T> SliceFromEnd(const std::vector<T> &v, size_t to) {
   auto last = v.cend();
-  return std::vector<T>(last-to, last);
+  return std::vector<T>(last - to, last);
 }
 
-
-template <typename ElemT>
+template<typename ElemT>
 void SubMatMemCpy(
     const size_t m, const size_t n,
     const size_t row_offset, const size_t col_offset,
@@ -320,63 +320,63 @@ void SubMatMemCpy(
 
 //template <typename MatElemType>
 //inline MatElemType *MatGetRows(
-    //const MatElemType *mat, const long &rows, const long &cols,
-    //const long &from, const long &num_rows) {
-  //auto new_size = num_rows*cols;
-  //auto new_mat = new MatElemType [new_size];
-  //std::memcpy(new_mat, mat+(from*cols), new_size*sizeof(MatElemType));
-  //return new_mat;
+//const MatElemType *mat, const long &rows, const long &cols,
+//const long &from, const long &num_rows) {
+//auto new_size = num_rows*cols;
+//auto new_mat = new MatElemType [new_size];
+//std::memcpy(new_mat, mat+(from*cols), new_size*sizeof(MatElemType));
+//return new_mat;
 //}
 
 
 //template <typename MatElemType>
 //inline void MatGetRows(
-    //const MatElemType *mat, const long &rows, const long &cols,
-    //const long &from, const long &num_rows,
-    //MatElemType *new_mat) {
-  //auto new_size = num_rows*cols;
-  //std::memcpy(new_mat, mat+(from*cols), new_size*sizeof(MatElemType));
+//const MatElemType *mat, const long &rows, const long &cols,
+//const long &from, const long &num_rows,
+//MatElemType *new_mat) {
+//auto new_size = num_rows*cols;
+//std::memcpy(new_mat, mat+(from*cols), new_size*sizeof(MatElemType));
 //}
 
 
 //template <typename MatElemType>
 //inline void MatGetCols(
-    //const MatElemType *mat, const long rows, const long cols,
-    //const long from, const long num_cols,
-    //MatElemType *new_mat) {
-  //long offset = from;
-  //long new_offset = 0;
-  //for (long i = 0; i < rows; ++i) {
-    //std::memcpy(new_mat+new_offset, mat+offset, num_cols*sizeof(MatElemType));
-    //offset += cols;
-    //new_offset += num_cols;
-  //}
+//const MatElemType *mat, const long rows, const long cols,
+//const long from, const long num_cols,
+//MatElemType *new_mat) {
+//long offset = from;
+//long new_offset = 0;
+//for (long i = 0; i < rows; ++i) {
+//std::memcpy(new_mat+new_offset, mat+offset, num_cols*sizeof(MatElemType));
+//offset += cols;
+//new_offset += num_cols;
+//}
 //}
 
 
 //template <typename MatElemType>
 //inline MatElemType *MatGetCols(
-    //const MatElemType *mat, const long rows, const long cols,
-    //const long from, const long num_cols) {
-  //auto new_size = num_cols * rows;
-  //auto new_mat = new MatElemType [new_size];
-  //MatGetCols(mat, rows, cols, from, num_cols, new_mat);
-  //return new_mat;
+//const MatElemType *mat, const long rows, const long cols,
+//const long from, const long num_cols) {
+//auto new_size = num_cols * rows;
+//auto new_mat = new MatElemType [new_size];
+//MatGetCols(mat, rows, cols, from, num_cols, new_mat);
+//return new_mat;
 //}
 
 
 //inline void GenDiagMat(
-    //const double *diag_v, const long &diag_v_dim, double *full_mat) {
-  //for (long i = 0; i < diag_v_dim; ++i) {
-    //*(full_mat + (i*diag_v_dim + i)) = diag_v[i];
-  //}
+//const double *diag_v, const long &diag_v_dim, double *full_mat) {
+//for (long i = 0; i < diag_v_dim; ++i) {
+//*(full_mat + (i*diag_v_dim + i)) = diag_v[i];
+//}
 //}
 
 
 //// Free the resources of a QLTensor.
 //template <typename TenElemType>
 //inline void QLTenFree(QLTensor<TenElemType> *pt) {
-  //for (auto &pblk : pt->blocks()) { delete pblk; }
+//for (auto &pblk : pt->blocks()) { delete pblk; }
 //}
 
 

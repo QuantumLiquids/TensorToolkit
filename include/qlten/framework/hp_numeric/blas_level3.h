@@ -36,7 +36,9 @@ namespace qlten {
 /// High performance numerical functions.
 namespace hp_numeric {
 
+///< C = alpha * A * B + beta * C
 inline void MatMultiply(
+    const double alpha,
     const QLTEN_Double *a,
     const QLTEN_Double *b,
     const size_t m,
@@ -47,7 +49,7 @@ inline void MatMultiply(
   cblas_dgemm(
       CblasRowMajor, CblasNoTrans, CblasNoTrans,
       m, n, k,
-      1.0,
+      alpha,
       a, k,
       b, n,
       beta,
@@ -58,7 +60,13 @@ inline void MatMultiply(
 #endif
 }
 
+/**
+ * C = alpha * A * B + beta * C
+ *
+ * @param alpha alpha = 1 for bosonic and = \pm 1 for fermionic
+ */
 inline void MatMultiply(
+    const double alpha,
     const QLTEN_Complex *a,
     const QLTEN_Complex *b,
     const size_t m,
@@ -66,11 +74,11 @@ inline void MatMultiply(
     const size_t n,
     const QLTEN_Complex beta,
     QLTEN_Complex *c) {
-  QLTEN_Complex alpha(1.0);
+  QLTEN_Complex alpha_complex(alpha);
   cblas_zgemm(
       CblasRowMajor, CblasNoTrans, CblasNoTrans,
       m, n, k,
-      &alpha,
+      &alpha_complex,
       a, k,
       b, n,
       &beta,
@@ -81,9 +89,8 @@ inline void MatMultiply(
 #endif
 }
 
-
-
 inline void MatMultiply(
+    const double alpha,
     const QLTEN_Double *a,
     const CBLAS_TRANSPOSE cblas_transpose_a,
     const QLTEN_Double *b,
@@ -98,7 +105,7 @@ inline void MatMultiply(
   cblas_dgemm(
       CblasRowMajor, cblas_transpose_a, cblas_transpose_b,
       m, n, k,
-      1.0,
+      alpha,
       a, lda,
       b, ldb,
       beta,
@@ -109,8 +116,8 @@ inline void MatMultiply(
 #endif
 }
 
-
 inline void MatMultiply(
+    const double alpha,
     const QLTEN_Complex *a,
     const CBLAS_TRANSPOSE cblas_transpose_a,
     const QLTEN_Complex *b,
@@ -122,11 +129,11 @@ inline void MatMultiply(
     const size_t ldb,
     const QLTEN_Complex beta,
     QLTEN_Complex *c) {
-  QLTEN_Complex alpha(1.0);
+  QLTEN_Complex alpha_complex(alpha);
   cblas_zgemm(
       CblasRowMajor, cblas_transpose_a, cblas_transpose_b,
       m, n, k,
-      &alpha,
+      &alpha_complex,
       a, lda,
       b, ldb,
       &beta,
@@ -209,12 +216,10 @@ inline void MatMultiplyBatch(
       flop += m_array[i] * n_array[i] * (2 * k_array[i] + 2);
 #endif
     }
-  }
+}
 
 #endif
 }
-
-
 
 inline void MatMultiplyBatch(
     const QLTEN_Complex **a_array,
@@ -305,14 +310,12 @@ inline void MatMultiplyBatch(
       flop += m_array[i] * n_array[i] * (8 * k_array[i] + 8);
 #endif
     }
-  }
+    }
 #endif
-}
-
-
+    }
 
 #endif
 
-} /* hp_numeric */
-} /* qlten */
+    } /* hp_numeric */
+    } /* qlten */
 #endif /* ifndef QLTEN_FRAMEWORK_HP_NUMERIC_BLAS_LEVEL3_H */

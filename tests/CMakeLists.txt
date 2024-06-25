@@ -132,6 +132,7 @@ macro(compile_unittest
     set_target_properties(${TEST_NAME} PROPERTIES FOLDER tests)
 endmacro()
 
+add_unittest(test_fermion_parity_exchange "test_utility/test_fermion_parity_exchange.cpp" "" "" "")
 
 ## Test quantum number related objects
 # Test quantum number vaules

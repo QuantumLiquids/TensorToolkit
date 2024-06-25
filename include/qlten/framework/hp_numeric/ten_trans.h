@@ -37,7 +37,8 @@ void TensorTranspose(
     ElemT *original_data,
     const std::vector<size_t> &original_shape,
     ElemT *transed_data,
-    const std::vector<size_t> &transed_shape
+    const std::vector<size_t> &transed_shape,
+    const double alpha  //scale factor, for boson tensor alpha = 1; for Fermion tensor additional minus sign may require
 ) {
   const int dim = ten_rank;
   int perm[dim];
@@ -47,7 +48,7 @@ void TensorTranspose(
   int outerSizeB[dim];
   for (int i = 0; i < dim; ++i) { outerSizeB[i] = transed_shape[i]; }
   auto tentrans_plan = hptt::create_plan(perm, dim,
-                                         1.0, original_data, sizeA, sizeA,
+                                         alpha, original_data, sizeA, sizeA,
                                          0.0, transed_data, outerSizeB,
                                          hptt::ESTIMATE,
                                          tensor_transpose_num_threads, {},
@@ -63,13 +64,14 @@ void TensorTranspose(
     ElemT *original_data,
     const std::vector<size_t> &original_shape,
     ElemT *transed_data,
-    const std::vector<int> &transed_shape
+    const std::vector<int> &transed_shape,
+    const double alpha //scale factor, for boson tensor alpha = 1; for Fermion tensor additional minus sign may require
 ) {
   const int dim = ten_rank;
   int sizeA[dim];
   for (int i = 0; i < dim; ++i) { sizeA[i] = original_shape[i]; }
   auto tentrans_plan = hptt::create_plan(transed_order.data(), dim,
-                                         1.0, original_data, sizeA, sizeA,
+                                         alpha, original_data, sizeA, sizeA,
                                          0.0, transed_data, transed_shape.data(),
                                          hptt::ESTIMATE,
                                          tensor_transpose_num_threads, {},
@@ -86,7 +88,8 @@ void TensorTranspose(
     ElemT *original_data,
     const std::vector<size_t> &original_shape,
     ElemT *transed_data,
-    const std::vector<IntType> &transed_shape
+    const std::vector<IntType> &transed_shape,
+    const double scale
 ) {
   // Calculate the strides for each dimension in the original tensor
   std::vector<size_t> original_strides(ten_rank, 1);
@@ -133,7 +136,7 @@ void TensorTranspose(
     }
 
     // Copy the data to the transposed position
-    transed_data[transed_index] = original_data[index];
+    transed_data[transed_index] = scale * original_data[index];
   }
 }
 

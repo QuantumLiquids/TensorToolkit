@@ -19,7 +19,7 @@
 
 const double kEpsilon = 1.0E-13;
 
-
+///< Produces random integer values which is uniformly distributed on the closed interval [min, max].
 template <typename IntT>
 inline IntT RandomInteger(const IntT min, const IntT max) {
   std::random_device rd;

@@ -77,7 +77,7 @@ class TensorContraction1SectorExecutor : public Executor {
   void SelectBlkIdxDataBlkMap_() {
     const auto &bsdt_a = pa_->GetBlkSparDataTen();
     const auto &a_blk_idx_data_blk_map_total = bsdt_a.GetBlkIdxDataBlkMap();
-    for (auto &[idx, data_blk] : a_blk_idx_data_blk_map_total) {
+    for (auto &[idx, data_blk]: a_blk_idx_data_blk_map_total) {
       if (data_blk.blk_coors[idx_a_] == qn_sector_idx_a_) {
         a_blk_idx_data_blk_map_select_.insert(std::make_pair(idx, data_blk));
       }
@@ -85,13 +85,34 @@ class TensorContraction1SectorExecutor : public Executor {
   }
 
   inline void DataBlkGenForTenCtrct_(void) {
-    raw_data_ctrct_tasks_ = pc_->GetBlkSparDataTen().DataBlkGenForTenCtrct(
-        a_blk_idx_data_blk_map_select_,
-        pb_->GetBlkSparDataTen().GetBlkIdxDataBlkMap(),
-        axes_set_,
-        saved_axes_set_,
-        b_blk_idx_qnblk_info_part_hash_map_
-    );
+    if constexpr (Fermionicable<QNT>::IsFermionic()) {
+      std::vector<TenIndexDirType> a_ctrct_idx_dir; // use for fermion sign
+      if constexpr (Fermionicable<QNT>::IsFermionic()) {
+        a_ctrct_idx_dir.resize(axes_set_[0].size());
+        for (size_t i = 0; i < axes_set_[0].size(); i++) {
+          const Index<QNT> &index = pa_->GetIndexes()[axes_set_[0][i]];
+          a_ctrct_idx_dir[i] = index.GetDir();
+        }
+      }
+      raw_data_ctrct_tasks_ = pc_->GetBlkSparDataTen().DataBlkGenFor1SectTenCtrct(
+          a_blk_idx_data_blk_map_select_,
+          pb_->GetBlkSparDataTen().GetBlkIdxDataBlkMap(),
+          axes_set_,
+          saved_axes_set_,
+          b_blk_idx_qnblk_info_part_hash_map_,
+          a_ctrct_idx_dir
+      );
+
+    } else {//bosonic tensor case
+      raw_data_ctrct_tasks_ = pc_->GetBlkSparDataTen().DataBlkGenFor1SectTenCtrct(
+          a_blk_idx_data_blk_map_select_,
+          pb_->GetBlkSparDataTen().GetBlkIdxDataBlkMap(),
+          axes_set_,
+          saved_axes_set_,
+          b_blk_idx_qnblk_info_part_hash_map_
+      );
+    }
+
   }
 
   const QLTensor<TenElemT, QNT> *pa_;

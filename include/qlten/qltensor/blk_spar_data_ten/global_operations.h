@@ -87,7 +87,7 @@ void BlockSparseDataTensor<ElemT, QNT>::Transpose(
   BlkIdxDataBlkMap transed_blk_idx_data_blk_map;
   for (auto &blk_idx_data_blk: blk_idx_data_blk_map_) {
     DataBlk<QNT> transed_data_blk(blk_idx_data_blk.second);
-    transed_data_blk.Transpose(transed_idxes_order);
+    int sign = transed_data_blk.Transpose(transed_idxes_order);
     auto transed_data_blk_idx = BlkCoorsToBlkIdx(transed_data_blk.blk_coors);
     transed_blk_idx_data_blk_map[transed_data_blk_idx] = transed_data_blk;
     raw_data_trans_tasks.push_back(
@@ -98,7 +98,8 @@ void BlockSparseDataTensor<ElemT, QNT>::Transpose(
             blk_idx_data_blk.second.shape,
             blk_idx_data_blk.second.data_offset,
             transed_data_blk_idx,
-            transed_data_blk.shape
+            transed_data_blk.shape,
+            sign
         )
     );
   }
@@ -125,11 +126,11 @@ void BlockSparseDataTensor<ElemT, QNT>::FuseFirstTwoIndex(
 ) {
   if (actual_raw_data_size_ != 0) {
 #ifdef QLTEN_TIMING_MODE
-    Timer fuse_index_bsdt_pre_timer("   =============> fuse_index_bsdt_prepare");
+    Timer fuse_index_bsdt_pre_timer("use_index_bsdt_prepare");
 #endif
     using QNSctsOffsetInfo = std::tuple<size_t, size_t, size_t, size_t>;
-    std::map<std::pair<size_t, size_t>, size_t> map_from_old_blk_first_two_coors_to_new_blk_first_coor;
-    std::map<std::pair<size_t, size_t>, size_t> map_from_old_blk_first_two_coors_to_new_blk_data_off_set;
+    std::map < std::pair<size_t, size_t>, size_t > map_from_old_blk_first_two_coors_to_new_blk_first_coor;
+    std::map < std::pair<size_t, size_t>, size_t > map_from_old_blk_first_two_coors_to_new_blk_data_off_set;
     for (const QNSctsOffsetInfo &qnscts_offset_info: qnscts_offset_info_list) {
       std::pair<size_t, size_t> old_blk_first_two_coors = std::make_pair(
           std::get<0>(qnscts_offset_info),
@@ -144,7 +145,7 @@ void BlockSparseDataTensor<ElemT, QNT>::FuseFirstTwoIndex(
     //we generate a new bsdt to convenient use the constructor of BSDT
     //note here pqlten_indexes has become pointing to the new indices
     BlockSparseDataTensor<ElemT, QNT> new_bsdt = BlockSparseDataTensor<ElemT, QNT>(pqlten_indexes);
-    std::map<size_t, size_t> old_blk_idx_mapto_new_blk_idx;
+    std::map < size_t, size_t > old_blk_idx_mapto_new_blk_idx;
     std::vector<CoorsT> new_blk_coors_vector;
     std::vector<size_t> new_blk_idx_vector;
     new_blk_coors_vector.reserve(blk_idx_data_blk_map_.size());
@@ -206,7 +207,7 @@ void BlockSparseDataTensor<ElemT, QNT>::FuseFirstTwoIndex(
 #endif
 
 #ifdef QLTEN_TIMING_MODE
-    Timer fuse_index_bsdt_raw_data_copy("   =============> fuse_index_bsdt_raw_data_copy");
+    Timer fuse_index_bsdt_raw_data_copy("fuse_index_bsdt_raw_data_copy");
 #endif
     new_bsdt.RawDataCopyNoAdd_(data_copy_tasks, pactual_raw_data_);
 #ifdef QLTEN_TIMING_MODE
@@ -231,7 +232,12 @@ void BlockSparseDataTensor<ElemT, QNT>::FuseFirstTwoIndex(
 
 template<typename ElemT, typename QNT>
 QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Norm(void) {
-  return RawDataNorm_();
+  if constexpr (Fermionicable<QNT>::IsFermionic()) {
+    auto tasks = GenFermionNormTask();
+    return RawDataFermionNorm_(tasks);
+  } else {
+    return RawDataNorm_();
+  }
 }
 
 /**
@@ -241,7 +247,8 @@ Normalize the data tensor and return its norm.
 */
 template<typename ElemT, typename QNT>
 QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Normalize(void) {
-  return RawDataNormalize_();
+  double norm = Norm();
+  return RawDataNormalize_(norm);
 }
 
 /**
@@ -249,7 +256,19 @@ Complex conjugate.
 */
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::Conj(void) {
-  RawDataConj_();
+  if constexpr (Fermionicable<QNT>::IsFermionic()) {
+    std::vector<RawDataInplaceReverseTask> tasks;
+    tasks.reserve(blk_idx_data_blk_map_.size());
+    for (auto &[idx, data_blk]: blk_idx_data_blk_map_) {
+      if (data_blk.ReverseSign() == -1) {
+        RawDataInplaceReverseTask task(data_blk.data_offset, data_blk.size);
+        tasks.push_back(task);
+      }
+    }
+    FermionicRawDataConj_(tasks);
+  } else {
+    RawDataConj_();
+  }
 }
 
 /**
@@ -448,7 +467,8 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctTwoBSDTAndAssignIn(
             bsdt_a.pactual_raw_data_ + task.a_data_offset,
             a_data_blk.shape,
             transed_data,
-            a_blk_transed_shape
+            a_blk_transed_shape,
+            1.0
         );
         a_blk_idx_transed_data_map[task.a_blk_idx] = transed_data;
         a_data = transed_data;
@@ -470,7 +490,8 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctTwoBSDTAndAssignIn(
             bsdt_b.pactual_raw_data_ + task.b_data_offset,
             b_data_blk.shape,
             transed_data,
-            b_blk_transed_shape
+            b_blk_transed_shape,
+            1.0
         );
         b_blk_idx_transed_data_map[task.b_blk_idx] = transed_data;
         b_data = transed_data;
@@ -486,6 +507,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctTwoBSDTAndAssignIn(
         b_data,
         task.c_data_offset,
         task.m, task.k, task.n,
+        task.f_ex_sign,
         task.beta
     );
 #ifdef QLTEN_TIMING_MODE
@@ -508,7 +530,9 @@ template<bool a_ctrct_tail, bool b_ctrct_head>
 void BlockSparseDataTensor<ElemT, QNT>::CtrctAccordingTask(
     const ElemT *a_raw_data,
     const ElemT *b_raw_data,
-    const std::vector<RawDataCtrctTask> &raw_data_ctrct_tasks
+    const std::vector<RawDataCtrctTask> &raw_data_ctrct_tasks,
+    const std::map<size_t, int> &a_blk_idx_sign_map,
+    const std::map<size_t, int> &b_blk_idx_sign_map
 ) {
   Allocate();
 #ifdef QLTEN_TIMING_MODE
@@ -518,16 +542,24 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctAccordingTask(
   for (const auto &task: raw_data_ctrct_tasks) {
     const ElemT *a_data = a_raw_data + task.a_data_offset;
     const ElemT *b_data = b_raw_data + task.b_data_offset;
+    double over_all_f_ex_sign = 1;
+    if constexpr (Fermionicable<QNT>::IsFermionic()) {
+      over_all_f_ex_sign =
+          task.f_ex_sign * a_blk_idx_sign_map.at(task.a_blk_idx) * b_blk_idx_sign_map.at(task.b_blk_idx);
+    }
+
     if (a_ctrct_tail && b_ctrct_head) {
       RawDataTwoMatMultiplyAndAssignIn_(
           a_data,
           b_data,
           task.c_data_offset,
           task.m, task.k, task.n,
+          over_all_f_ex_sign,
           task.beta
       );
     } else if (a_ctrct_tail && (!b_ctrct_head)) {
       hp_numeric::MatMultiply(
+          over_all_f_ex_sign,
           a_data,
           CblasNoTrans,
           b_data,
@@ -539,6 +571,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctAccordingTask(
       );
     } else if ((!a_ctrct_tail) && (b_ctrct_head)) {
       hp_numeric::MatMultiply(
+          over_all_f_ex_sign,
           a_data,
           CblasTrans,
           b_data,
@@ -550,6 +583,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctAccordingTask(
       );
     } else {
       hp_numeric::MatMultiply(
+          over_all_f_ex_sign,
           a_data,
           CblasTrans,
           b_data,
@@ -594,7 +628,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ConstructExpandedDataOnFirstIndex(
 #ifdef QLTEN_TIMING_MODE
   Timer expand_data_blk_timer("   =============> expansion_construct_data_blk_and_prepare_raw_data_tasks");
 #endif
-  std::map<size_t, size_t> expanded_idx_qnsct_coor_b_idx_qnsct_coor_map;
+  std::map < size_t, size_t > expanded_idx_qnsct_coor_b_idx_qnsct_coor_map;
   for (auto &elem: b_idx_qnsct_coor_expanded_idx_qnsct_coor_map) {
     expanded_idx_qnsct_coor_b_idx_qnsct_coor_map[elem.second] = elem.first;
   }
@@ -759,7 +793,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ConstructMCExpandedDataOnFirstIndex(
 ) {
   blk_idx_data_blk_map_ = bsdt_a.GetBlkIdxDataBlkMap();
   raw_data_size_ = bsdt_a.GetActualRawDataSize();
-  std::map<size_t, size_t> blk_idx_in_b_mapto_blk_idx_in_expanded_bsdt;
+  std::map < size_t, size_t > blk_idx_in_b_mapto_blk_idx_in_expanded_bsdt;
   auto blk_idx_data_blk_map_b = bsdt_b.GetBlkIdxDataBlkMap();
   for (auto iter = blk_idx_data_blk_map_b.begin();
        iter != blk_idx_data_blk_map_b.cend();) {
@@ -828,6 +862,9 @@ void BlockSparseDataTensor<ElemT, QNT>::OutOfPlaceMatrixTransposeForSelectedData
     const size_t idx = (*iter);
     assert(blk_idx_data_blk_map_.find(idx) != blk_idx_data_blk_map_.end());
     const DataBlk<QNT> &data_blk = blk_idx_data_blk_map_.at(idx);
+    if constexpr (Fermionicable<QNT>::IsFermionic()) {
+
+    }
     const size_t off_set = data_blk.data_offset;
     const std::vector<size_t> &shape = data_blk.shape;
     Amat_array[i] = pactual_raw_data_ + off_set;

@@ -3,22 +3,26 @@
 * Author: Hao-Xin <wanghx18@mails.tsinghua.edu.cn>
 * Creation Date: 2021-10-23.
 *
-* Description: tensor extra contraction function
+* Description: Implementation of fast tensor contraction functions without tensor transposition.
 */
 
 /**
-@file ten_ctrct_fast.h
-@brief tensor fast contraction function without tensor transpose are implemented.
-       This another contraction is defined by the following:
-       - the contracted indexes must be continuous. More concentrate, if it was defined by the usually language
-            Contract(A, B, axes1, axes2), the axes1 must be ascendant numbers with interval 1, and so as axes2.
-            We allow the period boundary of axes, for example: if A.rank() == 5, axes1 can be {3,4,0}
-       - thus the transposes in contraction can be realized in matrix transpose
+@file ten_ctrct_based_mat_trans.h
+@brief Implementation of a faster tensor contraction functions without involving tensor transposition operations.
+
+       This contraction method is defined by the following constraints:
+       - The contracted indices must be continuous and ordered. Specifically, for a contraction
+         defined as Contract(A, B, axes1, axes2), the axes1 indices must be in ascending order with
+         a step of 1, and the same applies to axes2.
+       - Periodic boundary conditions for indices are allowed. For example, if A.rank() == 5,
+         axes1 can be {3, 4, 0}.
+
+       These constraints allow the transpositions required for contraction to be realized as matrix transpositions.
 */
 
 
-#ifndef QLTEN_TENSOR_MANIPULATION_TEN_EXTRA_CTRCT_H
-#define QLTEN_TENSOR_MANIPULATION_TEN_EXTRA_CTRCT_H
+#ifndef QLTEN_TENSOR_MANIPULATION_TEN_CTRCT_BASED_MAT_TRANS_H
+#define QLTEN_TENSOR_MANIPULATION_TEN_CTRCT_BASED_MAT_TRANS_H
 
 #include <set>
 
@@ -28,21 +32,20 @@
 namespace qlten {
 
 /**
+ * @tparam TenElemT Type of the tensor elements.
+ * @tparam QNT Type of the quantum number.
+ * @tparam a_ctrct_tail Indicates whether the contraction occurs at the tail of tensor A.
+ * @tparam b_ctrct_head Indicates whether the contraction occurs at the head of tensor B.
  *
- * @tparam TenElemT
- * @tparam QNT
- * @tparam a_ctrct_tail
- * @tparam b_ctrct_head
- *
- *  develop note: if a_ctrct_tail && b_ctrct_head, then no transpose need when matrix product.
- *  else transpose the corresponding the tensor(s) when matrix product
- *  this two parameters don't change the result of contraction,
- *  but support some hints to reduce operators and increase the performance.
+ * Note:
+ * - When `a_ctrct_tail` is true and `b_ctrct_head` is true, no transpose is needed for the matrix product.
+ * - Otherwise, transpose the corresponding tensor(s) for the matrix product.
+ * - These two parameters do not change the result of the contraction but provide hints to optimize operations and enhance performance.
  */
 template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-class TensorExtraContractionExecutor : public Executor {
+class MatrixBasedTensorContractionExecutor : public Executor {
  public:
-  TensorExtraContractionExecutor(
+  MatrixBasedTensorContractionExecutor(
       const QLTensor<TenElemT, QNT> *,
       const QLTensor<TenElemT, QNT> *,
       const size_t a_ctrct_axes_start,
@@ -69,11 +72,18 @@ class TensorExtraContractionExecutor : public Executor {
   size_t b_ctrct_axes_end_; //ctrct_axes do not include this one
   size_t ctrct_axes_size_;
 
+  std::vector<std::vector<size_t>> saved_axes_set_;
+
+  // trans_critical_axe == 0 imply no transpose is need for the matrix multiplication
+  // If trans_critical_axe > 0, the tensor indices from 0 to a_trans_critical_axe_ - 1
+  // and from a_trans_critical_axe_ to rank - 1 will be exchanged to perform the transpose.
   size_t a_trans_critical_axe_;
-  //if a_trans_critical_axe_ > 0, transpose happen between (a_trans_ctritical_axe_ - 1, a_trans_ctritical_axe_),
-  //else a_trans_critical_axe_ == 0, no need to transpose. (this design can be reconsidered)
   size_t b_trans_critical_axe_;
-  //if b_trans_critical_axe_ == 0, no need to transpose
+
+  // fermion sign which haven't been count when transpose
+  // only need consider saved axes.
+  std::map<size_t, int> a_trans_data_blk_idx_map_to_fermion_sign_;
+  std::map<size_t, int> b_trans_data_blk_idx_map_to_fermion_sign_;
 
   TenElemT *a_trans_data_ = nullptr;
   //TODO: more template parameter to determine if the original data is need to save,
@@ -107,7 +117,7 @@ class TensorExtraContractionExecutor : public Executor {
  *  question: meaning for set status?
  */
 template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::TensorExtraContractionExecutor(
+MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::MatrixBasedTensorContractionExecutor(
     const QLTensor<TenElemT, QNT> *pa,
     const QLTensor<TenElemT, QNT> *pb,
     const size_t a_ctrct_axes_start,
@@ -120,18 +130,19 @@ TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::Tenso
     a_ctrct_axes_end_((a_ctrct_axes_start + ctrct_axes_size) % (pa->Rank())),
     b_ctrct_axes_end_((b_ctrct_axes_start + ctrct_axes_size) % (pb->Rank())),
     ctrct_axes_size_(ctrct_axes_size),
+    saved_axes_set_(2),
     a_trans_critical_axe_(a_ctrct_tail ? a_ctrct_axes_end_ : a_ctrct_axes_start),
     b_trans_critical_axe_(b_ctrct_head ? b_ctrct_axes_start : b_ctrct_axes_end_) {}
 
 template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::GenerateDataBlk_() {
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::GenerateDataBlk_() {
   using std::vector;
   const size_t a_rank(pa_->Rank()), b_rank(pb_->Rank());
-  vector<vector<size_t>> saved_axes_set(2), ctrct_axes_set(2);
+  vector<vector<size_t>> ctrct_axes_set(2);
   ctrct_axes_set[0].reserve(ctrct_axes_size_);
   ctrct_axes_set[1].reserve(ctrct_axes_size_);
-  saved_axes_set[0].reserve(pa_->Rank() - ctrct_axes_size_);
-  saved_axes_set[1].reserve(pb_->Rank() - ctrct_axes_size_);
+  saved_axes_set_[0].reserve(pa_->Rank() - ctrct_axes_size_);
+  saved_axes_set_[1].reserve(pb_->Rank() - ctrct_axes_size_);
   for (size_t i = 0; i < ctrct_axes_size_; i++) {
     ctrct_axes_set[0].push_back((a_ctrct_axes_start_ + i) % a_rank);
     ctrct_axes_set[1].push_back((b_ctrct_axes_start_ + i) % b_rank);
@@ -139,10 +150,10 @@ void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::
   const size_t save_axes_size_a = a_rank - ctrct_axes_size_;
   const size_t save_axes_size_b = b_rank - ctrct_axes_size_;
   for (size_t i = 0; i < save_axes_size_a; i++) {
-    saved_axes_set[0].push_back((a_ctrct_axes_end_ + i) % a_rank);
+    saved_axes_set_[0].push_back((a_ctrct_axes_end_ + i) % a_rank);
   }
   for (size_t i = 0; i < save_axes_size_b; i++) {
-    saved_axes_set[1].push_back((b_ctrct_axes_end_ + i) % b_rank);
+    saved_axes_set_[1].push_back((b_ctrct_axes_end_ + i) % b_rank);
   }
 #ifndef NDEBUG
   auto &indexesa = pa_->GetIndexes();
@@ -152,17 +163,17 @@ void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::
   }
 #endif
 
-  TenCtrctInitResTen(pa_, pb_, saved_axes_set, pc_);
+  TenCtrctInitResTen(pa_, pb_, saved_axes_set_, pc_);  //note the order of saved_axes_set_
   raw_data_ctrct_tasks_ = pc_->GetBlkSparDataTen().DataBlkGenForTenCtrct(
       pa_->GetBlkSparDataTen(),
       pb_->GetBlkSparDataTen(),
       ctrct_axes_set,
-      saved_axes_set
+      saved_axes_set_
   );
 }
 
 template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::TransposePrepare_() {
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::TransposePrepare_() {
   using std::set;
   if (a_trans_critical_axe_ > 0) {
     const auto &a_bsdt = pa_->GetBlkSparDataTen();
@@ -177,6 +188,12 @@ void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::
         a_trans_critical_axe_,
         a_trans_data_
     );
+    if constexpr (Fermionicable<QNT>::IsFermionic()) {
+      a_trans_data_blk_idx_map_to_fermion_sign_ =
+          a_bsdt.CountResidueFermionSignForMatBasedCtrct(selected_data_blk_idxs,
+                                                         saved_axes_set_[0],
+                                                         a_trans_critical_axe_);
+    }
   }
   if (b_trans_critical_axe_ > 0) {
     const auto &b_bsdt = pb_->GetBlkSparDataTen();
@@ -191,29 +208,35 @@ void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::
         b_trans_critical_axe_,
         b_trans_data_
     );
+    if constexpr (Fermionicable<QNT>::IsFermionic()) {
+      b_trans_data_blk_idx_map_to_fermion_sign_ =
+          b_bsdt.CountResidueFermionSignForMatBasedCtrct(selected_data_blk_idxs,
+                                                         saved_axes_set_[1],
+                                                         b_trans_critical_axe_);
+    }
   }
 }
 
 template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::ExecutePost_() {
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::ExecutePost_() {
   free(a_trans_data_);
   free(b_trans_data_);
 }
 
 template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::Execute() {
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::Execute() {
 #ifdef QLTEN_TIMING_MODE
-  Timer extrac_contraction_generate_data_blk("ExtraContraction.Execute.GenerateDataBlk");
+  Timer gen_datablk_timer("mat_based_ctrct_gen_data_blk");
 #endif
   GenerateDataBlk_();
 #ifdef QLTEN_TIMING_MODE
-  extrac_contraction_generate_data_blk.PrintElapsed();
-  Timer extrac_contraction_tranpose("ExtraContraction.Execute.TransposePrepare");
+  gen_datablk_timer.PrintElapsed();
+  Timer trans_pre_timer("mat_based_ctrct_mat_transpose");
 #endif
 
   TransposePrepare_();
 #ifdef QLTEN_TIMING_MODE
-  extrac_contraction_tranpose.PrintElapsed();
+  trans_pre_timer.PrintElapsed();
 #endif
 
   const TenElemT *a_raw_data;
@@ -231,16 +254,18 @@ void TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::
   }
   auto &bsdt_c = pc_->GetBlkSparDataTen();
 #ifdef QLTEN_TIMING_MODE
-  Timer extrac_contraction_do_ctrct_task("ExtraContraction.Execute.CtrctAccordingTask");
+  Timer contract_according_task_timer("mat_based_ctrct_do_task");
 #endif
 
   bsdt_c.template CtrctAccordingTask<a_ctrct_tail, b_ctrct_head>(
       a_raw_data,
       b_raw_data,
-      raw_data_ctrct_tasks_
+      raw_data_ctrct_tasks_,
+      a_trans_data_blk_idx_map_to_fermion_sign_,
+      b_trans_data_blk_idx_map_to_fermion_sign_
   );
 #ifdef QLTEN_TIMING_MODE
-  extrac_contraction_do_ctrct_task.PrintElapsed();
+  contract_according_task_timer.PrintElapsed();
 #endif
   ExecutePost_();
 }
@@ -268,7 +293,7 @@ void Contract(
     const size_t ctrct_axes_size,
     QLTensor<TenElemT, QNT> &pc
 ) {
-  auto extra_contraction_executor = TensorExtraContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>(
+  auto extra_contraction_executor = MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>(
       &pa, &pb, a_ctrct_axes_start, b_ctrct_axes_start, ctrct_axes_size, &pc
   );
   extra_contraction_executor.Execute();
@@ -313,4 +338,4 @@ void Contract(
 
 
 
-#endif //QLTEN_TENSOR_MANIPULATION_TEN_EXTRA_CTRCT_H
+#endif //QLTEN_TENSOR_MANIPULATION_TEN_CTRCT_BASED_MAT_TRANS_H

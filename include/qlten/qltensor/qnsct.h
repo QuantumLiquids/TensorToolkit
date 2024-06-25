@@ -22,7 +22,7 @@
 #include "qlten/framework/bases/hashable.h"       // Hashable
 #include "qlten/framework/bases/streamable.h"     // Streamable
 #include "qlten/framework/bases/showable.h"       // Showable
-
+#include "qlten/framework/bases/fermionicable.h"  // Fermionicable
 #ifdef Release
 #define NDEBUG
 #endif
@@ -36,7 +36,7 @@ quantum number.
 @tparam QNT Type of the quantum number.
 */
 template<typename QNT>
-class QNSector : public Hashable, public Streamable, public Showable {
+class QNSector : public Hashable, public Streamable, public Showable, public Fermionicable<QNT> {
  public:
   /**
   Create a quantum number sector using a quantum number and the degeneracy.
@@ -123,6 +123,15 @@ class QNSector : public Hashable, public Streamable, public Showable {
     qn_.Show(indent_level + 1);
     std::cout << IndentPrinter(indent_level + 1) << "Degeneracy: " << dgnc_ << std::endl;
   }
+
+  // Conditionally included member functions, only for fermionic tensors.
+  template<typename T = QNT>
+  typename std::enable_if<Fermionicable<T>::IsFermionic(), bool>::type
+  IsFermionParityOdd() const { return qn_.IsFermionParityOdd(); }
+
+  template<typename T = QNT>
+  typename std::enable_if<Fermionicable<T>::IsFermionic(), bool>::type
+  IsFermionParityEven() const { return qn_.IsFermionParityEven(); }
 
  private:
   QNT qn_;

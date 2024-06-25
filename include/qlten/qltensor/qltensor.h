@@ -36,7 +36,7 @@ Symmetry-blocked sparse tensor.
 @tparam QNT   Type of the quantum number.
 */
 template<typename ElemT, typename QNT>
-class QLTensor : public Showable {
+class QLTensor : public Showable, Fermionicable<QNT> {
  public:
   // Constructors and destructor.
   /// Default constructor.

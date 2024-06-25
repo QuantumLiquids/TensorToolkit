@@ -15,7 +15,7 @@
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_ctrct.h"            // Contract
 #include "qlten/tensor_manipulation/basic_operations.h"     // Dag
-#include "qlten/tensor_manipulation/ten_ctrct_fast.h"      // Contract
+#include "qlten/tensor_manipulation/ten_ctrct_based_mat_trans.h"      // Contract
 #include "gtest/gtest.h"
 #include "../testing_utility.h"
 #include "qlten/utility/timer.h"

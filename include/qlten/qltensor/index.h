@@ -48,7 +48,7 @@ Linear space constructed by a series of QNSector, and it can define a direction.
 @tparam QNT Type of the quantum number.
 */
 template<typename QNT>
-class Index : public Hashable, public Streamable, public Showable {
+class Index : public Hashable, public Streamable, public Showable, public Fermionicable<QNT> {
  public:
   /**
   Create an Index using a series of quantum number sectors and the direction.
@@ -176,7 +176,7 @@ class Index : public Hashable, public Streamable, public Showable {
     size_t qnscts_size;
     is >> qnscts_size;
     qnscts_ = QNSectorVec<QNT>(qnscts_size);
-    for (auto &qnsct : qnscts_) { is >> qnsct; }
+    for (auto &qnsct: qnscts_) { is >> qnsct; }
     int dir_int_repr;
     is >> dir_int_repr;
     dir_ = static_cast<TenIndexDirType>(dir_int_repr);
@@ -186,7 +186,7 @@ class Index : public Hashable, public Streamable, public Showable {
 
   void StreamWrite(std::ostream &os) const override {
     os << qnscts_.size() << "\n";
-    for (auto &qnsct : qnscts_) { os << qnsct; }
+    for (auto &qnsct: qnscts_) { os << qnsct; }
     int dir_int_repr = dir_;
     os << dir_int_repr << "\n";
     os << dim_ << "\n";
@@ -208,7 +208,7 @@ class Index : public Hashable, public Streamable, public Showable {
       default:assert(false);
     }
     std::cout << dir_str << std::endl;
-    for (auto &qnsct : qnscts_) {
+    for (auto &qnsct: qnscts_) {
       qnsct.Show(indent_level + 1);
     }
   }
@@ -221,7 +221,7 @@ class Index : public Hashable, public Streamable, public Showable {
 
   size_t CalcDim_(void) {
     size_t dim = 0;
-    for (auto &qnsct : qnscts_) {
+    for (auto &qnsct: qnscts_) {
       dim += qnsct.dim();
     }
     return dim;
@@ -269,7 +269,7 @@ Calculate the number of quantum number sectors of Index from a vector of Index.
 template<typename IndexVecT>
 std::vector<size_t> CalcQNSctNumOfIdxs(const IndexVecT &indexes) {
   std::vector<size_t> qnsct_num_of_idxes;
-  for (auto &index : indexes) {
+  for (auto &index: indexes) {
     qnsct_num_of_idxes.push_back(index.GetQNSctNum());
   }
   return qnsct_num_of_idxes;
