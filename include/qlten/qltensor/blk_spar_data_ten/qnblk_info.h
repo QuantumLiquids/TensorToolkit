@@ -20,28 +20,27 @@
 
 namespace qlten {
 
-// Dummy class for FermionicSignInfo when IsFermionic is false
+// Dummy class for FermionParityInfo when IsFermionic is false
 template<typename QNT, bool IsFermionic>
-class FermionicSignInfoBase {};
+class FermionParityInfoBase {};
 
-// Specialization for FermionicSignInfo when IsFermionic is true
+// Specialization for FermionParityInfo when IsFermionic is true
 template<typename QNT>
-class FermionicSignInfoBase<QNT, true> {
+class FermionParityInfoBase<QNT, true> {
  public:
-  FermionicSignInfoBase(void) : blk_data_sign(1) {}
-  FermionicSignInfoBase(const QNSectorVec<QNT> &qnscts, int sign) : blk_data_sign(sign), qn_parities(qnscts.size()) {
+  FermionParityInfoBase(void) = default;
+  FermionParityInfoBase(const QNSectorVec<QNT> &qnscts) : qn_parities(qnscts.size()) {
     for (size_t i = 0; i < qnscts.size(); i++) {
       qn_parities[i] = qnscts[i].IsFermionParityOdd();
     }
   }
 
-  int blk_data_sign; // fermionic sign, only take value +1 or -1
   std::vector<bool> qn_parities;//true for odd, false for even.
 };
 
 // Typedef for convenience
 template<typename QNT>
-using FermionicSignInfo = FermionicSignInfoBase<QNT, Fermionicable<QNT>::IsFermionic()>;
+using FermionParityInfo = FermionParityInfoBase<QNT, Fermionicable<QNT>::IsFermionic()>;
 
 /**
 Information of a quantum number block.
@@ -49,13 +48,13 @@ Information of a quantum number block.
 @tparam QNT Type of the quantum number.
 */
 template<typename QNT>
-class BlkQNInfo : public FermionicSignInfo<QNT> {
+class BlkQNInfo : public FermionParityInfo<QNT> {
  public:
   BlkQNInfo(void) = default;
 
   // Constructor for fermionic case
   template<typename T = QNT, typename std::enable_if<Fermionicable<T>::IsFermionic(), int>::type = 0>
-  BlkQNInfo(const QNSectorVec<QNT> &qnscts) : FermionicSignInfo<QNT>(qnscts, 1), qnscts(qnscts) {}
+  BlkQNInfo(const QNSectorVec<QNT> &qnscts) : FermionParityInfo<QNT>(qnscts), qnscts(qnscts) {}
 
   // Constructor for bosonic case
   template<typename T = QNT, typename std::enable_if<!Fermionicable<T>::IsFermionic(), int>::type = 0>

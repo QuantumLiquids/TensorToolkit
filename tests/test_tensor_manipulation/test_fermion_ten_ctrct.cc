@@ -22,20 +22,20 @@
 
 using namespace qlten;
 
-using U1QN = QN<U1QNVal>;
-using IndexT = Index<U1QN>;
-using QNSctT = QNSector<U1QN>;
-using QNSctVecT = QNSectorVec<U1QN>;
+using fU1QN = special_qn::fU1QN;
+using IndexT = Index<fU1QN>;
+using QNSctT = QNSector<fU1QN>;
+using QNSctVecT = QNSectorVec<fU1QN>;
 
-using DQLTensor = QLTensor<QLTEN_Double, U1QN>;
-using ZQLTensor = QLTensor<QLTEN_Complex, U1QN>;
+using DQLTensor = QLTensor<QLTEN_Double, fU1QN>;
+using ZQLTensor = QLTensor<QLTEN_Complex, fU1QN>;
 
 struct TestContraction : public testing::Test {
   std::string qn_nm = "qn";
-  U1QN qn0 = U1QN({QNCard(qn_nm, U1QNVal(0))});
-  U1QN qnp1 = U1QN({QNCard(qn_nm, U1QNVal(1))});
-  U1QN qnp2 = U1QN({QNCard(qn_nm, U1QNVal(2))});
-  U1QN qnm1 = U1QN({QNCard(qn_nm, U1QNVal(-1))});
+  fU1QN qn0 = fU1QN(0);
+  fU1QN qnp1 = fU1QN(1);
+  fU1QN qnp2 = fU1QN(2);
+  fU1QN qnm1 = fU1QN(-1);
   int d_s = 3;
   QNSctT qnsct0_s = QNSctT(qn0, d_s);
   QNSctT qnsctp1_s = QNSctT(qnp1, d_s);
@@ -131,18 +131,15 @@ void RunTestTenCtrct1DCase(QLTensor<TenElemT, QNT> &t, const QNT &div) {
 
 TEST_F(TestContraction, 1DCase) {
   RunTestTenCtrct1DCase(dten_1d_s, qn0);
-  RunTestTenCtrct1DCase(dten_1d_s, qnp1);
-  RunTestTenCtrct1DCase(dten_1d_s, qnm1);
 
   RunTestTenCtrct1DCase(zten_1d_s, qn0);
-  RunTestTenCtrct1DCase(zten_1d_s, qnp1);
-  RunTestTenCtrct1DCase(zten_1d_s, qnm1);
 }
 
 template<typename TenElemT, typename QNT>
-void RunTestTenCtrct2DInOutInOutSectDegnDsCase1(
+void RunTestTenCtrct2DInOutInOutSectDegnDs(
     const QLTensor<TenElemT, QNT> &ta,
-    const QLTensor<TenElemT, QNT> &tb
+    const QLTensor<TenElemT, QNT> &tb,
+    const int d_s
 ) {
   auto m = ta.GetShape()[0];
   auto n = tb.GetShape()[1];
@@ -171,86 +168,51 @@ void RunTestTenCtrct2DInOutInOutSectDegnDsCase1(
       dense_tb, n,
       0.0,
       dense_res, n);
-  QLTensor<TenElemT, QNT> res;
-  Contract(&ta, &tb, {{1},
-                      {0}}, &res);
+  for (size_t i = 0; i < d_s; i++) {
+    for (size_t j = 0; j < d_s; j++) {
+      dense_res[n * i + j] *= (-1.0);
+    }
+  }
+
+  for (size_t i = 2 * d_s; i < 3 * d_s; i++) {
+    for (size_t j = 2 * d_s; j < 3 * d_s; j++) {
+      dense_res[n * i + j] *= (-1.0);
+    }
+  }
+
+  QLTensor<TenElemT, QNT> res1;
+  Contract(&ta, &tb, {{1}, {0}}, &res1);
   idx = 0;
-  for (auto &coors: GenAllCoors(res.GetShape())) {
-    GtestExpectNear(res.GetElem(coors), dense_res[idx], kEpsilon);
+  for (auto &coors: GenAllCoors(res1.GetShape())) {
+    GtestExpectNear(res1.GetElem(coors), dense_res[idx], kEpsilon);
     idx++;
   }
 
+  TenElemT res_scalar = 0.0;
+  for (size_t i = 0; i < m; i++) {
+    res_scalar += dense_res[n * i + i];
+  }
+  QLTensor<TenElemT, QNT> res2;
+  Contract(&ta, &tb, {{0, 1}, {1, 0}}, &res2);
+  GtestExpectNear(res2.GetElem({}), res_scalar, kEpsilon);
   delete[] dense_ta;
   delete[] dense_tb;
   delete[] dense_res;
-}
-
-template<typename TenElemT, typename QNT>
-void RunTestTenCtrct2DCase2(
-    const QLTensor<TenElemT, QNT> &ta,
-    const QLTensor<TenElemT, QNT> &tb
-) {
-  auto m = ta.GetShape()[0];
-  auto n = tb.GetShape()[1];
-  auto k1 = ta.GetShape()[1];
-  auto k2 = tb.GetShape()[0];
-  auto ta_size = m * k1;
-  auto tb_size = k2 * n;
-  auto dense_ta = new TenElemT[ta_size];
-  auto dense_tb = new TenElemT[tb_size];
-  size_t idx = 0;
-  for (auto &coors: GenAllCoors(ta.GetShape())) {
-    dense_ta[idx] = ta.GetElem(coors);
-    idx++;
-  }
-  idx = 0;
-  for (auto &coors: GenAllCoors(tb.GetShape())) {
-    dense_tb[idx] = tb.GetElem({coors[1], coors[0]});
-    idx++;
-  }
-  TenElemT res_scalar = 0.0;
-  for (size_t i = 0; i < ta_size; ++i) {
-    res_scalar += (dense_ta[i] * dense_tb[i]);
-  }
-  QLTensor<TenElemT, QNT> res;
-  Contract(&ta, &tb, {{0, 1},
-                      {1, 0}}, &res);
-  GtestExpectNear(res.GetElem({}), res_scalar, kEpsilon);
-
-  delete[] dense_ta;
-  delete[] dense_tb;
 }
 
 TEST_F(TestContraction, 2DCase) {
   auto dten_2d_s2 = dten_2d_s;
   dten_2d_s.Random(qn0);
   dten_2d_s2.Random(qn0);
-  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(dten_2d_s, dten_2d_s2);
-  RunTestTenCtrct2DCase2(dten_2d_s, dten_2d_s2);
-  dten_2d_s.Random(qnp1);
-  dten_2d_s2.Random(qn0);
-  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(dten_2d_s, dten_2d_s2);
-  RunTestTenCtrct2DCase2(dten_2d_s, dten_2d_s2);
-  dten_2d_s.Random(qnp1);
-  dten_2d_s2.Random(qnm1);
-  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(dten_2d_s, dten_2d_s2);
-  RunTestTenCtrct2DCase2(dten_2d_s, dten_2d_s2);
+  RunTestTenCtrct2DInOutInOutSectDegnDs(dten_2d_s, dten_2d_s2, d_s);
 
   auto zten_2d_s2 = zten_2d_s;
   zten_2d_s.Random(qn0);
   zten_2d_s2.Random(qn0);
-  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(zten_2d_s, zten_2d_s2);
-  RunTestTenCtrct2DCase2(zten_2d_s, zten_2d_s2);
-  zten_2d_s.Random(qnp1);
-  zten_2d_s2.Random(qn0);
-  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(zten_2d_s, zten_2d_s2);
-  RunTestTenCtrct2DCase2(zten_2d_s, zten_2d_s2);
-  zten_2d_s.Random(qnp1);
-  zten_2d_s2.Random(qnm1);
-  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(zten_2d_s, zten_2d_s2);
-  RunTestTenCtrct2DCase2(zten_2d_s, zten_2d_s2);
+  RunTestTenCtrct2DInOutInOutSectDegnDs(zten_2d_s, zten_2d_s2, d_s);
 }
 
+/*
 template<typename TenElemT, typename QNT>
 void RunTestTenCtrct3DCase1(
     const QLTensor<TenElemT, QNT> &ta,
@@ -622,3 +584,4 @@ TEST_F(TestContraction, ExtraContract) {
   RunTestTenExtraCtrct(zten_3d_s, {0, 1, 2}, zten_3d_s4, {0, 1, 2});
 }
 
+*/

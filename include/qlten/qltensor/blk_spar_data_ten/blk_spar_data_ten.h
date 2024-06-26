@@ -135,14 +135,14 @@ class BlockSparseDataTensor : public Streamable {
       const std::vector<std::vector<size_t>> &,
       const std::vector<std::vector<size_t>> &,
       std::vector<size_t> &,
-      const std::vector<TenIndexDirType>&
+      const std::vector<TenIndexDirType> &
   );
 
   std::map<size_t, int> CountResidueFermionSignForMatBasedCtrct(
       const std::set<size_t> &selected_blk_idx,
       const std::vector<size_t> &saved_axes_set,
       const size_t trans_critical_axe
-  );
+  ) const;
 
   std::map<size_t, DataBlkMatSvdRes<ElemT>> DataBlkDecompSVD(
       const IdxDataBlkMatMap<QNT> &
@@ -606,15 +606,9 @@ ElemT BlockSparseDataTensor<ElemT, QNT>::ElemGet(
         blk_idx_data_blk_it->second.DataCoorsToInBlkDataIdx(
             blk_coors_data_coors.second
         );
-    if constexpr (Fermionicable<QNT>::IsFermionic()) {
-      return *(
-          pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx
-      ) * (blk_idx_data_blk_it->second.GetBlkFermionicSign());
-    } else {
-      return *(
-          pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx
-      );
-    }
+    return *(
+        pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx
+    );
   }
 }
 

@@ -132,6 +132,8 @@ macro(compile_unittest
     set_target_properties(${TEST_NAME} PROPERTIES FOLDER tests)
 endmacro()
 
+add_unittest(test_fu1qn "test_qltensor/test_special_qn/test_fu1qn.cc" "" "" "")
+
 add_unittest(test_fermion_parity_exchange "test_utility/test_fermion_parity_exchange.cpp" "" "" "")
 
 ## Test quantum number related objects
@@ -152,6 +154,11 @@ add_unittest(test_qltensor
         "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 
+add_unittest(test_fermion_qltensor
+        "test_qltensor/test_fermion_qltensor.cc"
+        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+)
+
 ## Test tensor manipulation functions.
 # Test basic tensor operations.
 add_unittest(test_basic_operations
@@ -166,6 +173,10 @@ add_unittest(test_ten_linear_combine
 # Test tensor contraction.
 add_unittest(test_ten_ctrct
         "test_tensor_manipulation/test_ten_ctrct.cc"
+        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+)
+add_unittest(test_fermion_ten_ctrct
+        "test_tensor_manipulation/test_fermion_ten_ctrct.cc"
         "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 #Test tensor restriction contract

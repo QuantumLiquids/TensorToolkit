@@ -233,6 +233,9 @@ void BlockSparseDataTensor<ElemT, QNT>::FuseFirstTwoIndex(
 template<typename ElemT, typename QNT>
 QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Norm(void) {
   if constexpr (Fermionicable<QNT>::IsFermionic()) {
+    if (IsScalar()) {
+      return std::abs(*pactual_raw_data_);
+    }
     auto tasks = GenFermionNormTask();
     return RawDataFermionNorm_(tasks);
   } else {

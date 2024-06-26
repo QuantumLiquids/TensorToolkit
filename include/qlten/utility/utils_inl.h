@@ -44,8 +44,8 @@ void InplaceReorder(std::vector<T> &v, const std::vector<size_t> &order) {
 
 // parity = false = 0 means even sector; parity =true = 1 means odd sector
 template<typename T>
-bool FermionicInplaceReorder(std::vector<T> &v, const std::vector<size_t> &order,
-                             std::vector<bool> &parities) {
+int FermionicInplaceReorder(std::vector<T> &v, const std::vector<size_t> &order,
+                            std::vector<bool> &parities) {
   int exchange_sign = 0;
   std::vector<size_t> indices(order);
   for (size_t i = 0; i < indices.size(); ++i) {
@@ -65,7 +65,7 @@ bool FermionicInplaceReorder(std::vector<T> &v, const std::vector<size_t> &order
     }
     indices[current] = current;
   }
-  return exchange_sign & 1;
+  return (exchange_sign & 1) ? -1 : 1;
 }
 
 inline std::vector<int> Reorder(const std::vector<size_t> &v1, const std::vector<int> &order) {

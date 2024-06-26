@@ -166,7 +166,7 @@ QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::RawDataFermionNorm_(
     const std::vector<RawDataFermionNormTask> &tasks) {
   double sum_square = 0.0;
   for (auto &task: tasks) {
-    sum_square += task.sign * VectorSumSquares(pactual_raw_data_ + task.data_offset, task.data_size);
+    sum_square += task.sign * hp_numeric::VectorSumSquares(pactual_raw_data_ + task.data_offset, task.data_size);
   }
   if (sum_square < 0) {
     std::cerr << "warning : Norm^2 < 0." << std::endl;
