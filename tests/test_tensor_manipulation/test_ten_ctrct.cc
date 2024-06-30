@@ -464,7 +464,7 @@ bool BSDTCompareShell(
 }
 
 template<typename TenElemT, typename QNT>
-void RunTestTenExtraCtrct(
+void RunTestTenMatBasedCtrct(
     const QLTensor<TenElemT, QNT> &ta,
     const std::vector<size_t> &ctrct_axes_a, //continuous number
     const QLTensor<TenElemT, QNT> &tb,
@@ -556,69 +556,69 @@ void RunTestTenExtraCtrct(
   EXPECT_NEAR(diff4.Get2Norm() / std::max(res4.Get2Norm(), 1e-5), 0.0, kDoubleEpsilon * 10);
 }
 
-TEST_F(TestContraction, ExtraContract) {
+TEST_F(TestContraction, MatBasedContract) {
   auto dten_3d_s2 = dten_3d_s;
   dten_3d_s.Random(qn0);
   dten_3d_s2.Random(qn0);
-  RunTestTenExtraCtrct(dten_3d_s, {2}, dten_3d_s2, {0});
-  RunTestTenExtraCtrct(dten_3d_s, {1}, dten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(dten_3d_s, {2}, dten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(dten_3d_s, {1}, dten_3d_s2, {0});
   dten_3d_s.Random(qnp1);
   dten_3d_s2.Random(qn0);
-  RunTestTenExtraCtrct(dten_3d_s, {2}, dten_3d_s2, {0});
-  RunTestTenExtraCtrct(dten_3d_s, {1}, dten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(dten_3d_s, {2}, dten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(dten_3d_s, {1}, dten_3d_s2, {0});
   dten_3d_s.Random(qnp1);
   dten_3d_s2.Random(qnm1);
-  RunTestTenExtraCtrct(dten_3d_s, {2}, dten_3d_s2, {0});
-  RunTestTenExtraCtrct(dten_3d_s, {1}, dten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(dten_3d_s, {2}, dten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(dten_3d_s, {1}, dten_3d_s2, {0});
   dten_3d_s.Random(qn0);
   dten_3d_s3.Random(qn0);
-  RunTestTenExtraCtrct(dten_3d_s, {1, 2}, dten_3d_s3, {0, 1});
+  RunTestTenMatBasedCtrct(dten_3d_s, {1, 2}, dten_3d_s3, {0, 1});
   dten_3d_s.Random(qnp1);
   dten_3d_s3.Random(qn0);
-  RunTestTenExtraCtrct(dten_3d_s, {1, 2}, dten_3d_s3, {0, 1});
+  RunTestTenMatBasedCtrct(dten_3d_s, {1, 2}, dten_3d_s3, {0, 1});
   dten_3d_s.Random(qnp1);
   dten_3d_s3.Random(qnm1);
-  RunTestTenExtraCtrct(dten_3d_s, {1, 2}, dten_3d_s3, {0, 1});
+  RunTestTenMatBasedCtrct(dten_3d_s, {1, 2}, dten_3d_s3, {0, 1});
   dten_3d_s.Random(qn0);
   dten_3d_s4.Random(qn0);
-  RunTestTenExtraCtrct(dten_3d_s, {0, 1, 2}, dten_3d_s4, {0, 1, 2});
+  RunTestTenMatBasedCtrct(dten_3d_s, {0, 1, 2}, dten_3d_s4, {0, 1, 2});
   dten_3d_s.Random(qnp1);
   dten_3d_s4.Random(qn0);
-  RunTestTenExtraCtrct(dten_3d_s, {0, 1, 2}, dten_3d_s4, {0, 1, 2});
+  RunTestTenMatBasedCtrct(dten_3d_s, {0, 1, 2}, dten_3d_s4, {0, 1, 2});
   dten_3d_s.Random(qnp1);
   dten_3d_s4.Random(qnm1);
-  RunTestTenExtraCtrct(dten_3d_s, {0, 1, 2}, dten_3d_s4, {0, 1, 2});
+  RunTestTenMatBasedCtrct(dten_3d_s, {0, 1, 2}, dten_3d_s4, {0, 1, 2});
 
   auto zten_3d_s2 = zten_3d_s;
   zten_3d_s.Random(qn0);
   zten_3d_s2.Random(qn0);
-  RunTestTenExtraCtrct(zten_3d_s, {2}, zten_3d_s2, {0});
-  RunTestTenExtraCtrct(zten_3d_s, {1}, zten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(zten_3d_s, {2}, zten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(zten_3d_s, {1}, zten_3d_s2, {0});
   zten_3d_s.Random(qnp1);
   zten_3d_s2.Random(qn0);
-  RunTestTenExtraCtrct(zten_3d_s, {2}, zten_3d_s2, {0});
-  RunTestTenExtraCtrct(zten_3d_s, {1}, zten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(zten_3d_s, {2}, zten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(zten_3d_s, {1}, zten_3d_s2, {0});
   zten_3d_s.Random(qnp1);
   zten_3d_s2.Random(qnm1);
-  RunTestTenExtraCtrct(zten_3d_s, {2}, zten_3d_s2, {0});
-  RunTestTenExtraCtrct(zten_3d_s, {1}, zten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(zten_3d_s, {2}, zten_3d_s2, {0});
+  RunTestTenMatBasedCtrct(zten_3d_s, {1}, zten_3d_s2, {0});
   zten_3d_s.Random(qn0);
   zten_3d_s3.Random(qn0);
-  RunTestTenExtraCtrct(zten_3d_s, {1, 2}, zten_3d_s3, {0, 1});
+  RunTestTenMatBasedCtrct(zten_3d_s, {1, 2}, zten_3d_s3, {0, 1});
   zten_3d_s.Random(qnp1);
   zten_3d_s3.Random(qn0);
-  RunTestTenExtraCtrct(zten_3d_s, {1, 2}, zten_3d_s3, {0, 1});
+  RunTestTenMatBasedCtrct(zten_3d_s, {1, 2}, zten_3d_s3, {0, 1});
   zten_3d_s.Random(qnp1);
   zten_3d_s3.Random(qnm1);
-  RunTestTenExtraCtrct(zten_3d_s, {1, 2}, zten_3d_s3, {0, 1});
+  RunTestTenMatBasedCtrct(zten_3d_s, {1, 2}, zten_3d_s3, {0, 1});
   zten_3d_s.Random(qn0);
   zten_3d_s4.Random(qn0);
-  RunTestTenExtraCtrct(zten_3d_s, {0, 1, 2}, zten_3d_s4, {0, 1, 2});
+  RunTestTenMatBasedCtrct(zten_3d_s, {0, 1, 2}, zten_3d_s4, {0, 1, 2});
   zten_3d_s.Random(qnp1);
   zten_3d_s4.Random(qn0);
-  RunTestTenExtraCtrct(zten_3d_s, {0, 1, 2}, zten_3d_s4, {0, 1, 2});
+  RunTestTenMatBasedCtrct(zten_3d_s, {0, 1, 2}, zten_3d_s4, {0, 1, 2});
   zten_3d_s.Random(qnp1);
   zten_3d_s4.Random(qnm1);
-  RunTestTenExtraCtrct(zten_3d_s, {0, 1, 2}, zten_3d_s4, {0, 1, 2});
+  RunTestTenMatBasedCtrct(zten_3d_s, {0, 1, 2}, zten_3d_s4, {0, 1, 2});
 }
 

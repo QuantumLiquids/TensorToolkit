@@ -202,12 +202,12 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopyAndScale(
   RawDataCopyAndScale_(task, pten_raw_data);
 }
 
-// Here we fix |Psi> physical leg out
+// OUT --> IN doesn't contribute minus sign
 template<typename ElemT, typename QNT>
 std::vector<RawDataFermionNormTask> BlockSparseDataTensor<ElemT, QNT>::GenFermionNormTask() const {
   std::vector<size_t> out_indices;
   for (size_t i = 0; i < ten_rank; ++i) {
-    if ((*this->pqlten_indexes)[i].GetDir() == TenIndexDirType::OUT) {
+    if ((*this->pqlten_indexes)[i].GetDir() == TenIndexDirType::IN) {
       out_indices.push_back(i);
     }
   }
@@ -358,7 +358,7 @@ inline int FermionExchangeSignForCtrct(
     }
     concatenated_axes[2 * i + 1] = axes1 + 1;
 
-    exchange_num += exist_particle1 && (a_ctrct_idx_dir[i] == OUT);
+    exchange_num += exist_particle1 && (a_ctrct_idx_dir[i] == IN);
   }
   return (exchange_num & 1) ? -1 : 1;
 }
@@ -489,13 +489,19 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
               ) {
             beta = 1.0;
           } else {
-            auto c_blk_shape = GenTenCtrctDataBlkCoors(
-                a_data_blk.shape,
-                b_data_blk.shape,
-                saved_axes_set
-            );
-            blk_idx_data_blk_map_[c_blk_idx] =
-                DataBlk<QNT>(std::move(c_blk_coors), std::move(c_blk_shape));
+            if constexpr (Fermionicable<QNT>::IsFermionic()) {
+              // Fermion case the block quantum number info is always needed.
+              blk_idx_data_blk_map_[c_blk_idx] =
+                  DataBlk<QNT>(c_blk_coors, *pqlten_indexes);
+            } else {
+              auto c_blk_shape = GenTenCtrctDataBlkCoors(
+                  a_data_blk.shape,
+                  b_data_blk.shape,
+                  saved_axes_set
+              );
+              blk_idx_data_blk_map_[c_blk_idx] =
+                  DataBlk<QNT>(std::move(c_blk_coors), std::move(c_blk_shape));
+            }
             beta = 0.0;
           }
 
@@ -537,7 +543,6 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
 template<typename ElemT, typename QNT>
 std::map<size_t, int>
 BlockSparseDataTensor<ElemT, QNT>::CountResidueFermionSignForMatBasedCtrct(
-    const std::set<size_t> &selected_blk_idx,
     const std::vector<size_t> &saved_axes_set,
     const size_t trans_critical_axe
 ) const {
@@ -552,14 +557,18 @@ BlockSparseDataTensor<ElemT, QNT>::CountResidueFermionSignForMatBasedCtrct(
       saved_axes_second.push_back(axe);
     }
   }
-  for (auto &idx: selected_blk_idx) {
-    const DataBlk<QNT> &data_blk = blk_idx_data_blk_map_.at(idx);
-    const std::vector<bool> fermion_parities = data_blk.GetBlkFermionParities();
-    size_t fermion_num1 = std::count(
-        fermion_parities.begin(), fermion_parities.begin() + saved_axes_first.size(), true);
-    size_t fermion_num2 = std::count(
-        fermion_parities.begin() + saved_axes_second[0], fermion_parities.end(), true);
-    idx_fermion_sign_map[idx] = ((fermion_num1 & 1) && (fermion_num2 & 1)) ? -1 : 1;
+
+  for (auto &[idx, data_blk]: blk_idx_data_blk_map_) {
+    if (saved_axes_first.size() == 0 || saved_axes_second.size() == 0) {
+      idx_fermion_sign_map[idx] = 1;
+    } else {
+      const std::vector<bool> fermion_parities = data_blk.GetBlkFermionParities();
+      size_t fermion_num1 = std::count(
+          fermion_parities.begin(), fermion_parities.begin() + saved_axes_first.size(), true);
+      size_t fermion_num2 = std::count(
+          fermion_parities.begin() + saved_axes_second[0], fermion_parities.end(), true);
+      idx_fermion_sign_map[idx] = ((fermion_num1 & 1) && (fermion_num2 & 1)) ? -1 : 1;
+    }
   }
   return idx_fermion_sign_map;
 }

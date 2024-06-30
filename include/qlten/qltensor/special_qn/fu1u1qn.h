@@ -22,6 +22,28 @@ namespace special_qn {
 /// The first u1 val mush be the particle number.
 class fU1U1QN : public U1U1QN {
  public:
+  using U1U1QN::U1U1QN;
+
+  // Override operators to return fU1U1QN
+  fU1U1QN operator-() const {
+    return fU1U1QN(-vals_[0], -vals_[1]);
+  }
+
+  fU1U1QN &operator+=(const fU1U1QN &rhs) {
+    vals_[0] += rhs.vals_[0];
+    vals_[1] += rhs.vals_[1];
+    hash_ = CalcHash_();
+    return *this;
+  }
+
+  fU1U1QN operator+(const fU1U1QN &rhs) const {
+    return fU1U1QN(vals_[0] + rhs.vals_[0], vals_[1] + rhs.vals_[1]);
+  }
+
+  fU1U1QN operator-(const fU1U1QN &rhs) const {
+    return fU1U1QN(vals_[0] - rhs.vals_[0], vals_[1] - rhs.vals_[1]);
+  }
+
   bool IsFermionParityOdd() const { return vals_[0] % 2; }
   bool IsFermionParityEven() const { return !(IsFermionParityOdd()); }
 };

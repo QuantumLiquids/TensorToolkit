@@ -139,7 +139,6 @@ class BlockSparseDataTensor : public Streamable {
   );
 
   std::map<size_t, int> CountResidueFermionSignForMatBasedCtrct(
-      const std::set<size_t> &selected_blk_idx,
       const std::vector<size_t> &saved_axes_set,
       const size_t trans_critical_axe
   ) const;
@@ -200,7 +199,11 @@ class BlockSparseDataTensor : public Streamable {
 
   QLTEN_Double Norm(void);
 
+  QLTEN_Double Quasi2Norm(void);
+
   QLTEN_Double Normalize(void);
+
+  QLTEN_Double QuasiNormalize(void);
 
   void Conj(void);
 

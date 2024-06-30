@@ -388,7 +388,7 @@ void QLTensor<ElemT, QNT>::Random(const QNT &div) {
     }
     pblk_spar_data_ten_->DataBlksInsert(blk_coors_s, false, false);     // NO allocate memory on this stage.
   } else {
-    for (auto &blk_coors : GenAllCoors(pblk_spar_data_ten_->blk_shape)) {
+    for (auto &blk_coors: GenAllCoors(pblk_spar_data_ten_->blk_shape)) {
       if (CalcDiv(indexes_, blk_coors) == div) {
         pblk_spar_data_ten_->DataBlkInsert(blk_coors, false);     // NO allocate memory on this stage.
       }
@@ -431,6 +431,13 @@ QLTEN_Double QLTensor<ElemT, QNT>::Get2Norm(void) const {
   return norm;
 }
 
+template<typename ElemT, typename QNT>
+QLTEN_Double QLTensor<ElemT, QNT>::GetQuasi2Norm(void) const {
+  assert(!IsDefault());
+  QLTEN_Double norm = pblk_spar_data_ten_->Quasi2Norm();
+  return norm;
+}
+
 /**
 Normalize the tensor and return its norm.
 
@@ -443,13 +450,20 @@ QLTEN_Double QLTensor<ElemT, QNT>::Normalize(void) {
   return norm;
 }
 
+template<typename ElemT, typename QNT>
+QLTEN_Double QLTensor<ElemT, QNT>::QuasiNormalize() {
+  assert(!IsDefault());
+  QLTEN_Double norm = pblk_spar_data_ten_->QuasiNormalize();
+  return norm;
+}
+
 /**
 Switch the direction of the indexes, complex conjugate of the elements.
 */
 template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::Dag(void) {
   assert(!IsDefault());
-  for (auto &index : indexes_) { index.Inverse(); }
+  for (auto &index: indexes_) { index.Inverse(); }
   pblk_spar_data_ten_->Conj();
 
 }
@@ -555,7 +569,7 @@ void QLTensor<ElemT, QNT>::StreamRead(std::istream &is) {
   assert(IsDefault());    // Only default tensor can read data
   is >> rank_;
   indexes_ = IndexVec<QNT>(rank_);
-  for (auto &index : indexes_) { is >> index; }
+  for (auto &index: indexes_) { is >> index; }
   shape_ = CalcShape_();
   size_ = CalcSize_();
   pblk_spar_data_ten_ = new BlockSparseDataTensor<ElemT, QNT>(&indexes_);
@@ -583,7 +597,7 @@ template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::StreamWrite(std::ostream &os) const {
   assert(!IsDefault());
   os << rank_ << "\n";
-  for (auto &index : indexes_) { os << index; }
+  for (auto &index: indexes_) { os << index; }
   os << (*pblk_spar_data_ten_);
 }
 
@@ -619,14 +633,14 @@ void QLTensor<ElemT, QNT>::Show(const size_t indent_level) const {
   VectorPrinter(shape_);
   std::cout << ")" << std::endl;
   std::cout << IndentPrinter(indent_level + 1) << "Indices:" << std::endl;
-  for (auto &index : indexes_) {
+  for (auto &index: indexes_) {
     index.Show(indent_level + 2);
   }
   if (!IsDefault()) {
     std::cout << IndentPrinter(indent_level + 1) << "Divergence:" << std::endl;
     Div().Show(indent_level + 2);
     std::cout << IndentPrinter(indent_level + 1) << "Nonzero elements:" << std::endl;
-    for (auto &coors : GenAllCoors(shape_)) {
+    for (auto &coors: GenAllCoors(shape_)) {
       auto elem = GetElem(coors);
       if (elem != ElemT(0.0)) {
         std::cout << IndentPrinter(indent_level + 2) << "[";
@@ -670,7 +684,7 @@ QLTensor<ElemT, QNT> &QLTensor<ElemT, QNT>::RemoveTrivialIndexes(const std::vect
     return *this;
   }
   std::vector<Index<QNT>> trivial_idxs;
-  for (auto trivial_idx_axe : trivial_idx_axes) {
+  for (auto trivial_idx_axe: trivial_idx_axes) {
     trivial_idxs.push_back(InverseIndex(GetIndex(trivial_idx_axe)));
   }
 
@@ -756,7 +770,7 @@ Calculate size from tensor shape.
 template<typename ElemT, typename QNT>
 inline size_t QLTensor<ElemT, QNT>::CalcSize_(void) const {
   size_t size = 1;
-  for (auto dim : shape_) { size *= dim; }
+  for (auto dim: shape_) { size *= dim; }
   return size;
 }
 

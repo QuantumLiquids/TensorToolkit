@@ -190,8 +190,7 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_h
     );
     if constexpr (Fermionicable<QNT>::IsFermionic()) {
       a_trans_data_blk_idx_map_to_fermion_sign_ =
-          a_bsdt.CountResidueFermionSignForMatBasedCtrct(selected_data_blk_idxs,
-                                                         saved_axes_set_[0],
+          a_bsdt.CountResidueFermionSignForMatBasedCtrct(saved_axes_set_[0],
                                                          a_trans_critical_axe_);
     }
   }
@@ -210,8 +209,7 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_h
     );
     if constexpr (Fermionicable<QNT>::IsFermionic()) {
       b_trans_data_blk_idx_map_to_fermion_sign_ =
-          b_bsdt.CountResidueFermionSignForMatBasedCtrct(selected_data_blk_idxs,
-                                                         saved_axes_set_[1],
+          b_bsdt.CountResidueFermionSignForMatBasedCtrct(saved_axes_set_[1],
                                                          b_trans_critical_axe_);
     }
   }

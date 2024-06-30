@@ -36,7 +36,7 @@ Symmetry-blocked sparse tensor.
 @tparam QNT   Type of the quantum number.
 */
 template<typename ElemT, typename QNT>
-class QLTensor : public Showable, Fermionicable<QNT> {
+class QLTensor : public Showable, public Fermionicable<QNT> {
  public:
   // Constructors and destructor.
   /// Default constructor.
@@ -139,7 +139,12 @@ class QLTensor : public Showable, Fermionicable<QNT> {
 
   QLTEN_Double Get2Norm(void) const;
 
+  QLTEN_Double GetQuasi2Norm(void) const;
+
   QLTEN_Double Normalize(void);
+
+  ///< rescale the tensor so that the summation of the square of elements = 1
+  QLTEN_Double QuasiNormalize(void);
 
   void Dag(void);
 

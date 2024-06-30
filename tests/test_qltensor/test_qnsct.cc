@@ -11,7 +11,7 @@
 #include "qlten/qltensor/qnsct.h"             // QNSector
 #include "qlten/qltensor/qn/qn.h"             // QN
 #include "qlten/qltensor/qn/qnval_u1.h"       // U1QNVal
-#include "qlten/qltensor/special_qn/fz2qn.h"  // fZ2QN
+#include "qlten/qltensor/special_qn/special_qn_all.h"  // fZ2QN, fU1QN
 #include "../testing_utility.h"               // RandInt, RandUnsignedInt
 
 #include <functional>     // hash
@@ -22,10 +22,14 @@ using namespace qlten;
 using U1QN = QN<U1QNVal>;
 using U1U1QN = QN<U1QNVal, U1QNVal>;
 using special_qn::fZ2QN;
+using special_qn::fU1QN;
+using special_qn::fU1U1QN;
 
 using QNSctT1 = QNSector<U1QN>;
 using QNSctT2 = QNSector<U1U1QN>;
 using QNSctT3 = QNSector<fZ2QN>;
+using QNSctT4 = QNSector<fU1QN>;
+using QNSctT5 = QNSector<fU1U1QN>;
 
 struct TestQNSector : public testing::Test {
   int rand_int_1 = RandInt(-10, 10);
@@ -50,6 +54,14 @@ struct TestQNSector : public testing::Test {
   );
   QNSctT3 fqnsct1 = QNSctT3(
       fZ2QN(1),
+      dgnc_4
+  );
+  QNSctT4 fqnsct2 = QNSctT4(
+      fU1QN(2),
+      dgnc_3
+      );
+  QNSctT5 fqnsct3 = QNSctT5(
+      fU1U1QN(3,2),
       dgnc_4
   );
 };
@@ -96,6 +108,8 @@ TEST_F(TestQNSector, BasicInfo) {
   EXPECT_FALSE(fqnsct0.IsFermionParityOdd());
   EXPECT_TRUE(fqnsct1.IsFermionParityOdd());
   EXPECT_FALSE(fqnsct1.IsFermionParityEven());
+  EXPECT_TRUE(fqnsct2.IsFermionParityEven());
+  EXPECT_TRUE(fqnsct3.IsFermionParityOdd());
 }
 
 TEST_F(TestQNSector, Hashable) {

@@ -243,6 +243,11 @@ QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Norm(void) {
   }
 }
 
+template<typename ElemT, typename QNT>
+QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Quasi2Norm(void) {
+  return RawDataNorm_();
+}
+
 /**
 Normalize the data tensor and return its norm.
 
@@ -251,6 +256,12 @@ Normalize the data tensor and return its norm.
 template<typename ElemT, typename QNT>
 QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Normalize(void) {
   double norm = Norm();
+  return RawDataNormalize_(norm);
+}
+
+template<typename ElemT, typename QNT>
+QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::QuasiNormalize(void) {
+  double norm = RawDataNorm_();
   return RawDataNormalize_(norm);
 }
 
@@ -545,10 +556,17 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctAccordingTask(
   for (const auto &task: raw_data_ctrct_tasks) {
     const ElemT *a_data = a_raw_data + task.a_data_offset;
     const ElemT *b_data = b_raw_data + task.b_data_offset;
-    double over_all_f_ex_sign = 1;
+    double over_all_f_ex_sign = task.f_ex_sign;
     if constexpr (Fermionicable<QNT>::IsFermionic()) {
-      over_all_f_ex_sign =
-          task.f_ex_sign * a_blk_idx_sign_map.at(task.a_blk_idx) * b_blk_idx_sign_map.at(task.b_blk_idx);
+      if (a_blk_idx_sign_map.size() > 0) {
+        over_all_f_ex_sign
+            *= a_blk_idx_sign_map.at(task.a_blk_idx);
+      }
+      if (b_blk_idx_sign_map.size() > 0) {
+        over_all_f_ex_sign
+            *= b_blk_idx_sign_map.at(task.b_blk_idx);
+      }
+
     }
 
     if (a_ctrct_tail && b_ctrct_head) {
