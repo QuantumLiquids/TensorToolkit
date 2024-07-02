@@ -71,23 +71,23 @@ class fZ2QN : public Showable {
   static const size_t n = 2;
 };
 
-fZ2QN::fZ2QN(void) : fZ2QN(0) {}
+inline fZ2QN::fZ2QN(void) : fZ2QN(0) {}
 
-fZ2QN::fZ2QN(const int znval_) : znval_(znval_), hash_(CalcHash_()) {}
+inline fZ2QN::fZ2QN(const int znval_) : znval_(znval_), hash_(CalcHash_()) {}
 
-fZ2QN::fZ2QN(const fZ2QN &rhs) : znval_(rhs.znval_), hash_(rhs.hash_) {}
+inline fZ2QN::fZ2QN(const fZ2QN &rhs) : znval_(rhs.znval_), hash_(rhs.hash_) {}
 
-fZ2QN &fZ2QN::operator=(const fZ2QN &rhs) {
+inline fZ2QN &fZ2QN::operator=(const fZ2QN &rhs) {
   znval_ = rhs.znval_;
   hash_ = rhs.hash_;
   return (*this);
 }
 
-fZ2QN fZ2QN::operator+(const fZ2QN &rhs) const {
+inline fZ2QN fZ2QN::operator+(const fZ2QN &rhs) const {
   return fZ2QN((this->znval_ + rhs.znval_) % n);
 }
 
-fZ2QN &fZ2QN::operator+=(const fZ2QN &rhs) {
+inline fZ2QN &fZ2QN::operator+=(const fZ2QN &rhs) {
   znval_ += rhs.znval_;
   if (znval_ >= n) {
     znval_ = znval_ - n;
@@ -96,17 +96,17 @@ fZ2QN &fZ2QN::operator+=(const fZ2QN &rhs) {
   return *this;
 }
 
-void fZ2QN::StreamRead(std::istream &is) {
+inline void fZ2QN::StreamRead(std::istream &is) {
   is >> znval_;
   is >> hash_;
 }
 
-void fZ2QN::StreamWrite(std::ostream &os) const {
+inline void fZ2QN::StreamWrite(std::ostream &os) const {
   os << znval_ << "\n"
      << hash_ << "\n";
 }
 
-void fZ2QN::Show(const size_t indent_level) const {
+inline void fZ2QN::Show(const size_t indent_level) const {
   std::cout << IndentPrinter(indent_level)
             << "fZ2QN:  ("
             << znval_
@@ -114,7 +114,7 @@ void fZ2QN::Show(const size_t indent_level) const {
             << "\n";
 }
 
-size_t fZ2QN::CalcHash_() const {
+inline size_t fZ2QN::CalcHash_() const {
   return znval_;
 }
 

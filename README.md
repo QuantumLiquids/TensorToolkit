@@ -11,10 +11,11 @@ TensorToolit offers the following key features:
 
 - [x] Abelian Quantum Numbers
 - [x] MPI Parallelization Support
+- [x] Grassmann Tensor network
 
 ## To-Do List
 
-- [ ] Fermionic Tensors' Support
+- [ ] GPU
 
 ## Dependence
 
