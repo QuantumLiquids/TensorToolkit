@@ -59,7 +59,7 @@ int FermionicInplaceReorder(std::vector<T> &v, const std::vector<size_t> &order,
       }
       exchange_sign += sign_between * (parities[current] + parities[next]) + (parities[current] * parities[next]);
 
-      std::swap(parities[current], parities[next]);
+      std::vector<bool>::swap(parities[current], parities[next]);
       indices[current] = current;
       current = next;
     }

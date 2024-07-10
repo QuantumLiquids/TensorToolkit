@@ -189,6 +189,11 @@ add_unittest(test_ten_svd
         "test_tensor_manipulation/test_ten_svd.cc"
         "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
+# EVD
+add_unittest(test_sym_mat_evd
+        "test_tensor_manipulation/test_sym_mat_evd.cpp"
+        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+)
 # Test tensor QR.
 add_unittest(test_ten_qr
         "test_tensor_manipulation/test_ten_qr.cc"

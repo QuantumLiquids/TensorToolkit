@@ -166,6 +166,11 @@ class BlockSparseDataTensor : public Streamable {
       const std::vector<size_t> &
   );
 
+  std::vector<SymMatEVDTask> DataBlkGenForSymMatEVD(
+      BlockSparseDataTensor &u,
+      BlockSparseDataTensor<QLTEN_Double, QNT> &d
+  ) const;
+
   std::map<size_t, DataBlkMatQrRes<ElemT>> DataBlkDecompQR(
       const IdxDataBlkMatMap<QNT> &
   ) const;
@@ -250,6 +255,12 @@ class BlockSparseDataTensor : public Streamable {
       const std::set<size_t> &selected_data_blk_idxs,
       const size_t critical_axe,
       ElemT *transposed_data
+  ) const;
+
+  void SymMatEVDRawDataDecomposition(
+      BlockSparseDataTensor &u,
+      BlockSparseDataTensor<QLTEN_Double, QNT> &d,
+      std::vector<SymMatEVDTask> evd_tasks
   ) const;
 
   bool HasDataBlkQNInfo() {
@@ -494,6 +505,8 @@ class BlockSparseDataTensor : public Streamable {
   friend inline void RecvBroadCastQLTensor(boost::mpi::communicator world,
                                            QLTensor<ElemT2, QNT2> &qlten,
                                            const int root);
+
+  friend class BlockSparseDataTensor<QLTEN_Complex, QNT>; //access private data in double BSDT from complex BSDT
 };
 
 template<typename ElemT, typename QNT>

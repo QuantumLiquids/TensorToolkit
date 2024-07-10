@@ -573,6 +573,20 @@ BlockSparseDataTensor<ElemT, QNT>::CountResidueFermionSignForMatBasedCtrct(
   return idx_fermion_sign_map;
 }
 
+template<typename ElemT, typename QNT>
+std::vector<SymMatEVDTask> BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForSymMatEVD(
+    BlockSparseDataTensor<ElemT, QNT> &u,
+    BlockSparseDataTensor<QLTEN_Double, QNT> &d) const {
+  u.blk_idx_data_blk_map_ = this->blk_idx_data_blk_map_;
+  d.blk_idx_data_blk_map_ = this->blk_idx_data_blk_map_;
+  std::vector<SymMatEVDTask> raw_data_tasks;
+  raw_data_tasks.reserve(blk_idx_data_blk_map_.size());
+  for (auto [idx, data_blk]: blk_idx_data_blk_map_) {
+    SymMatEVDTask task(data_blk.data_offset, data_blk.shape[0]);
+    raw_data_tasks.push_back(task);
+  }
+  return raw_data_tasks;
+}
 /**D
 SVD decomposition.
 */

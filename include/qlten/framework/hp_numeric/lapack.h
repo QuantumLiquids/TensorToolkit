@@ -129,6 +129,65 @@ inline lapack_int MatSVD(
   return info;
 }
 
+// eigen value decomposition for symmetric/hermitian matrix
+// the memory of d an u matrices are allocated outside the function
+// d should be initialized as zero matrix
+inline lapack_int SymMatEVD(
+    const QLTEN_Double *mat,
+    const size_t n,
+    QLTEN_Double *d, // eigen values but in matrix form
+    QLTEN_Double *u  // the column is the eigen vector
+) {
+  QLTEN_Double *eigenvalues = (QLTEN_Double *) malloc(n * sizeof(QLTEN_Double));
+  memcpy(u, mat, n * n * sizeof(QLTEN_Double));
+
+  auto info = LAPACKE_dsyev(
+      LAPACK_ROW_MAJOR, 'V', 'U', // Compute eigenvalues and eigenvectors, upper triangle
+      n,
+      u, n,
+      eigenvalues
+  );
+
+  assert(info == 0);
+  for (size_t i = 0; i < n; i++) {
+    d[i * n + i] = eigenvalues[i];
+  }
+  free(eigenvalues);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 4 * n * n * n / 3;
+  // a rough estimation for EVD
+#endif
+  return info;
+}
+
+inline lapack_int SymMatEVD(
+    const QLTEN_Complex *mat,
+    const size_t n,
+    QLTEN_Double *d,
+    QLTEN_Complex *u
+) {
+  QLTEN_Double *eigenvalues = (QLTEN_Double *) malloc(n * sizeof(QLTEN_Double));
+  memcpy(u, mat, n * n * sizeof(QLTEN_Complex));
+
+  auto info = LAPACKE_zheev(
+      LAPACK_ROW_MAJOR, 'V', 'U', // Compute eigenvalues and eigenvectors, upper triangle
+      n,
+      reinterpret_cast<lapack_complex_double *>(u), n,
+      eigenvalues
+  );
+
+  assert(info == 0);
+  for (size_t i = 0; i < n; i++) {
+    d[i * n + i] = eigenvalues[i];
+  }
+  free(eigenvalues);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 8 * n * n * n / 3;
+  // a rough estimation for complex EVD
+#endif
+  return info;
+}
+
 inline void MatQR(
     QLTEN_Double *mat,
     const size_t m, const size_t n,

@@ -94,9 +94,15 @@ void CheckIsIdTen(const TenT &t) {
   EXPECT_EQ(shape.size(), 2);
   EXPECT_EQ(shape[0], shape[1]);
   for (size_t i = 0; i < shape[0]; ++i) {
-    QLTEN_Complex elem = t.GetElem({i, i});
-    EXPECT_NEAR(elem.real(), 1.0, 1E-14);
-    EXPECT_NEAR(elem.imag(), 0.0, 1E-14);
+    for (size_t j = 0; j < shape[1]; ++j) {
+      QLTEN_Complex elem = t.GetElem({i, j});
+      if (i == j) {
+        EXPECT_NEAR(elem.real(), 1.0, 1E-14);
+      } else {
+        EXPECT_NEAR(elem.real(), 0.0, 1E-14);
+      }
+      EXPECT_NEAR(elem.imag(), 0.0, 1E-14);
+    }
   }
 }
 

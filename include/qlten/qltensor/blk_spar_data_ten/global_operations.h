@@ -20,6 +20,7 @@
 #include "qlten/framework/value_t.h"                                      // QLTEN_Double, QLTEN_Complex
 #include "qlten/framework/hp_numeric/ten_trans.h"                         // TensorTranspose
 #include "qlten/framework/hp_numeric/blas_extensions.h"
+#include "qlten/framework/hp_numeric/lapack.h"
 #include "qlten/utility/utils_inl.h"                                      // CalcMultiDimDataOffsets, Reorder
 #include "qlten/utility/timer.h"
 
@@ -987,6 +988,26 @@ void BlockSparseDataTensor<ElemT, QNT>::CollectiveLinearCombine(
     }
   }
   RawDataCopy_(source_pointers, dest_pointers, copy_size);
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::SymMatEVDRawDataDecomposition(
+    BlockSparseDataTensor<ElemT, QNT> &u,
+    BlockSparseDataTensor<qlten::QLTEN_Double, QNT> &d,
+    std::vector<SymMatEVDTask> evd_tasks) const {
+  u.raw_data_size_ = this->raw_data_size_;
+  d.raw_data_size_ = this->raw_data_size_;
+  u.Allocate(false);
+  d.Allocate(true);
+  const ElemT *pa = this->pactual_raw_data_;
+  ElemT *pu_start = u.pactual_raw_data_;
+  QLTEN_Double *pd_start = d.pactual_raw_data_;
+  for (auto &task: evd_tasks) {
+    hp_numeric::SymMatEVD(pa + task.data_offset,
+                          task.mat_size,
+                          pd_start + task.data_offset,
+                          pu_start + task.data_offset);
+  }
 }
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_GLOBAL_OPERATIONS_H */

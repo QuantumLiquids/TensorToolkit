@@ -13,7 +13,6 @@
 #ifndef QLTEN_TENSOR_MANIPULATION_ALL
 #define QLTEN_TENSOR_MANIPULATION_ALL
 
-
 #include "qlten/tensor_manipulation/basic_operations.h"       // Dag, Div, ToComplex
 #include "qlten/tensor_manipulation/index_combine.h"          // IndexCombine
 #include "qlten/tensor_manipulation/ten_linear_combine.h"     // LinearCombine
@@ -25,7 +24,7 @@
 #include "qlten/tensor_manipulation/ten_fuse_index.h"         // Fuse Index
 #include "qlten/tensor_manipulation/ten_block_expand.h"
 #include "qlten/tensor_manipulation/ten_ctrct_1sct.h"
-
+#include "qlten/tensor_manipulation/ten_decomp/mat_evd.h"
 
 #include "qlten/mpi_tensor_manipulation/ten_decomp/mpi_svd.h" // MPISVDMaster, MPISVDSlave
 

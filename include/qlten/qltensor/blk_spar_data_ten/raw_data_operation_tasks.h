@@ -296,23 +296,25 @@ void DeleteDataBlkMatSvdResMap(
     &idx_svd_res_map
 ) {
   for (
-    auto &idx_svd_res
-      : idx_svd_res_map) {
+    auto &idx_svd_res: idx_svd_res_map) {
     auto svd_res = idx_svd_res.second;
-    free(svd_res
-             .u);
-    svd_res.
-        u = nullptr;
-    free(svd_res
-             .s);
-    svd_res.
-        s = nullptr;
-    free(svd_res
-             .vt);
-    svd_res.
-        vt = nullptr;
+    free(svd_res.u);
+    svd_res.u = nullptr;
+    free(svd_res.s);
+    svd_res.s = nullptr;
+    free(svd_res.vt);
+    svd_res.vt = nullptr;
   }
 }
+
+struct SymMatEVDTask {
+  size_t data_offset;
+  size_t mat_size; // linear size
+  SymMatEVDTask(
+      const size_t data_offset,
+      const size_t mat_size
+  ) : data_offset(data_offset), mat_size(mat_size) {}
+};
 
 template<typename ElemT>
 struct DataBlkMatQrRes {
