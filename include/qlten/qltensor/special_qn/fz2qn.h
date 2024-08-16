@@ -59,7 +59,7 @@ class fZ2QN : public Showable {
   }
  private:
   size_t CalcHash_(void) const;
-  int znval_;
+  size_t znval_;
   size_t hash_;
 
   friend class boost::serialization::access;

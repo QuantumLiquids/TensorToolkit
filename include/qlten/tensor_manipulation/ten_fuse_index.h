@@ -34,10 +34,13 @@ namespace qlten {
 @tparam TenElemT The type of tensor elements.
 @tparam QNT The quantum number type of the tensors.
 
-@param idx1 the number of index which need to fuse
-@param idx2
+@param idx1 the index number which are going to be fused
+@param idx2 the index number which are going to be fused
 
-@note the fused index will be put in first index
+@required idx1 < idx2
+ idx1 and idx2 are not need to be continued.
+
+@note the fused index will be put in leading positions.
 */
 
 
@@ -56,9 +59,11 @@ void QLTensor<TenElemT, QNT>::FuseIndex(
   assert(idx1 < idx2 && idx2 < rank_);
   assert(indexes_[idx1].GetDir() == indexes_[idx2].GetDir());
 #ifdef QLTEN_TIMING_MODE
-  Timer fuse_index_pre_transpose_timer("   =============> fuse_index_pre_transpose");
+  Timer fuse_index_pre_transpose_timer("fuse_index_pre_trans");
 #endif
-  //First we transpose the idx1 and idx2 to the first places
+  // Step 1: Transpose idx1 and idx2 to the leading positions.
+  // It ensures that idx1 and idx2 are positioned as the first and second
+  // indices, respectively, making the tensor operations more intuitive and efficient.
   std::vector<size_t> transpose_axes(rank_);
   transpose_axes[0] = idx1;
   transpose_axes[1] = idx2;

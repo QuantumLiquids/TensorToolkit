@@ -10,6 +10,7 @@
 #define QLTEN_QLTENSOR_SPECIAL_QN_SPECIAL_QN_ALL_H
 
 //bosonic quantum number
+#include "qlten/qltensor/special_qn/trivial_rep_qn.h"
 #include "qlten/qltensor/special_qn/u1qn.h"
 #include "qlten/qltensor/special_qn/u1u1qn.h"
 #include "qlten/qltensor/special_qn/u1u1znqn.h"
