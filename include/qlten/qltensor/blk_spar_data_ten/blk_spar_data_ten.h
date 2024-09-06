@@ -720,8 +720,8 @@ Write a BlockSparseDataTensor to a stream.
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::StreamWrite(std::ostream &os) const {
   os << blk_idx_data_blk_map_.size() << "\n";
-  for (auto &blk_idx_data_blk: blk_idx_data_blk_map_) {
-    for (auto &blk_coor: blk_idx_data_blk.second.blk_coors) {
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_) {
+    for (auto &blk_coor : blk_idx_data_blk.second.blk_coors) {
       os << blk_coor << "\n";
     }
   }
@@ -743,9 +743,9 @@ template<typename ElemT, typename QNT>
 template<class Archive>
 void BlockSparseDataTensor<ElemT, QNT>::save(Archive &ar, const unsigned int version) const {
   ar & blk_idx_data_blk_map_.size();
-  for (auto &blk_idx_data_blk: blk_idx_data_blk_map_) {
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_) {
     ar & blk_idx_data_blk.first;
-    for (auto &blk_coor: blk_idx_data_blk.second.blk_coors) {
+    for (auto &blk_coor : blk_idx_data_blk.second.blk_coors) {
       ar & blk_coor;
     }
   }
@@ -833,7 +833,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ResetDataOffset(
     BlkIdxDataBlkMap &blk_idx_data_blk_map
 ) {
   size_t data_offset = 0;
-  for (auto &blk_idx_data_blk: blk_idx_data_blk_map) {
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map) {
     blk_idx_data_blk.second.data_offset = data_offset;
     data_offset += blk_idx_data_blk.second.size;
   }
@@ -855,7 +855,7 @@ BlockSparseDataTensor<ElemT, QNT>::GenBlkIdxQNBlkInfoPartHashMap(
 ) {
   std::vector<size_t> blk_idx_qnblk_info_part_hash_map;
   blk_idx_qnblk_info_part_hash_map.reserve(2 * blk_idx_data_blk_map.size());
-  for (auto &blk_idx_data_blk: blk_idx_data_blk_map) {
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map) {
     blk_idx_qnblk_info_part_hash_map[
         blk_idx_data_blk.first
     ] = blk_idx_data_blk.second.GetBlkQNInfo().PartHash(axes);
@@ -879,7 +879,7 @@ BlockSparseDataTensor<ElemT, QNT>::GenBlkIdxQNBlkCoorPartHashMap(
 ) {
   std::vector<size_t> blk_idx_qnblk_info_part_hash_map;
   blk_idx_qnblk_info_part_hash_map.reserve(2 * blk_idx_data_blk_map.size());
-  for (auto &blk_idx_data_blk: blk_idx_data_blk_map) {
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map) {
     blk_idx_qnblk_info_part_hash_map.push_back(blk_idx_data_blk.first);
     const ShapeT &blk_coors = blk_idx_data_blk.second.blk_coors;
     blk_idx_qnblk_info_part_hash_map.push_back(VecPartHasher(blk_coors, axes));

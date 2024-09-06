@@ -152,6 +152,10 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
 
   void ElementWiseInv(double tolerance);
 
+  void DiagMatInv(void);
+
+  void DiagMatInv(double tolerance);
+  
   void ElementWiseSqrt(void);
 
   void ElementWiseSign(void);

@@ -388,7 +388,7 @@ void QLTensor<ElemT, QNT>::Random(const QNT &div) {
     }
     pblk_spar_data_ten_->DataBlksInsert(blk_coors_s, false, false);     // NO allocate memory on this stage.
   } else {
-    for (auto &blk_coors: GenAllCoors(pblk_spar_data_ten_->blk_shape)) {
+    for (auto &blk_coors : GenAllCoors(pblk_spar_data_ten_->blk_shape)) {
       if (CalcDiv(indexes_, blk_coors) == div) {
         pblk_spar_data_ten_->DataBlkInsert(blk_coors, false);     // NO allocate memory on this stage.
       }
@@ -463,7 +463,7 @@ Switch the direction of the indexes, complex conjugate of the elements.
 template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::Dag(void) {
   assert(!IsDefault());
-  for (auto &index: indexes_) { index.Inverse(); }
+  for (auto &index : indexes_) { index.Inverse(); }
   pblk_spar_data_ten_->Conj();
 
 }
@@ -558,6 +558,20 @@ QLTensor<ElemT, QNT> ElementWiseInv(const QLTensor<ElemT, QNT> &tensor, const do
 }
 
 template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> DiagMatInv(const QLTensor<ElemT, QNT> &tensor) {
+  QLTensor<ElemT, QNT> res(tensor);
+  res.DiagMatInv();
+  return res;
+}
+
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> DiagMatInv(const QLTensor<ElemT, QNT> &tensor, const double tolerance) {
+  QLTensor<ElemT, QNT> res(tensor);
+  res.DiagMatInv(tolerance);
+  return res;
+}
+
+template<typename ElemT, typename QNT>
 QLTensor<ElemT, QNT> ElementWiseSqrt(const QLTensor<ElemT, QNT> &tensor) {
   QLTensor<ElemT, QNT> res(tensor);
   res.ElementWiseSqrt();
@@ -569,7 +583,7 @@ void QLTensor<ElemT, QNT>::StreamRead(std::istream &is) {
   assert(IsDefault());    // Only default tensor can read data
   is >> rank_;
   indexes_ = IndexVec<QNT>(rank_);
-  for (auto &index: indexes_) { is >> index; }
+  for (auto &index : indexes_) { is >> index; }
   shape_ = CalcShape_();
   size_ = CalcSize_();
   pblk_spar_data_ten_ = new BlockSparseDataTensor<ElemT, QNT>(&indexes_);
@@ -597,7 +611,7 @@ template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::StreamWrite(std::ostream &os) const {
   assert(!IsDefault());
   os << rank_ << "\n";
-  for (auto &index: indexes_) { os << index; }
+  for (auto &index : indexes_) { os << index; }
   os << (*pblk_spar_data_ten_);
 }
 
@@ -633,14 +647,14 @@ void QLTensor<ElemT, QNT>::Show(const size_t indent_level) const {
   VectorPrinter(shape_);
   std::cout << ")" << std::endl;
   std::cout << IndentPrinter(indent_level + 1) << "Indices:" << std::endl;
-  for (auto &index: indexes_) {
+  for (auto &index : indexes_) {
     index.Show(indent_level + 2);
   }
   if (!IsDefault()) {
     std::cout << IndentPrinter(indent_level + 1) << "Divergence:" << std::endl;
     Div().Show(indent_level + 2);
     std::cout << IndentPrinter(indent_level + 1) << "Nonzero elements:" << std::endl;
-    for (auto &coors: GenAllCoors(shape_)) {
+    for (auto &coors : GenAllCoors(shape_)) {
       auto elem = GetElem(coors);
       if (elem != ElemT(0.0)) {
         std::cout << IndentPrinter(indent_level + 2) << "[";
@@ -684,7 +698,7 @@ QLTensor<ElemT, QNT> &QLTensor<ElemT, QNT>::RemoveTrivialIndexes(const std::vect
     return *this;
   }
   std::vector<Index<QNT>> trivial_idxs;
-  for (auto trivial_idx_axe: trivial_idx_axes) {
+  for (auto trivial_idx_axe : trivial_idx_axes) {
     trivial_idxs.push_back(InverseIndex(GetIndex(trivial_idx_axe)));
   }
 
@@ -770,7 +784,7 @@ Calculate size from tensor shape.
 template<typename ElemT, typename QNT>
 inline size_t QLTensor<ElemT, QNT>::CalcSize_(void) const {
   size_t size = 1;
-  for (auto dim: shape_) { size *= dim; }
+  for (auto dim : shape_) { size *= dim; }
   return size;
 }
 
@@ -983,6 +997,23 @@ void QLTensor<ElemT, QNT>::ElementWiseSqrt(void) {
 }
 
 template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::DiagMatInv(void) {
+  for (size_t i = 0; i < GetShape()[0]; i++) {
+    (*this)({i, i}) = 1.0 / (*this)({i, i});
+  }
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::DiagMatInv(double tolerance) {
+  for (size_t i = 0; i < GetShape()[0]; i++) {
+    if (std::abs((*this)({i, i})) > tolerance)
+      (*this)({i, i}) = 1.0 / (*this)({i, i});
+    else
+      (*this)({i, i}) = 0.0;
+  }
+}
+
+template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::ElementWiseSign() {
   pblk_spar_data_ten_->ElementWiseSign();
 }
@@ -998,5 +1029,17 @@ void QLTensor<ElemT, QNT>::ElementWiseRandSign(std::uniform_real_distribution<do
                                                RandGenerator &g) {
   pblk_spar_data_ten_->ElementWiseRandSign(dist, g);
 }
+
+// generate Identity tensor for bosonic tensors
+// or fermionic parity operator for fermionic tensors
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> Eye(const Index<QNT> &index0) {
+  QLTensor<ElemT, QNT> eye({index0, InverseIndex(index0)});
+  for (size_t i = 0; i < index0.dim(); i++) {
+    eye({i, i}) = 1.0;
+  }
+  return eye;
+}
+
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_QLTENSOR_IMPL_H */
