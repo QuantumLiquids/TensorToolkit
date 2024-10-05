@@ -148,6 +148,9 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
 
   void Dag(void);
 
+  ///< act the fermion P operators
+  void ActFermionPOps(void);
+
   void ElementWiseInv(void);
 
   void ElementWiseInv(double tolerance);
@@ -155,7 +158,7 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   void DiagMatInv(void);
 
   void DiagMatInv(double tolerance);
-  
+
   void ElementWiseSqrt(void);
 
   void ElementWiseSign(void);

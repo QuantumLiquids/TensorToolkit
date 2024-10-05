@@ -468,6 +468,12 @@ void QLTensor<ElemT, QNT>::Dag(void) {
 
 }
 
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ActFermionPOps() {
+  assert(!IsDefault());
+  pblk_spar_data_ten_->ActFermionPOps();
+}
+
 /**
 Calculate \f$ -1 * T \f$.
 

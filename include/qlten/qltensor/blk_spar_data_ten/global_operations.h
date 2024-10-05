@@ -86,7 +86,7 @@ void BlockSparseDataTensor<ElemT, QNT>::Transpose(
 
   std::vector<RawDataTransposeTask> raw_data_trans_tasks;
   BlkIdxDataBlkMap transed_blk_idx_data_blk_map;
-  for (auto &blk_idx_data_blk: blk_idx_data_blk_map_) {
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_) {
     DataBlk<QNT> transed_data_blk(blk_idx_data_blk.second);
     int sign = transed_data_blk.Transpose(transed_idxes_order);
     auto transed_data_blk_idx = BlkCoorsToBlkIdx(transed_data_blk.blk_coors);
@@ -109,7 +109,7 @@ void BlockSparseDataTensor<ElemT, QNT>::Transpose(
   ResetDataOffset(transed_blk_idx_data_blk_map);
   RawDataTransposeTask::SortTasksByTranspoedBlkIdx(raw_data_trans_tasks);
   size_t trans_task_idx = 0;
-  for (auto &blk_idx_data_blk: transed_blk_idx_data_blk_map) {
+  for (auto &blk_idx_data_blk : transed_blk_idx_data_blk_map) {
     raw_data_trans_tasks[trans_task_idx].transed_data_offset =
         blk_idx_data_blk.second.data_offset;
     trans_task_idx++;
@@ -132,7 +132,7 @@ void BlockSparseDataTensor<ElemT, QNT>::FuseFirstTwoIndex(
     using QNSctsOffsetInfo = std::tuple<size_t, size_t, size_t, size_t>;
     std::map < std::pair<size_t, size_t>, size_t > map_from_old_blk_first_two_coors_to_new_blk_first_coor;
     std::map < std::pair<size_t, size_t>, size_t > map_from_old_blk_first_two_coors_to_new_blk_data_off_set;
-    for (const QNSctsOffsetInfo &qnscts_offset_info: qnscts_offset_info_list) {
+    for (const QNSctsOffsetInfo &qnscts_offset_info : qnscts_offset_info_list) {
       std::pair<size_t, size_t> old_blk_first_two_coors = std::make_pair(
           std::get<0>(qnscts_offset_info),
           std::get<1>(qnscts_offset_info)
@@ -151,7 +151,7 @@ void BlockSparseDataTensor<ElemT, QNT>::FuseFirstTwoIndex(
     std::vector<size_t> new_blk_idx_vector;
     new_blk_coors_vector.reserve(blk_idx_data_blk_map_.size());
     new_blk_idx_vector.reserve(blk_idx_data_blk_map_.size());
-    for (auto &[old_idx, data_blk]: blk_idx_data_blk_map_) {
+    for (auto &[old_idx, data_blk] : blk_idx_data_blk_map_) {
       CoorsT &blk_coors = data_blk.blk_coors;
       std::pair<size_t, size_t> old_blk_first_two_coors = std::make_pair(
           blk_coors[0],
@@ -176,7 +176,7 @@ void BlockSparseDataTensor<ElemT, QNT>::FuseFirstTwoIndex(
     //Assign copy task
     std::vector<RawDataCopyTask> data_copy_tasks;
     data_copy_tasks.reserve(blk_idx_data_blk_map_.size());
-    for (auto &[old_idx, data_blk]: blk_idx_data_blk_map_) {
+    for (auto &[old_idx, data_blk] : blk_idx_data_blk_map_) {
       CoorsT &blk_coors = data_blk.blk_coors;
       ShapeT &shape = data_blk.shape;
       std::pair<size_t, size_t> old_blk_first_two_coors = std::make_pair(
@@ -274,7 +274,7 @@ void BlockSparseDataTensor<ElemT, QNT>::Conj(void) {
   if constexpr (Fermionicable<QNT>::IsFermionic()) {
     std::vector<RawDataInplaceReverseTask> tasks;
     tasks.reserve(blk_idx_data_blk_map_.size());
-    for (auto &[idx, data_blk]: blk_idx_data_blk_map_) {
+    for (auto &[idx, data_blk] : blk_idx_data_blk_map_) {
       if (data_blk.ReverseSign() == -1) {
         RawDataInplaceReverseTask task(data_blk.data_offset, data_blk.size);
         tasks.push_back(task);
@@ -283,6 +283,26 @@ void BlockSparseDataTensor<ElemT, QNT>::Conj(void) {
     FermionicRawDataConj_(tasks);
   } else {
     RawDataConj_();
+  }
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ActFermionPOps() {
+  if constexpr (Fermionicable<QNT>::IsFermionic()) {
+    std::vector<size_t> in_indices;
+    for (size_t i = 0; i < this->pqlten_indexes->size(); i++) {
+      if ((*this->pqlten_indexes)[i].GetDir() == IN) {
+        in_indices.push_back(i);
+      }
+    }
+    if(in_indices.empty()){
+      return;
+    }
+    for (auto &[idx, data_blk] : blk_idx_data_blk_map_) {
+      if (data_blk.SelectedIndicesParity(in_indices) == -1) {
+        hp_numeric::VectorScale(pactual_raw_data_ + data_blk.data_offset, data_blk.size, -1.0);
+      }
+    }
   }
 }
 
@@ -303,7 +323,7 @@ void BlockSparseDataTensor<ElemT, QNT>::AddTwoBSDTAndAssignIn(
 
   auto blk_idx_data_blk_map_a = a.GetBlkIdxDataBlkMap();
   std::vector<RawDataCopyTask> raw_data_copy_tasks_a;
-  for (auto &blk_idx_data_blk: blk_idx_data_blk_map_a) {
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_a) {
     auto data_blk = blk_idx_data_blk.second;
     DataBlkInsert(data_blk.blk_coors, false);
     raw_data_copy_tasks_a.push_back(
@@ -313,7 +333,7 @@ void BlockSparseDataTensor<ElemT, QNT>::AddTwoBSDTAndAssignIn(
 
   auto blk_idx_data_blk_map_b = b.GetBlkIdxDataBlkMap();
   std::vector<RawDataCopyTask> raw_data_copy_tasks_b;
-  for (auto &blk_idx_data_blk: blk_idx_data_blk_map_b) {
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_b) {
     auto blk_idx = blk_idx_data_blk.first;
     auto data_blk = blk_idx_data_blk.second;
     if (blk_idx_data_blk_map_a.find(blk_idx) != blk_idx_data_blk_map_a.end()) {
@@ -338,12 +358,12 @@ void BlockSparseDataTensor<ElemT, QNT>::AddTwoBSDTAndAssignIn(
   }
 
   // Get data offset in destination.
-  for (auto &task: raw_data_copy_tasks_a) {
+  for (auto &task : raw_data_copy_tasks_a) {
     task.dest_data_offset = blk_idx_data_blk_map_[
         BlkCoorsToBlkIdx(task.src_blk_coors)
     ].data_offset;
   }
-  for (auto &task: raw_data_copy_tasks_b) {
+  for (auto &task : raw_data_copy_tasks_b) {
     task.dest_data_offset = blk_idx_data_blk_map_[
         BlkCoorsToBlkIdx(task.src_blk_coors)
     ].data_offset;
@@ -375,7 +395,7 @@ void BlockSparseDataTensor<ElemT, QNT>::AddAndAssignIn(
 
   // Create raw data copy tasks for this tensor.
   std::vector<RawDataCopyTask> raw_data_copy_tasks_this;
-  for (auto &blk_idx_data_blk: this_blk_idx_data_blk_map) {
+  for (auto &blk_idx_data_blk : this_blk_idx_data_blk_map) {
     auto data_blk = blk_idx_data_blk.second;
     raw_data_copy_tasks_this.push_back(
         RawDataCopyTask(data_blk.blk_coors, data_blk.data_offset, data_blk.size)
@@ -385,7 +405,7 @@ void BlockSparseDataTensor<ElemT, QNT>::AddAndAssignIn(
   // Create raw data copy tasks for tensor on the right hand side.
   auto blk_idx_data_blk_map_rhs = rhs.GetBlkIdxDataBlkMap();
   std::vector<RawDataCopyTask> raw_data_copy_tasks_rhs;
-  for (auto &blk_idx_data_blk: blk_idx_data_blk_map_rhs) {
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_rhs) {
     auto blk_idx = blk_idx_data_blk.first;
     auto data_blk = blk_idx_data_blk.second;
     if (blk_idx_data_blk_map_.find(blk_idx) != blk_idx_data_blk_map_.end()) {
@@ -410,12 +430,12 @@ void BlockSparseDataTensor<ElemT, QNT>::AddAndAssignIn(
   }
 
   // Get data offset in result block sparse data tensor.
-  for (auto &task: raw_data_copy_tasks_this) {
+  for (auto &task : raw_data_copy_tasks_this) {
     task.dest_data_offset = blk_idx_data_blk_map_[
         BlkCoorsToBlkIdx(task.src_blk_coors)
     ].data_offset;
   }
-  for (auto &task: raw_data_copy_tasks_rhs) {
+  for (auto &task : raw_data_copy_tasks_rhs) {
     task.dest_data_offset = blk_idx_data_blk_map_[
         BlkCoorsToBlkIdx(task.src_blk_coors)
     ].data_offset;
@@ -465,7 +485,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctTwoBSDTAndAssignIn(
   contract_mkl_timer.Suspend();
 #endif
 
-  for (auto &task: raw_data_ctrct_tasks) {
+  for (auto &task : raw_data_ctrct_tasks) {
     const ElemT *a_data;
     const ElemT *b_data;
     if (a_need_trans) {
@@ -532,10 +552,10 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctTwoBSDTAndAssignIn(
 #ifdef QLTEN_TIMING_MODE
   contract_mkl_timer.PrintElapsed();
 #endif
-  for (auto &blk_idx_transed_data: a_blk_idx_transed_data_map) {
+  for (auto &blk_idx_transed_data : a_blk_idx_transed_data_map) {
     free(blk_idx_transed_data.second);
   }
-  for (auto &blk_idx_transed_data: b_blk_idx_transed_data_map) {
+  for (auto &blk_idx_transed_data : b_blk_idx_transed_data_map) {
     free(blk_idx_transed_data.second);
   }
 }
@@ -554,7 +574,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctAccordingTask(
   Timer contract_mkl_timer("matrix multiplication");
 #endif
 
-  for (const auto &task: raw_data_ctrct_tasks) {
+  for (const auto &task : raw_data_ctrct_tasks) {
     const ElemT *a_data = a_raw_data + task.a_data_offset;
     const ElemT *b_data = b_raw_data + task.b_data_offset;
     double over_all_f_ex_sign = task.f_ex_sign;
@@ -651,7 +671,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ConstructExpandedDataOnFirstIndex(
   Timer expand_data_blk_timer("   =============> expansion_construct_data_blk_and_prepare_raw_data_tasks");
 #endif
   std::map < size_t, size_t > expanded_idx_qnsct_coor_b_idx_qnsct_coor_map;
-  for (auto &elem: b_idx_qnsct_coor_expanded_idx_qnsct_coor_map) {
+  for (auto &elem : b_idx_qnsct_coor_expanded_idx_qnsct_coor_map) {
     expanded_idx_qnsct_coor_b_idx_qnsct_coor_map[elem.second] = elem.first;
   }
   auto blk_idx_data_blk_map_a = bsdt_a.GetBlkIdxDataBlkMap();
@@ -669,7 +689,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ConstructExpandedDataOnFirstIndex(
   blk_coors_s.reserve(blk_idx_data_blk_map_a.size() + blk_idx_data_blk_map_b.size());// reserve more
   blk_idxs.reserve(blk_idx_data_blk_map_a.size() + blk_idx_data_blk_map_b.size());
   size_t zero_piece_num = 0;//how many pieces of zeros need to set
-  for (const auto &[blk_idx_a, data_blk_a]: blk_idx_data_blk_map_a) {
+  for (const auto &[blk_idx_a, data_blk_a] : blk_idx_data_blk_map_a) {
     size_t blk_coor_in_first_idx = data_blk_a.blk_coors[0];
     size_t blk_idx = blk_idx_a;
     blk_idx_expand_mapto_blk_map_a[blk_idx] = blk_idx_a;
@@ -691,7 +711,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ConstructExpandedDataOnFirstIndex(
     }
   }
 
-  for (const auto &[blk_idx_b, data_blk_b]: blk_idx_data_blk_map_b) {
+  for (const auto &[blk_idx_b, data_blk_b] : blk_idx_data_blk_map_b) {
     const size_t blk_coor_in_first_idx_b = data_blk_b.blk_coors[0];
     size_t blk_coor_in_first_idx_expand = b_idx_qnsct_coor_expanded_idx_qnsct_coor_map.at(blk_coor_in_first_idx_b);
     std::vector<size_t> blk_coors = data_blk_b.blk_coors;
@@ -721,7 +741,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ConstructExpandedDataOnFirstIndex(
   std::vector<size_t> raw_data_zero_pieces_size;
   raw_data_zero_pieces_offsets.reserve(zero_piece_num);
   raw_data_zero_pieces_size.reserve(zero_piece_num);
-  for (const auto &[blk_idx, data_blk]: blk_idx_data_blk_map_) {
+  for (const auto &[blk_idx, data_blk] : blk_idx_data_blk_map_) {
     if (
         blk_idx_expand_mapto_blk_map_a.find(blk_idx) !=
             blk_idx_expand_mapto_blk_map_a.end()
@@ -837,7 +857,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ConstructMCExpandedDataOnFirstIndex(
   }
   std::vector<RawDataCopyTask> tasks;
   tasks.reserve(blk_idx_in_b_mapto_blk_idx_in_expanded_bsdt.size());
-  for (auto &blk_idx_data_blk: blk_idx_data_blk_map_b) {
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_b) {
     size_t blk_idx = blk_idx_in_b_mapto_blk_idx_in_expanded_bsdt.at(blk_idx_data_blk.first);//dest blk_idx
     DataBlk<QNT> data_blk = blk_idx_data_blk.second;//src data_blk
     RawDataCopyTask task(
@@ -928,7 +948,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CopyFromReal(
 ) {
   Clear();
   if (std::is_same<ElemT, QLTEN_Complex>::value) {
-    for (auto &blk_idx_data_blk: real_bsdt.GetBlkIdxDataBlkMap()) {
+    for (auto &blk_idx_data_blk : real_bsdt.GetBlkIdxDataBlkMap()) {
       DataBlkInsert(blk_idx_data_blk.second.blk_coors, false);
     }
     if (IsScalar() && (real_bsdt.GetActualRawDataSize() != 0)) {
@@ -955,7 +975,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CollectiveLinearCombine(
     blk_idx_data_blk_map_.insert(blk_idx_data_blk_map_out.cbegin(), blk_idx_data_blk_map_out.cend());
   }
   size_t total_data_offset = 0;
-  for (auto &idx_blk: blk_idx_data_blk_map_) {
+  for (auto &idx_blk : blk_idx_data_blk_map_) {
     idx_blk.second.data_offset = total_data_offset;
     total_data_offset += idx_blk.second.size;
   }
@@ -979,7 +999,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CollectiveLinearCombine(
   for (size_t i = 0; i < tensor_num; i++) {
     const BlockSparseDataTensor<ElemT, QNT> *pbsdt = pbsdts[i];
     const decltype(blk_idx_data_blk_map_) &blk_idx_data_blk_map_out = pbsdt->GetBlkIdxDataBlkMap();
-    for (auto &[idx, datablk]: blk_idx_data_blk_map_out) {
+    for (auto &[idx, datablk] : blk_idx_data_blk_map_out) {
       source_pointers[task_idx] = pbsdt->pactual_raw_data_ + datablk.data_offset;
       DataBlk<QNT> &this_data_blk = blk_idx_data_blk_map_[idx];
       dest_pointers[task_idx] = pactual_raw_data_ + this_data_blk.data_offset;
@@ -1002,7 +1022,7 @@ void BlockSparseDataTensor<ElemT, QNT>::SymMatEVDRawDataDecomposition(
   const ElemT *pa = this->pactual_raw_data_;
   ElemT *pu_start = u.pactual_raw_data_;
   QLTEN_Double *pd_start = d.pactual_raw_data_;
-  for (auto &task: evd_tasks) {
+  for (auto &task : evd_tasks) {
     hp_numeric::SymMatEVD(pa + task.data_offset,
                           task.mat_size,
                           pd_start + task.data_offset,

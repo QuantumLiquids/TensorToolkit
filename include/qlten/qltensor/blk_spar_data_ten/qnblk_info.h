@@ -66,7 +66,7 @@ class BlkQNInfo : public FermionParityInfo<QNT> {
   ShapeT CalcDgncSpaceShape(void) {
     ShapeT dgnc_space_shape;
     dgnc_space_shape.reserve(qnscts.size());
-    for (auto &qnsct: qnscts) {
+    for (auto &qnsct : qnscts) {
       dgnc_space_shape.push_back(qnsct.GetDegeneracy());
     }
     return dgnc_space_shape;
@@ -83,6 +83,7 @@ class BlkQNInfo : public FermionParityInfo<QNT> {
   Transpose(const std::vector<size_t> &transed_idxes_order) {
     return FermionicInplaceReorder(qnscts, transed_idxes_order, this->qn_parities);
   }
+
   /**
   Transpose quantum number sectors for bosonic case
   */
@@ -117,6 +118,27 @@ class BlkQNInfo : public FermionParityInfo<QNT> {
     std::cerr << "going to useless function." << std::endl;
     return 1;
   }
+
+  template<typename T = QNT>
+  typename std::enable_if<Fermionicable<T>::IsFermionic(), int>::type
+  SelectedIndicesParity(std::vector<size_t> indices) const {
+    size_t particle_num = 0;
+    for (size_t index : indices) {
+      particle_num += this->qn_parities[index];
+    }
+    if (particle_num % 2 == 0) {
+      return 1;
+    } else {
+      return -1;
+    }
+  }
+
+  template<typename T = QNT>
+  typename std::enable_if<!Fermionicable<T>::IsFermionic(), int>::type
+  SelectedIndicesParity(std::vector<size_t> indices) const {
+    std::cerr << "going to useless function." << std::endl;
+    return 1;
+  }
   QNSectorVec<QNT> qnscts;
 };
 
@@ -137,7 +159,7 @@ template<typename QNT>
 size_t BlkQNInfo<QNT>::QnHash(void) const {
   std::vector<QNT> qns;
   qns.reserve(qnscts.size());
-  for (auto &qnsct: qnscts) { qns.push_back(qnsct.GetQn()); }
+  for (auto &qnsct : qnscts) { qns.push_back(qnsct.GetQn()); }
   return VecHasher(qns);
 }
 } /* qlten */

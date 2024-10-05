@@ -153,6 +153,14 @@ class DataBlk {
     }
     return blk_qn_info_.ReverseSign();
   }
+
+  int SelectedIndicesParity(std::vector<size_t> indices) const {
+    if (!has_blkqn_info_) {
+      std::cout << "The data block info has no block quantum number info!" << std::endl;
+      assert(has_blkqn_info_);
+    }
+    return blk_qn_info_.SelectedIndicesParity(indices);
+  }
   /**
   Convert data coordinates to corresponding index.
 

@@ -212,6 +212,8 @@ class BlockSparseDataTensor : public Streamable {
 
   void Conj(void);
 
+  void ActFermionPOps(void);
+
   void AddTwoBSDTAndAssignIn(
       const BlockSparseDataTensor &,
       const BlockSparseDataTensor &
