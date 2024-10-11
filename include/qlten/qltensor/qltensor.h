@@ -200,6 +200,8 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
 
   void ConciseShow(const size_t indent_level = 0) const;
 
+  bool HasNan(void) const;
+
   size_t GetActualDataSize(void) const;
 
   const ElemT *GetRawDataPtr(void) const;
