@@ -44,6 +44,10 @@ class fU1U1QN : public U1U1QN {
     return fU1U1QN(vals_[0] - rhs.vals_[0], vals_[1] - rhs.vals_[1]);
   }
 
+  static fU1U1QN Zero(void) {
+    return fU1U1QN(0, 0);
+  }
+
   bool IsFermionParityOdd() const { return vals_[0] % 2; }
   bool IsFermionParityEven() const { return !(IsFermionParityOdd()); }
 };
