@@ -3,7 +3,7 @@
 #  Author: Rongyang Sun <sun-rongyang@outlook.com>
 #  Creation Date: 2019-09-07 16:58
 #  
-#  Description: GraceQ/tensor project. CMake module to find hptt library.
+#  Description: QuantumLiquids/tensor project. CMake module to find hptt library.
 # 
 find_path(hptt_INCLUDE_DIR hptt.h)
 

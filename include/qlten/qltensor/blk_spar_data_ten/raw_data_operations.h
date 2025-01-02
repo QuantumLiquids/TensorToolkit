@@ -13,13 +13,19 @@
 */
 #ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATIONS_H
 #define QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATIONS_H
-#include <iostream>     // endl, istream, ostream
 #include <cmath>        // sqrt
 #include <cstdlib>      // malloc, free, calloc
 #include <cstring>      // memcpy, memset
 #include <omp.h>
 #include <cassert>     // assert
 
+#ifdef USE_GPU
+#include <thrust/execution_policy.h>   //thrust::device
+#include <thrust/device_ptr.h>
+#include <thrust/transform_reduce.h>
+#include <thrust/functional.h>
+#endif
+#include "qlten/framework/mem_ops.h"
 #include "qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h"
 #include "qlten/framework/value_t.h"                                      // CoorsT, ShapeT
 #include "qlten/qltensor/blk_spar_data_ten/raw_data_operation_tasks.h"    // RawDataTransposeTask
@@ -41,7 +47,7 @@ Release the raw data, set the pointer to null, set the size to 0.
 */
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataFree_(void) {
-  free(pactual_raw_data_);
+  qlten::QLFree(pactual_raw_data_);
   pactual_raw_data_ = nullptr;
   actual_raw_data_size_ = 0;
 }
@@ -58,7 +64,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataDiscard_(void) {
 }
 
 /**
-Allocate memoery using a size.
+Allocate memory using a size.
 
 @param init Whether initialize the memory to 0.
 */
@@ -67,12 +73,12 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataAlloc_(
     const size_t size,
     const bool init
 ) {
-  free(pactual_raw_data_);
+  qlten::QLFree(pactual_raw_data_);
   ///< @question: if need to justify size!=0
   if (!init) {
-    pactual_raw_data_ = (ElemT *) malloc(size * sizeof(ElemT));
+    pactual_raw_data_ = (ElemT *) qlten::QLMalloc(size * sizeof(ElemT));
   } else {
-    pactual_raw_data_ = (ElemT *) calloc(size, sizeof(ElemT));
+    pactual_raw_data_ = (ElemT *) qlten::QLCalloc(size, sizeof(ElemT));
   }
   actual_raw_data_size_ = size;
 }
@@ -80,6 +86,10 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataAlloc_(
 /**
 Insert a subarray to the raw data array and decide whether initialize the memory
 of the subarray.
+
+For cuda code, we assume the the raw data in host have
+higher validation than those in device. And the insertion
+is performed in host and make the raw data in host valid.
 
 @param offset Start data offset for inserting subarray.
 @param size   The size of the subarray.
@@ -94,15 +104,17 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataInsert_(
   if (actual_raw_data_size_ == 0) {
     assert(offset == 0);
     assert(pactual_raw_data_ == nullptr);
+
     if (!init) {
-      pactual_raw_data_ = (ElemT *) malloc(size * sizeof(ElemT));
+      pactual_raw_data_ = (ElemT *) qlten::QLMalloc(size * sizeof(ElemT));
     } else {
-      pactual_raw_data_ = (ElemT *) calloc(size, sizeof(ElemT));
+      pactual_raw_data_ = (ElemT *) qlten::QLCalloc(size, sizeof(ElemT));
     }
     actual_raw_data_size_ = size;
   } else {
     size_t new_data_size = actual_raw_data_size_ + size;
-    ElemT *new_pdata = (ElemT *) malloc(new_data_size * sizeof(ElemT));
+    ElemT *new_pdata = (ElemT *) qlten::QLMalloc(new_data_size * sizeof(ElemT));
+#ifndef USE_GPU
     hp_numeric::VectorCopy(pactual_raw_data_, offset, new_pdata);
     if (init) {
       std::fill(new_pdata + offset, new_pdata + offset + size, ElemT(0));
@@ -112,10 +124,34 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataInsert_(
         actual_raw_data_size_ - offset,
         new_pdata + (offset + size)
     );
-    free(pactual_raw_data_);
+#else
+    // Copy old data to new locations.
+    auto cuda_err = cudaMemcpy(new_pdata, pactual_raw_data_, offset * sizeof(ElemT), cudaMemcpyDeviceToDevice);
+    if (cuda_err != cudaSuccess) {
+      std::cerr << "cudaMemcpy error (1): " << cuda_err << std::endl;
+    }
+
+    if (init) {
+      cuda_err = cudaMemset(new_pdata + offset, 0, size * sizeof(ElemT));
+      if (cuda_err != cudaSuccess) {
+        std::cerr << "cudaMemset error: " << cuda_err << std::endl;
+      }
+    }
+
+    cuda_err = cudaMemcpy(new_pdata + (offset + size),
+                          pactual_raw_data_ + offset,
+                          (actual_raw_data_size_ - offset) * sizeof(ElemT),
+                          cudaMemcpyDeviceToDevice);
+    if (cuda_err != cudaSuccess) {
+      std::cerr << "cudaMemcpy error (2): " << cuda_err << std::endl;
+    }
+#endif
+    // Free old data and update pointer.
+    qlten::QLFree(pactual_raw_data_);
     pactual_raw_data_ = new_pdata;
     actual_raw_data_size_ = new_data_size;
   }
+
   return;
 }
 
@@ -124,9 +160,25 @@ Random set all the actual raw data to [0, 1].
 */
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataRand_(void) {
+#ifndef USE_GPU
+  // CPU implementation
   for (size_t i = 0; i < actual_raw_data_size_; ++i) {
     Rand(pactual_raw_data_[i]);
   }
+#else
+  // GPU implementation
+  dim3 blockDim(1024);
+  dim3 gridDim((actual_raw_data_size_ + blockDim.x - 1) / blockDim.x);
+
+  // Launch CUDA kernel to populate random data
+  RandomKernel<<<gridDim, blockDim>>>(pactual_raw_data_, actual_raw_data_size_);
+  cudaDeviceSynchronize();  // Synchronize for error checking
+
+  auto cuda_err = cudaGetLastError();
+  if (cuda_err != cudaSuccess) {
+    std::cerr << "CUDA kernel error: " << cuda_err << std::endl;
+  }
+#endif
 }
 
 /**
@@ -135,8 +187,8 @@ Tensor transpose for the 1D raw data array.
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataTranspose_(
     const std::vector<RawDataTransposeTask> &raw_data_trans_tasks) {
-  ElemT *ptransed_actual_raw_data = (ElemT *) malloc(actual_raw_data_size_ * sizeof(ElemT));
-  for (auto &trans_task: raw_data_trans_tasks) {
+  ElemT *ptransed_actual_raw_data = (ElemT *) qlten::QLMalloc(actual_raw_data_size_ * sizeof(ElemT));
+  for (auto &trans_task : raw_data_trans_tasks) {
     hp_numeric::TensorTranspose(
         trans_task.transed_order,
         trans_task.ten_rank,
@@ -147,7 +199,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataTranspose_(
         trans_task.scale_factor
     );
   }
-  free(pactual_raw_data_);
+  qlten::QLFree(pactual_raw_data_);
   pactual_raw_data_ = ptransed_actual_raw_data;
 }
 
@@ -165,7 +217,7 @@ template<typename ElemT, typename QNT>
 QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::RawDataFermionNorm_(
     const std::vector<RawDataFermionNormTask> &tasks) {
   double sum_square = 0.0;
-  for (auto &task: tasks) {
+  for (auto &task : tasks) {
     sum_square += task.sign * hp_numeric::VectorSumSquares(pactual_raw_data_ + task.data_offset, task.data_size);
   }
   if (sum_square < 0) {
@@ -194,9 +246,20 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataConj_(void) {
   if constexpr (std::is_same<ElemT, QLTEN_Double>::value) {
     // Do nothing
   } else {
+#ifndef  USE_GPU
     for (size_t i = 0; i < actual_raw_data_size_; ++i) {
       pactual_raw_data_[i] = CalcConj(pactual_raw_data_[i]);
     }
+#else
+    const int threadsPerBlock = 256;
+    const int blocksPerGrid = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
+    ConjugateKernel<<<blocksPerGrid, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_);
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+      std::cerr << "CUDA Error: " << cudaGetErrorString(err) << std::endl;
+      assert(false);
+    }
+#endif
   }
 }
 
@@ -206,7 +269,7 @@ Complex conjugate for raw data in fermionic tensor network
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::FermionicRawDataConj_(const std::vector<RawDataInplaceReverseTask> &tasks) {
   RawDataConj_();
-  for (auto &task: tasks) {
+  for (auto &task : tasks) {
     hp_numeric::VectorScale(pactual_raw_data_ + task.data_offset, task.data_size, -1.0);
   }
 }
@@ -223,7 +286,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataCopy_(
     const std::vector<RawDataCopyTask> &raw_data_copy_tasks,
     const ElemT *psrc_raw_data
 ) {
-  for (auto &task: raw_data_copy_tasks) {
+  for (auto &task : raw_data_copy_tasks) {
     if (task.copy_and_add) {
       hp_numeric::VectorAddTo(
           psrc_raw_data + task.src_data_offset,
@@ -247,11 +310,24 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataCopy_(
     const std::vector<size_t> &copy_sizes
 ) {
   size_t task_size = src_pointers.size();
+
+#ifdef USE_GPU
+  // CUDA-specific memory copy (for GPU)
+  for (size_t i = 0; i < task_size; i++) {
+    cudaMemcpy(
+        dest_pointers[i],     // destination on the device
+        src_pointers[i],      // source on the device
+        copy_sizes[i] * sizeof(ElemT), // size to copy
+        cudaMemcpyDeviceToDevice  // direction of copy
+    );
+  }
+#else
+  // CPU memory copy (without CUDA)
   int ompth = hp_numeric::tensor_manipulation_num_threads;
 #pragma omp parallel for default(none) \
-                shared(task_size, dest_pointers, src_pointers, copy_sizes)\
-                num_threads(ompth)\
-                schedule(dynamic)
+               shared(task_size, dest_pointers, src_pointers, copy_sizes) \
+               num_threads(ompth) \
+               schedule(dynamic)
   for (size_t i = 0; i < task_size; i++) {
     memcpy(
         dest_pointers[i],
@@ -259,6 +335,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataCopy_(
         copy_sizes[i] * sizeof(ElemT)
     );
   }
+#endif
 }
 
 /**
@@ -274,6 +351,20 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataCopyNoAdd_(
     const ElemT *psrc_raw_data
 ) {
   size_t task_size = raw_data_copy_tasks.size();
+
+#ifdef USE_GPU
+  // GPU memory copy
+  for (size_t i = 0; i < task_size; i++) {
+    RawDataCopyTask task = raw_data_copy_tasks[i];
+    cudaMemcpy(
+        pactual_raw_data_ + task.dest_data_offset,
+        psrc_raw_data + task.src_data_offset,
+        task.src_data_size * sizeof(ElemT),
+        cudaMemcpyDeviceToDevice
+    );
+  }
+#else 
+  // CPU memory copy with OpenMP parallelization for large datasets
   size_t ompth = hp_numeric::tensor_manipulation_num_threads;
 
 #pragma omp parallel for default(none) \
@@ -288,6 +379,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataCopyNoAdd_(
         task.src_data_size * sizeof(ElemT)
     );
   }
+#endif
 }
 
 /**
@@ -334,7 +426,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataSetZeros_(
     const size_t offset,
     const size_t size
 ) {
-  memset(pactual_raw_data_ + offset, 0, size * sizeof(ElemT));
+  qlten::QLMemset(pactual_raw_data_ + offset, 0, size * sizeof(ElemT));
 }
 
 template<typename ElemT, typename QNT>
@@ -352,7 +444,7 @@ template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataSetZeros_(
     const std::vector<RawDataSetZerosTask> &set_zeros_tasks
 ) {
-  for (auto &task: set_zeros_tasks) {
+  for (auto &task : set_zeros_tasks) {
     RawDataSetZeros_(task.data_offset, task.data_size);
   }
 }
@@ -413,8 +505,8 @@ ElemT *BlockSparseDataTensor<ElemT, QNT>::RawDataGenDenseDataBlkMat_(
 ) const {
   auto rows = data_blk_mat.rows;
   auto cols = data_blk_mat.cols;
-  ElemT *mat = (ElemT *) calloc(rows * cols, sizeof(ElemT));
-  for (auto &elem: data_blk_mat.elems) {
+  ElemT *mat = (ElemT *) qlten::QLCalloc(rows * cols, sizeof(ElemT));
+  for (auto &elem : data_blk_mat.elems) {
     auto i = elem.first[0];
     auto j = elem.first[1];
     auto row_offset = std::get<1>(data_blk_mat.row_scts[i]);
@@ -441,8 +533,27 @@ Read raw data from a stream.
 */
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataRead_(std::istream &is) {
+#ifndef  USE_GPU
   is.seekg(1, std::ios::cur);    // Skip the line break.
   is.read((char *) pactual_raw_data_, actual_raw_data_size_ * sizeof(ElemT));
+#else
+  // Skip the line break in the input stream
+  is.seekg(1, std::ios::cur);
+
+  // Allocate temporary host buffer
+  ElemT *h_buffer = new ElemT[actual_raw_data_size_];
+
+  // Read data from the input stream into host memory
+  is.read(reinterpret_cast<char *>(h_buffer), actual_raw_data_size_ * sizeof(ElemT));
+
+  // Copy data from host to device
+  cudaMemcpy(pactual_raw_data_, h_buffer,
+             actual_raw_data_size_ * sizeof(ElemT),
+             cudaMemcpyHostToDevice);
+
+  // Free the host memory
+  delete[] h_buffer;
+#endif
 }
 
 /**
@@ -452,10 +563,28 @@ Write raw data to a stream.
 */
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataWrite_(std::ostream &os) const {
+#ifndef USE_GPU
   os.write((char *) pactual_raw_data_, actual_raw_data_size_ * sizeof(ElemT));
   os << std::endl;
+#else
+// Allocate temporary host buffer
+  ElemT *h_buffer = new ElemT[actual_raw_data_size_];
+
+  // Copy data from device to host
+  cudaMemcpy(h_buffer, pactual_raw_data_,
+             actual_raw_data_size_ * sizeof(ElemT),
+             cudaMemcpyDeviceToHost);
+
+  // Write the data to output stream
+  os.write(reinterpret_cast<char *>(h_buffer), actual_raw_data_size_ * sizeof(ElemT));
+  os << std::endl;
+
+  // Free host memory
+  delete[] h_buffer;
+#endif
 }
 
+#ifndef  USE_GPU
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv(void) {
   int ompth = hp_numeric::tensor_manipulation_num_threads;
@@ -492,14 +621,19 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSqrt(void) {
     *(pactual_raw_data_ + i) = std::sqrt(*(pactual_raw_data_ + i));
   }
 }
+#endif
 
-template<typename T>
-int sign(T val) {
-  return (T(0) < val) - (val < T(0));
+#ifndef  USE_GPU
+inline double sign(double val) {
+  return double(int(0 < val) - int(val < 0));
+}
+
+// used in PEPS variational update
+inline std::complex<double> sign(std::complex<double> val) {
+  return std::complex<double>(sign(val.real()), sign(val.imag()));
 }
 
 template<typename ElemT, typename QNT>
-template<typename TenElemT, typename std::enable_if<std::is_same<TenElemT, QLTEN_Double>::value>::type *>
 void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSign() {
   int ompth = hp_numeric::tensor_manipulation_num_threads;
 #pragma omp parallel for default(none) \
@@ -511,18 +645,6 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSign() {
   }
 }
 
-template<typename ElemT, typename QNT>
-template<typename TenElemT, typename std::enable_if<std::is_same<TenElemT, QLTEN_Complex>::value>::type *>
-void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSign(void) {
-  int ompth = hp_numeric::tensor_manipulation_num_threads;
-#pragma omp parallel for default(none) \
-                shared(pactual_raw_data_, actual_raw_data_size_)\
-                num_threads(ompth)\
-                schedule(static)
-  for (size_t i = 0; i < actual_raw_data_size_; i++) {
-    *(pactual_raw_data_ + i) = sign((pactual_raw_data_ + i)->real());
-  }
-}
 
 template<typename RandGenerator>
 inline void RandSign(QLTEN_Double *number,
@@ -585,6 +707,8 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
   }
 }
 
+
+
 template<typename ElemT, typename QNT>
 double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
   auto max_abs_value_iter = std::max_element(pactual_raw_data_,
@@ -595,5 +719,179 @@ double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
   );
   return std::abs(*max_abs_value_iter);
 }
+#else //GPU code
+// CUDA Kernel for element-wise inverse (no tolerance)
+template<typename ElemT>
+__global__ void ElementWiseInvKernel(ElemT *data, size_t size) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = 1.0 / data[idx];
+  }
+}
+
+// CUDA Kernel for element-wise inverse (with tolerance)
+template<typename ElemT>
+__global__ void ElementWiseInvKernelWithTolerance(ElemT *data, size_t size, double tolerance) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    ElemT val = data[idx];
+    data[idx] = (qlten::abs(val) < tolerance) ? ElemT(0) : 1.0 / val;
+  }
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv() {
+  const int threadsPerBlock = 256;
+  const int blocks = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
+
+  // Launch kernel
+  ElementWiseInvKernel<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_);
+
+  // Synchronize device
+  cudaDeviceSynchronize();
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv(double tolerance) {
+  const int threadsPerBlock = 256;
+  const int blocks = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
+
+  // Launch kernel with tolerance
+  ElementWiseInvKernelWithTolerance<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_, tolerance);
+
+  // Synchronize device
+  cudaDeviceSynchronize();
+}
+
+template<typename ElemT>
+__global__ void ElementWiseSqrtKernel(ElemT *data, size_t size) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = qlten::sqrt(data[idx]);
+  }
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSqrt() {
+  const int threadsPerBlock = 256;
+  const int blocks = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
+
+  // Launch kernel
+  ElementWiseSqrtKernel<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_);
+
+  // Synchronize device
+  cudaDeviceSynchronize();
+}
+
+__global__ void ElementWiseSignKernel(double *data, size_t size) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = double(int(0 < data[idx]) - int(data[idx] < 0));
+  }
+}
+
+__global__ void ElementWiseSignKernel(cuda::std::complex<double> *data, size_t size) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx].real((int(0 < data[idx].real()) - int(data[idx].real() < 0)));
+    data[idx].imag((int(0 < data[idx].imag()) - int(data[idx].imag() < 0)));
+  }
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSign() {
+  const int threadsPerBlock = 256;
+  const int blocks = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
+
+  // Launch kernel
+  ElementWiseSignKernel<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_);
+
+  // Synchronize device
+  cudaDeviceSynchronize();
+}
+
+__global__ void ElementWiseBoundKernel(double *data, size_t size, double bound) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    double sign = (int(0 < data[idx]) - int(data[idx] < 0));
+    data[idx] = sign * bound;
+  }
+}
+
+__global__ void ElementWiseBoundKernel(cuda::std::complex<double> *data, size_t size, double bound) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = data[idx] * bound / cuda::std::abs(data[idx]);
+  }
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
+  const int threadsPerBlock = 256;
+  const int blocks = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
+
+  // Launch kernel
+  ElementWiseBoundKernel<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_, bound);
+
+  // Synchronize device
+  cudaDeviceSynchronize();
+}
+
+// Kernel to compute the maximum absolute value
+template<typename ElemT>
+__global__ void maxAbsKernel(const ElemT *data, double *result, int size) {
+  extern __shared__ double shared_data[]; // Shared memory for reduction
+
+  int tid = threadIdx.x;
+  int idx = blockIdx.x * blockDim.x + tid;
+
+  // Initialize shared memory
+  shared_data[tid] = 0.0;
+  if (idx < size) {
+    shared_data[tid] = qlten::abs(data[idx]);
+  }
+  __syncthreads();
+
+  // Perform parallel reduction in shared memory
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (tid < stride) {
+      shared_data[tid] = std::max(shared_data[tid], shared_data[tid + stride]);
+    }
+    __syncthreads();
+  }
+
+  // Write the result of this block to global memory
+  if (tid == 0) {
+    result[blockIdx.x] = shared_data[0];
+  }
+}
+
+// Define a functor to compute the absolute value for complex numbers
+struct AbsFunctor {
+  __host__ __device__
+  double operator()(const cuda::std::complex<double> &z) const {
+    return hypot(z.real(), z.imag());
+  }
+
+  __host__ __device__
+  double operator()(const double &x) const {
+    return std::abs(x); // For real numbers
+  }
+};
+
+template<typename ElemT, typename QNT>
+double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
+  // Wrap raw device pointer into a Thrust device pointer
+  thrust::device_ptr<const ElemT> dev_ptr(pactual_raw_data_);
+
+  // Use transform_reduce to compute the maximum absolute value
+  return thrust::transform_reduce(
+      thrust::device, dev_ptr, dev_ptr + actual_raw_data_size_,
+      AbsFunctor(),                      // Transformation (absolute value)
+      0.0,                               // Initial value
+      thrust::maximum<double>()          // Reduction operation (max)
+  );
+}
+#endif //USE_GPU
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATIONS_H */

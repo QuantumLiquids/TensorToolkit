@@ -100,7 +100,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkQuasiInsert(
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::DataBlksOffsetRefresh() {
   raw_data_size_ = 0;
-  for (auto &idx_data_blk: blk_idx_data_blk_map_) {
+  for (auto &idx_data_blk : blk_idx_data_blk_map_) {
     auto &data_blk = idx_data_blk.second;
     data_blk.data_offset = raw_data_size_;
     raw_data_size_ += data_blk.size;
@@ -122,13 +122,13 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlksInsert(
   //it's better that every CoorsT is unique.
   //if not unique, it will also work
   auto iter = blk_idxs.begin();
-  for (auto &blk_coors: blk_coors_s) {
+  for (auto &blk_coors : blk_coors_s) {
     size_t blk_idx = *iter;
     blk_idx_data_blk_map_[blk_idx] = DataBlk<QNT>(blk_coors, *pqlten_indexes);
     iter++;
   }
   raw_data_size_ = 0;
-  for (auto &idx_data_blk: blk_idx_data_blk_map_) {
+  for (auto &idx_data_blk : blk_idx_data_blk_map_) {
     auto &data_blk = idx_data_blk.second;
     data_blk.data_offset = raw_data_size_;
     raw_data_size_ += data_blk.size;
@@ -155,7 +155,7 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlksInsert(
   //if not unique, it will also work
   std::vector<size_t> blk_idxs;
   blk_idxs.reserve(blk_coors_s.size());
-  for (auto &blk_coors: blk_coors_s) {
+  for (auto &blk_coors : blk_coors_s) {
     blk_idxs.push_back(std::move(BlkCoorsToBlkIdx(blk_coors)));
   }
   DataBlksInsert(blk_idxs, blk_coors_s, alloc_mem, init);
@@ -169,7 +169,7 @@ DataBlk<QNT> BlockSparseDataTensor<ElemT, QNT>::GetMaxSizeDataBlk(void) const {
 
   size_t max_size = 0;
   size_t max_idx;
-  for (auto &idx_data_blk: blk_idx_data_blk_map_) {
+  for (auto &idx_data_blk : blk_idx_data_blk_map_) {
     size_t this_blk_size = idx_data_blk.second.size();
     if (this_blk_size > max_size) {
       max_size = this_blk_size;
@@ -185,7 +185,7 @@ size_t BlockSparseDataTensor<ElemT, QNT>::GetMaxDataBlkSize(void) const {
     return 0;
   }
   size_t max_size = 0;
-  for (auto &idx_data_blk: blk_idx_data_blk_map_) {
+  for (auto &idx_data_blk : blk_idx_data_blk_map_) {
     size_t this_blk_size = idx_data_blk.second.size();
     max_size = std::max(max_size, this_blk_size);
   }
@@ -215,7 +215,7 @@ std::vector<RawDataFermionNormTask> BlockSparseDataTensor<ElemT, QNT>::GenFermio
   std::vector<RawDataFermionNormTask> tasks;
   tasks.reserve(blk_idx_data_blk_map_.size());
 
-  for (const auto &[idx, data_blk]: blk_idx_data_blk_map_) {
+  for (const auto &[idx, data_blk] : blk_idx_data_blk_map_) {
     const std::vector<bool> &parities = data_blk.GetBlkFermionParities();
     int in_count = std::count_if(out_indices.begin(), out_indices.end(),
                                  [&parities](size_t index) { return parities[index]; });
@@ -300,10 +300,10 @@ inline CoorsT GenTenCtrctDataBlkCoors(
 ) {
   CoorsT c_blk_coors;
   c_blk_coors.reserve(saved_axes_set[0].size() + saved_axes_set[1].size());
-  for (auto axis: saved_axes_set[0]) {
+  for (auto axis : saved_axes_set[0]) {
     c_blk_coors.push_back(a_blk_coors[axis]);
   }
-  for (auto axis: saved_axes_set[1]) {
+  for (auto axis : saved_axes_set[1]) {
     c_blk_coors.push_back(b_blk_coors[axis]);
   }
   return c_blk_coors;
@@ -351,7 +351,7 @@ inline int FermionExchangeSignForCtrct(
                 concatenated_parities.begin() + axes2,
                 concatenated_parities.begin() + axes2 + 1);
 
-    for (auto &axes: concatenated_axes) {
+    for (auto &axes : concatenated_axes) {
       if (axes > axes1 && axes < axes2) {
         axes++;
       }
@@ -394,7 +394,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
       ctrct_axes_set[1]
   );
   std::vector<RawDataCtrctTask> raw_data_ctrct_tasks;
-  std::unordered_map<size_t, size_t> b_blk_idx_n_map;
+  std::unordered_map < size_t, size_t > b_blk_idx_n_map;
 
   std::vector<TenIndexDirType> a_ctrct_idx_dir; // use for fermion sign
   if constexpr (Fermionicable<QNT>::IsFermionic()) {
@@ -449,7 +449,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForTenCtrct(
       raw_data_ctrct_tasks[0].beta = 0.0;
     }
 //#pragma omp parallel for default(shared) num_threads(ompth) schedule(static)
-    for (auto &task: raw_data_ctrct_tasks) {
+    for (auto &task : raw_data_ctrct_tasks) {
       task.c_data_offset = 0;
     }
   } else { //if c is not scalar
@@ -548,7 +548,7 @@ BlockSparseDataTensor<ElemT, QNT>::CountResidueFermionSignForMatBasedCtrct(
 ) const {
   std::map<size_t, int> idx_fermion_sign_map;
   std::vector<size_t> saved_axes_first, saved_axes_second; //also should be continuous numbers
-  for (auto axe: saved_axes_set) {
+  for (auto axe : saved_axes_set) {
     if (axe < trans_critical_axe) {
       saved_axes_first.push_back(axe);
       assert(saved_axes_first[0] == 0);
@@ -558,7 +558,7 @@ BlockSparseDataTensor<ElemT, QNT>::CountResidueFermionSignForMatBasedCtrct(
     }
   }
 
-  for (auto &[idx, data_blk]: blk_idx_data_blk_map_) {
+  for (auto &[idx, data_blk] : blk_idx_data_blk_map_) {
     if (saved_axes_first.size() == 0 || saved_axes_second.size() == 0) {
       idx_fermion_sign_map[idx] = 1;
     } else {
@@ -581,7 +581,7 @@ std::vector<SymMatEVDTask> BlockSparseDataTensor<ElemT, QNT>::DataBlkGenForSymMa
   d.blk_idx_data_blk_map_ = this->blk_idx_data_blk_map_;
   std::vector<SymMatEVDTask> raw_data_tasks;
   raw_data_tasks.reserve(blk_idx_data_blk_map_.size());
-  for (auto [idx, data_blk]: blk_idx_data_blk_map_) {
+  for (auto [idx, data_blk] : blk_idx_data_blk_map_) {
     SymMatEVDTask task(data_blk.data_offset, data_blk.shape[0]);
     raw_data_tasks.push_back(task);
   }
@@ -601,7 +601,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVD(
   Timer svd_mkl_timer("matrix svd");
   svd_mkl_timer.Suspend();
 #endif
-  for (auto &[idx, data_blk_mat]: idx_data_blk_mat_map) {
+  for (auto &[idx, data_blk_mat] : idx_data_blk_mat_map) {
     ElemT *mat = RawDataGenDenseDataBlkMat_(data_blk_mat);
     ElemT *u = nullptr;
     ElemT *vt = nullptr;
@@ -616,7 +616,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVD(
 #ifdef QLTEN_TIMING_MODE
     svd_mkl_timer.Suspend();
 #endif
-    free(mat);
+    qlten::QLFree(mat);
     idx_svd_res_map[idx] = DataBlkMatSvdRes<ElemT>(m, n, k, u, s, vt);
   }
 #ifdef QLTEN_TIMING_MODE
@@ -675,16 +675,16 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
     hp_numeric::MPI_Send(mat, m * n, controlling_slave, 4 * controlling_slave, MPI_Comm(world));
 
     const size_t ld = std::min(m, n);
-    ElemT *u = (ElemT *) malloc((ld * m) * sizeof(ElemT));
-    ElemT *vt = (ElemT *) malloc((ld * n) * sizeof(ElemT));
-    QLTEN_Double *s = (QLTEN_Double *) malloc(ld * sizeof(QLTEN_Double));
+    ElemT *u = (ElemT *) qlten::QLMalloc((ld * m) * sizeof(ElemT));
+    ElemT *vt = (ElemT *) qlten::QLMalloc((ld * n) * sizeof(ElemT));
+    QLTEN_Double *s = (QLTEN_Double *) qlten::QLMalloc(ld * sizeof(QLTEN_Double));
     const size_t k = m > n ? n : m;
 
     //TODO change to non-block
     hp_numeric::MPI_Recv(u, ld * m, controlling_slave, 5 * controlling_slave, MPI_Comm(world));
     hp_numeric::MPI_Recv(vt, ld * n, controlling_slave, 6 * controlling_slave, MPI_Comm(world));
     hp_numeric::MPI_Recv(s, ld, controlling_slave, 7 * controlling_slave, MPI_Comm(world));
-    free(mat);
+    qlten::QLFree(mat);
 #pragma omp critical
     {
       idx_svd_res_map[idx] = DataBlkMatSvdRes<ElemT>(m, n, k, u, s, vt);
@@ -726,7 +726,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
    */
   size_t m, n; //m : rows; n : cols;
   int idx; // data blk idx
-  for (auto &[idx_next, data_blk_mat_next]: idx_data_blk_mat_map) {
+  for (auto &[idx_next, data_blk_mat_next] : idx_data_blk_mat_map) {
     // Wait for a worker to become available
     MPI_Status status;
     MPI_Recv(&idx, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_Comm(world), &status);
@@ -735,9 +735,9 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
       hp_numeric::MPI_Recv(m, worker_id, idx + 14, MPI_Comm(world));
       hp_numeric::MPI_Recv(n, worker_id, idx + 15, MPI_Comm(world));
       const size_t ld = std::min(m, n);
-      QLTEN_Double *s = (QLTEN_Double *) malloc(ld * sizeof(QLTEN_Double));
-      ElemT *u = (ElemT *) malloc((ld * m) * sizeof(ElemT));
-      ElemT *vt = (ElemT *) malloc((ld * n) * sizeof(ElemT));
+      QLTEN_Double *s = (QLTEN_Double *) qlten::QLMalloc(ld * sizeof(QLTEN_Double));
+      ElemT *u = (ElemT *) qlten::QLMalloc((ld * m) * sizeof(ElemT));
+      ElemT *vt = (ElemT *) qlten::QLMalloc((ld * n) * sizeof(ElemT));
       const size_t k = m > n ? n : m;
       hp_numeric::MPI_Recv(u, ld * m, worker_id, idx + 16, MPI_Comm(world));
       hp_numeric::MPI_Recv(s, ld, worker_id, idx + 17, MPI_Comm(world));
@@ -751,7 +751,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
     hp_numeric::MPI_Send(data_blk_mat_next.rows, worker_id, idx_next + 7, MPI_Comm(world));
     hp_numeric::MPI_Send(data_blk_mat_next.cols, worker_id, idx_next + 8, MPI_Comm(world));
     hp_numeric::MPI_Send(mat, data_length, worker_id, idx_next + 9, MPI_Comm(world));
-    free(mat);
+    qlten::QLFree(mat);
   }
 
   // Send termination signal to each rank when they submit their last job
@@ -765,9 +765,9 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
       hp_numeric::MPI_Recv(m, worker_id, idx + 14, MPI_Comm(world));
       hp_numeric::MPI_Recv(n, worker_id, idx + 15, MPI_Comm(world));
       const size_t ld = std::min(m, n);
-      QLTEN_Double *s = (QLTEN_Double *) malloc(ld * sizeof(QLTEN_Double));
-      ElemT *u = (ElemT *) malloc((ld * m) * sizeof(ElemT));
-      ElemT *vt = (ElemT *) malloc((ld * n) * sizeof(ElemT));
+      QLTEN_Double *s = (QLTEN_Double *) qlten::QLMalloc(ld * sizeof(QLTEN_Double));
+      ElemT *u = (ElemT *) qlten::QLMalloc((ld * m) * sizeof(ElemT));
+      ElemT *vt = (ElemT *) qlten::QLMalloc((ld * n) * sizeof(ElemT));
       const size_t k = m > n ? n : m;
       hp_numeric::MPI_Recv(u, ld * m, worker_id, idx + 16, MPI_Comm(world));
       hp_numeric::MPI_Recv(s, ld, worker_id, idx + 17, MPI_Comm(world));
@@ -801,7 +801,7 @@ void DataBlkDecompSVDSlave(boost::mpi::communicator &world) {
 #endif
   while (m > 0 && n > 0) {
     size_t data_size = m * n;
-    ElemT *mat = (ElemT *) malloc(data_size * sizeof(ElemT));
+    ElemT *mat = (ElemT *) qlten::QLMalloc(data_size * sizeof(ElemT));
     hp_numeric::MPI_Recv(mat, data_size, kMPIMasterRank, 4 * slave_identifier, MPI_Comm(world));
 #ifdef QLTEN_MPI_TIMING_MODE
     slave_commu_timer.Suspend();
@@ -819,10 +819,10 @@ void DataBlkDecompSVDSlave(boost::mpi::communicator &world) {
     hp_numeric::MPI_Send(vt, ld * n, kMPIMasterRank, 6 * slave_identifier, MPI_Comm(world));
     hp_numeric::MPI_Send(s, ld, kMPIMasterRank, 7 * slave_identifier, MPI_Comm(world));
 
-    free(mat);
-    free(u);
-    free(vt);
-    free(s);
+    qlten::QLFree(mat);
+    qlten::QLFree(u);
+    qlten::QLFree(vt);
+    qlten::QLFree(s);
 
     task_done++;
 
@@ -868,7 +868,7 @@ void DataBlkDecompSVDSlave(const boost::mpi::communicator &world) {
       hp_numeric::MPI_Recv(m, kMPIMasterRank, idx + 7, MPI_Comm(world));
       hp_numeric::MPI_Recv(n, kMPIMasterRank, idx + 8, MPI_Comm(world));
       size_t data_size = m * n;
-      ElemT *mat = (ElemT *) malloc(data_size * sizeof(ElemT));
+      ElemT *mat = (ElemT *) qlten::QLMalloc(data_size * sizeof(ElemT));
       hp_numeric::MPI_Recv(mat, data_size, kMPIMasterRank, idx + 9, MPI_Comm(world));
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Suspend();
@@ -878,7 +878,7 @@ void DataBlkDecompSVDSlave(const boost::mpi::communicator &world) {
       ElemT *vt = nullptr;
       QLTEN_Double *s = nullptr;
       hp_numeric::MatSVD(mat, m, n, u, s, vt);
-      free(mat);
+      qlten::QLFree(mat);
       size_t ld = std::min(m, n);
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Restart();
@@ -892,9 +892,9 @@ void DataBlkDecompSVDSlave(const boost::mpi::communicator &world) {
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Suspend();
 #endif
-      free(u);
-      free(vt);
-      free(s);
+      qlten::QLFree(u);
+      qlten::QLFree(vt);
+      qlten::QLFree(s);
       task_done++;
     }
   } while (!terminated);
@@ -908,6 +908,22 @@ void DataBlkDecompSVDSlave(const boost::mpi::communicator &world) {
   return;
 }
 
+#ifdef USE_GPU
+template<typename ElemT>
+__global__ void DataBlkCopySVDUdataKernel(
+    const ElemT *u, ElemT *data,
+    const size_t mat_m, const size_t mat_n,
+    const size_t row_offset, const size_t u_n,
+    const size_t *kept_cols
+) {
+  size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+  if (i < mat_m && j < mat_n) {
+    data[i * mat_n + j] = u[(row_offset + i) * u_n + kept_cols[j]];
+  }
+}
+#endif
+
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopySVDUdata(
     const CoorsT &blk_coors, const size_t mat_m, const size_t mat_n,
@@ -919,6 +935,7 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopySVDUdata(
   auto blk_idx = BlkCoorsToBlkIdx(blk_coors);
   // TODO: Remove direct touch the raw data in DataBlk* member!
   auto data = pactual_raw_data_ + blk_idx_data_blk_map_[blk_idx].data_offset;
+#ifndef USE_GPU
   size_t data_idx = 0;
   for (size_t i = 0; i < mat_m; ++i) {
     for (size_t j = 0; j < mat_n; ++j) {
@@ -926,6 +943,15 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopySVDUdata(
       data_idx++;
     }
   }
+#else
+  dim3 blockDim(16, 16);
+  dim3 gridDim((mat_m + 15) / 16, (mat_n + 15) / 16);
+  size_t *d_kept_cols;
+  cudaMalloc(&d_kept_cols, kept_cols.size() * sizeof(size_t));
+  cudaMemcpy(d_kept_cols, kept_cols.data(), kept_cols.size() * sizeof(size_t), cudaMemcpyHostToDevice);
+
+  DataBlkCopySVDUdataKernel<<<gridDim, blockDim>>>(u, data, mat_m, mat_n, row_offset, u_n, d_kept_cols);
+#endif
 }
 
 template<typename ElemT, typename QNT>
@@ -940,7 +966,7 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopySVDVtData(
   // TODO: Remove direct touch the raw data in DataBlk* member!
   auto data = pactual_raw_data_ + blk_idx_data_blk_map_[blk_idx].data_offset;
   for (size_t i = 0; i < mat_m; ++i) {
-    memcpy(
+    qlten::QLMemcpy(
         data + (i * mat_n),
         vt + (kept_rows[i] * vt_n + col_offset),
         mat_n * sizeof(ElemT)
@@ -957,7 +983,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompQR(
     const IdxDataBlkMatMap<QNT> &idx_data_blk_mat_map
 ) const {
   std::map<size_t, DataBlkMatQrRes<ElemT>> idx_qr_res_map;
-  for (auto &idx_data_blk_mat: idx_data_blk_mat_map) {
+  for (auto &idx_data_blk_mat : idx_data_blk_mat_map) {
     auto idx = idx_data_blk_mat.first;
     auto data_blk_mat = idx_data_blk_mat.second;
     ElemT *mat = RawDataGenDenseDataBlkMat_(data_blk_mat);
@@ -967,7 +993,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompQR(
     size_t n = data_blk_mat.cols;
     size_t k = m > n ? n : m;
     hp_numeric::MatQR(mat, m, n, q, r);
-    free(mat);
+    qlten::QLFree(mat);
     idx_qr_res_map[idx] = DataBlkMatQrRes<ElemT>(m, n, k, q, r);
   }
   return idx_qr_res_map;
@@ -984,7 +1010,7 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopyQRQdata(
   auto &data_blk = blk_idx_data_blk_map_.at(blk_idx);
   assert(data_blk.size == (mat_m * mat_n));
   auto data = pactual_raw_data_ + data_blk.data_offset;
-  memcpy(data, q + (row_offset * q_n), data_blk.size * sizeof(ElemT));
+  qlten::QLMemcpy(data, q + (row_offset * q_n), data_blk.size * sizeof(ElemT));
 }
 
 template<typename ElemT, typename QNT>
@@ -997,7 +1023,7 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopyQRRdata(
   auto blk_idx = BlkCoorsToBlkIdx(blk_coors);
   auto data = pactual_raw_data_ + blk_idx_data_blk_map_.at(blk_idx).data_offset;
   for (size_t i = 0; i < mat_m; ++i) {
-    memcpy(
+    qlten::QLMemcpy(
         data + (i * mat_n),
         r + (i * r_n + col_offset),
         mat_n * sizeof(ElemT)

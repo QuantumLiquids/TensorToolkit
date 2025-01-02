@@ -12,10 +12,9 @@
 #include "qlten/tensor_manipulation/ten_ctrct.h"            // Contract
 #include "qlten/tensor_manipulation/basic_operations.h"     // Dag
 #include "qlten/utility/utils_inl.h"
-#include "qlten/framework/hp_numeric/lapack.h"
 #include "qlten/utility/timer.h"
 #include "../testing_utility.h"
-
+#include "../test_utility/hp_numeric.h"                     //qltest::MatSVD
 using namespace qlten;
 using U1QN = special_qn::U1QN;
 using IndexT = Index<U1QN>;
@@ -97,11 +96,11 @@ void CheckIsIdTen(const TenT &t) {
     for (size_t j = 0; j < shape[1]; ++j) {
       QLTEN_Complex elem = t.GetElem({i, j});
       if (i == j) {
-        EXPECT_NEAR(elem.real(), 1.0, 1E-14);
+        EXPECT_NEAR(elem.real(), 1.0, kEpsilon);
       } else {
-        EXPECT_NEAR(elem.real(), 0.0, 1E-14);
+        EXPECT_NEAR(elem.real(), 0.0, kEpsilon);
       }
-      EXPECT_NEAR(elem.imag(), 0.0, 1E-14);
+      EXPECT_NEAR(elem.imag(), 0.0, kEpsilon);
     }
   }
 }
@@ -139,11 +138,13 @@ void RunTestSvdCase(
   std::vector<size_t> cano_check_u_ctrct_axes;
   for (size_t i = 0; i < ldims; ++i) { cano_check_u_ctrct_axes.push_back(i); }
   Contract(&u, &u_dag, {cano_check_u_ctrct_axes, cano_check_u_ctrct_axes}, &temp1);
+  std::cout << "Check unitary for U" << std::endl;
   CheckIsIdTen(temp1);
   auto vt_dag = Dag(vt);
   std::vector<size_t> cano_check_vt_ctrct_axes;
   for (size_t i = 1; i <= rdims; ++i) { cano_check_vt_ctrct_axes.push_back(i); }
   Contract(&vt, &vt_dag, {cano_check_vt_ctrct_axes, cano_check_vt_ctrct_axes}, &temp2);
+  std::cout << "Check unitary for V" << std::endl;
   CheckIsIdTen(temp2);
 
   auto ndim = ldims + rdims;
@@ -163,7 +164,7 @@ void RunTestSvdCase(
   TenElemT *dense_u;
   TenElemT *dense_vt;
   QLTEN_Double *dense_s;
-  hp_numeric::MatSVD(dense_mat, rows, cols, dense_u, dense_s, dense_vt);
+  qlten::test::MatSVD(dense_mat, rows, cols, dense_u, dense_s, dense_vt);
   size_t dense_sdim;
   if (rows > cols) {
     dense_sdim = cols;
@@ -189,7 +190,12 @@ void RunTestSvdCase(
   std::sort(qn_svs.begin(), qn_svs.end());
   EXPECT_EQ(qn_svs.size(), saved_dense_svs.size());
   for (size_t i = 0; i < qn_svs.size(); ++i) {
+#ifndef  USE_GPU
     EXPECT_NEAR(qn_svs[i], saved_dense_svs[i], kEpsilon);
+#else
+    // more tolerance for CUDA, because of different algorithm used in CUDA and LAPACK.
+    EXPECT_NEAR(qn_svs[i], saved_dense_svs[i], 1.5 * kEpsilon);
+#endif
   }
 
   double total_square_sum = 0.0;

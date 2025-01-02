@@ -99,7 +99,6 @@ void RunTestQrCase(
   QLTensor<TenElemT, QNT> t_restored;
   qlten::Contract(&q, &r, {{ldims}, {0}}, &t_restored);
   CheckTwoTenClose(t_restored, t);
-//  mkl_free_buffers();
 }
 
 TEST_F(TestQr, 2DCase) {

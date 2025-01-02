@@ -298,11 +298,11 @@ void DeleteDataBlkMatSvdResMap(
   for (
     auto &idx_svd_res: idx_svd_res_map) {
     auto svd_res = idx_svd_res.second;
-    free(svd_res.u);
+    qlten::QLFree(svd_res.u);
     svd_res.u = nullptr;
-    free(svd_res.s);
+    qlten::QLFree(svd_res.s);
     svd_res.s = nullptr;
-    free(svd_res.vt);
+    qlten::QLFree(svd_res.vt);
     svd_res.vt = nullptr;
   }
 }
@@ -342,9 +342,9 @@ void DeleteDataBlkMatQrResMap(
 ) {
   for (auto &idx_qr_res: idx_qr_res_map) {
     auto qr_res = idx_qr_res.second;
-    free(qr_res.q);
+    qlten::QLFree(qr_res.q);
     qr_res.q = nullptr;
-    free(qr_res.r);
+    qlten::QLFree(qr_res.r);
     qr_res.r = nullptr;
   }
 }

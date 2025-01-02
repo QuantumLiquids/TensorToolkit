@@ -8,20 +8,28 @@
 #ifndef QLTEN_UTILITY_UTILS_INL_H
 #define QLTEN_UTILITY_UTILS_INL_H
 
-#include "qlten/framework/value_t.h"    // CoorsT, ShapeT
-#include "qlten/framework/consts.h"
-
 #include <vector>
 #include <numeric>
 #include <complex>
 #include <cmath>        // abs
 #include <algorithm>    // swap
+#include <cassert>      // assert
 
-#include <string.h>     // memcpy
+#ifdef USE_GPU
+#include <cuda.h>
+#include <curand_kernel.h>               // cuRAND
+#include <thrust/device_vector.h>
+#include <thrust/execution_policy.h>     // thrust::device
+#include <thrust/equal.h>                // thrust::equal
+#include <thrust/functional.h>
+#endif
+
+#include "qlten/framework/value_t.h"    // CoorsT, ShapeT
+#include "qlten/framework/consts.h"
+#include "qlten/framework/mem_ops.h"    // Memcpy
 #ifdef Release
 #define NDEBUG
 #endif
-#include <cassert>     // assert
 
 namespace qlten {
 
@@ -82,11 +90,11 @@ inline std::vector<int> Reorder(const std::vector<size_t> &v1, const std::vector
 template<typename T>
 T CalcCartProd(T v) {
   T s = {{}};
-  for (const auto &u: v) {
+  for (const auto &u : v) {
     T r;
     r.reserve(s.size() * u.size());
-    for (const auto &x: s) {
-      for (const auto y: u) {
+    for (const auto &x : s) {
+      for (const auto y : u) {
         r.push_back(x);
         r.back().push_back(y);
       }
@@ -174,9 +182,10 @@ inline CoorsT CoorsAdd(const CoorsT &coors1, const CoorsT &coors2) {
   return res;
 }
 
+#ifndef USE_GPU
 //// Equivalence check
 inline bool DoubleEq(const QLTEN_Double a, const QLTEN_Double b) {
-  if (std::abs(a - b) < kDoubleEpsilon) {
+  if (qlten::abs(a - b) < kDoubleEpsilon) {
     return true;
   } else {
     return false;
@@ -184,11 +193,7 @@ inline bool DoubleEq(const QLTEN_Double a, const QLTEN_Double b) {
 }
 
 inline bool ComplexEq(const QLTEN_Complex a, const QLTEN_Complex b) {
-  if (std::abs(a - b) < kDoubleEpsilon) {
-    return true;
-  } else {
-    return false;
-  }
+  return qlten::abs(a - b) < kDoubleEpsilon;
 }
 
 inline bool ArrayEq(
@@ -218,8 +223,43 @@ inline bool ArrayEq(
   }
   return true;
 }
+#else
+
+// Define custom comparator for floating-point equality
+struct DoubleEqual {
+  const double epsilon;
+  DoubleEqual(double eps) : epsilon(eps) {}
+
+  __device__
+  bool operator()(const double &a, const double &b) const {
+    return qlten::abs(a - b) < epsilon;  // Floating-point comparison
+  }
+};
+
+struct ComplexEqual {
+  const double epsilon;
+  ComplexEqual(double eps) : epsilon(eps) {}
+
+  __device__
+  bool operator()(const QLTEN_Complex &a, const QLTEN_Complex &b) const {
+    return qlten::abs(a - b) < epsilon;  // Floating-point comparison
+  }
+};
+
+inline bool ArrayEq(const double *d_array1, const double *d_array2, size_t size) {
+  thrust::device_ptr<const double> dev_ptr1(d_array1);
+  thrust::device_ptr<const double> dev_ptr2(d_array2);
+  return thrust::equal(thrust::device, dev_ptr1, dev_ptr1 + size, dev_ptr2, DoubleEqual(kDoubleEpsilon));
+}
+
+inline bool ArrayEq(const QLTEN_Complex *d_array1, const QLTEN_Complex *d_array2, size_t size) {
+  return thrust::equal(thrust::device, d_array1, d_array1 + size, d_array2, ComplexEqual(kDoubleEpsilon));
+}
+
+#endif//USE_GPU
 
 //// Random
+
 inline QLTEN_Double drand(void) {
   return QLTEN_Double(rand()) / RAND_MAX;
 }
@@ -235,6 +275,26 @@ inline void Rand(QLTEN_Double &d) {
 inline void Rand(QLTEN_Complex &z) {
   z = zrand();
 }
+#ifdef USE_GPU
+__global__ void RandomKernel(QLTEN_Double *data, size_t size) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    curandState state;
+    curand_init(1234, idx, 0, &state);  // Seed, sequence number, offset
+    data[idx] = curand_uniform(&state);  // Generate [0, 1] uniform random numbers
+  }
+}
+
+__global__ void RandomKernel(QLTEN_Complex *data, size_t size) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    curandState state;
+    curand_init(1234, idx, 0, &state);  // Seed, sequence number, offset
+    data[idx].real(curand_uniform(&state));
+    data[idx].imag(curand_uniform(&state));
+  }
+}
+#endif
 
 template<typename ElemType>
 inline ElemType RandT() {
@@ -249,7 +309,11 @@ inline QLTEN_Double CalcScalarNorm2(QLTEN_Double d) {
 }
 
 inline QLTEN_Double CalcScalarNorm2(QLTEN_Complex z) {
+#ifndef USE_GPU
   return std::norm(z);
+#else
+  return cuda::std::norm(z);
+#endif
 }
 
 inline QLTEN_Double CalcScalarNorm(QLTEN_Double d) {
@@ -265,9 +329,22 @@ inline QLTEN_Double CalcConj(QLTEN_Double d) {
 }
 
 inline QLTEN_Complex CalcConj(QLTEN_Complex z) {
+#ifndef USE_GPU
   return std::conj(z);
+#else
+  return cuda::std::conj(z);
+#endif
 }
 
+#ifdef USE_GPU
+__global__ void ConjugateKernel(QLTEN_Complex *data, size_t size) {
+  size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+  if (idx < size) {
+    data[idx] = cuda::std::conj(data[idx]); // Call your conjugate function
+  }
+}
+
+#endif
 template<typename TenElemType>
 inline std::vector<TenElemType> SquareVec(const std::vector<TenElemType> &v) {
   std::vector<TenElemType> res(v.size());
@@ -307,7 +384,7 @@ void SubMatMemCpy(
   size_t offset = row_offset * n + col_offset;
   size_t sub_offset = 0;
   for (size_t row_idx = row_offset; row_idx < row_offset + sub_m; ++row_idx) {
-    memcpy(
+    qlten::QLMemcpy(
         mem_begin + offset,
         sub_mem_begin + sub_offset,
         sub_n * sizeof(ElemT)

@@ -13,6 +13,20 @@
 #ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_BLK_SPAR_DATA_TEN_H
 #define QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_BLK_SPAR_DATA_TEN_H
 
+#include <set>              // set
+#include <map>              // map
+#include <unordered_map>    // unordered_map
+#include <iostream>         // endl, istream, ostream
+#include <cassert>          // assert
+#include <random>
+
+#include <boost/serialization/serialization.hpp>
+#include <boost/serialization/split_member.hpp>
+#include <boost/serialization/array.hpp>
+#include <boost/serialization/array_wrapper.hpp>
+#include <boost/mpi.hpp>
+
+#include "qlten/framework/mem_ops.h"                                      // QLMemcpy, QLMalloc, QLFree, QLCalloc
 #include "qlten/framework/value_t.h"                                      // CoorsT, ShapeT
 #include "qlten/framework/bases/streamable.h"                             // Streamable
 #include "qlten/qltensor/index.h"                                         // IndexVec, CalcQNSctNumOfIdxs
@@ -20,35 +34,23 @@
 #include "qlten/qltensor/blk_spar_data_ten/raw_data_operation_tasks.h"    // RawDataTransposeTask
 #include "qlten/qltensor/blk_spar_data_ten/data_blk_mat.h"                // IdxDataBlkMatMap
 #include "qlten/utility/utils_inl.h"                                      // CalcEffOneDimArrayOffset, CalcMultiDimDataOffsets, Reorder, ArrayEq, VecMultiSelectElemts
-
 #include "qlten/framework/hp_numeric/mpi_fun.h"
-#include <boost/serialization/serialization.hpp>
-// #include <boost/serialization/map.hpp>    
-#include <boost/serialization/split_member.hpp>
-#include <boost/serialization/array.hpp>
-#include <boost/serialization/array_wrapper.hpp>
-#include <boost/mpi.hpp>
-// #include "qlten/qltensor/qltensor.h"
-
-#include <set>              // set
-#include <map>              // map
-#include <unordered_map>    // unordered_map
-#include <iostream>         // endl, istream, ostream
-
-#include <stdlib.h>     // malloc, free
-#include <string.h>     // memcpy, memset
 
 #ifdef Release
 #define NDEBUG
 #endif
 
-#include <cassert>     // assert
-#include <random>
-
 namespace qlten {
 
 template<typename ElemT, typename QNT>
 class QLTensor;
+
+#ifdef USE_GPU
+enum RawDataLocation {
+  HOST,
+  DEVICE
+};
+#endif
 
 /**
 Block sparse data tensor.
@@ -277,12 +279,6 @@ class BlockSparseDataTensor : public Streamable {
 
   void ElementWiseSqrt(void);
 
-  template<typename TenElemT = ElemT, typename std::enable_if<std::is_same<TenElemT,
-                                                                           QLTEN_Double>::value>::type * = nullptr>
-  void ElementWiseSign(void);
-
-  template<typename TenElemT = ElemT, typename std::enable_if<std::is_same<TenElemT,
-                                                                           QLTEN_Complex>::value>::type * = nullptr>
   void ElementWiseSign(void);
 
   void ElementWiseBoundTo(double bound);
@@ -374,6 +370,10 @@ class BlockSparseDataTensor : public Streamable {
       const int tag
   );
 
+#ifdef USE_GPU
+
+#endif
+
   /// Rank of the tensor.
   size_t ten_rank = 0;
   /// Block shape.
@@ -408,6 +408,7 @@ class BlockSparseDataTensor : public Streamable {
   /**
   Pointer which point to the actual one-dimensional data array (the raw data).
 
+  For GPU code, the pactual_raw_data_ are always work on device.
   @note This variable will only be changed in Constructors and RawData* member functions.
   */
   ElemT *pactual_raw_data_ = nullptr;
@@ -552,8 +553,8 @@ BlockSparseDataTensor<ElemT, QNT>::BlockSparseDataTensor(
     actual_raw_data_size_(bsdt.actual_raw_data_size_) {
   if (bsdt.pactual_raw_data_ != nullptr) {
     const size_t data_byte_size = actual_raw_data_size_ * sizeof(ElemT);
-    pactual_raw_data_ = (ElemT *) malloc(data_byte_size);
-    memcpy(pactual_raw_data_, bsdt.pactual_raw_data_, data_byte_size);
+    pactual_raw_data_ = (ElemT *) qlten::QLMalloc(data_byte_size);
+    qlten::QLMemcpy(pactual_raw_data_, bsdt.pactual_raw_data_, data_byte_size);
   }
 }
 
@@ -574,8 +575,8 @@ BlockSparseDataTensor<ElemT, QNT>::operator=(const BlockSparseDataTensor &rhs) {
   actual_raw_data_size_ = rhs.actual_raw_data_size_;
   if (rhs.pactual_raw_data_ != nullptr) {
     auto data_byte_size = actual_raw_data_size_ * sizeof(ElemT);
-    pactual_raw_data_ = (ElemT *) malloc(data_byte_size);
-    memcpy(pactual_raw_data_, rhs.pactual_raw_data_, data_byte_size);
+    pactual_raw_data_ = (ElemT *) qlten::QLMalloc(data_byte_size);
+    qlten::QLMemcpy(pactual_raw_data_, rhs.pactual_raw_data_, data_byte_size);
   } else {
     pactual_raw_data_ = nullptr;
   }
@@ -608,7 +609,17 @@ ElemT BlockSparseDataTensor<ElemT, QNT>::ElemGet(
   // For scalar case
   if (IsScalar()) {
     if (actual_raw_data_size_ == 1) {
+#ifndef  USE_GPU
       return *pactual_raw_data_;
+#else
+      ElemT single_raw_data;
+      cudaMemcpy(&single_raw_data,
+                 pactual_raw_data_,
+                 1 * sizeof(ElemT),
+                 cudaMemcpyDeviceToHost);
+      return single_raw_data;
+#endif
+
     } else {
       return 0.0;
     }
@@ -624,9 +635,18 @@ ElemT BlockSparseDataTensor<ElemT, QNT>::ElemGet(
         blk_idx_data_blk_it->second.DataCoorsToInBlkDataIdx(
             blk_coors_data_coors.second
         );
+#ifndef  USE_GPU
     return *(
         pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx
     );
+#else
+    ElemT single_raw_data;
+    cudaMemcpy(&single_raw_data,
+               pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx,
+               1 * sizeof(ElemT),
+               cudaMemcpyDeviceToHost);
+    return single_raw_data;
+#endif
   }
 }
 
@@ -654,10 +674,15 @@ void BlockSparseDataTensor<ElemT, QNT>::ElemSet(
     if (actual_raw_data_size_ == 0) {
       raw_data_size_ = 1;
       Allocate();
-      *pactual_raw_data_ = elem;
-    } else {
-      *pactual_raw_data_ = elem;
     }
+#ifndef  USE_GPU
+    *pactual_raw_data_ = elem;
+#else
+    cudaMemcpy(pactual_raw_data_,
+               &elem,
+               1 * sizeof(ElemT),
+               cudaMemcpyHostToDevice);
+#endif
     return;
   }
 
@@ -670,7 +695,14 @@ void BlockSparseDataTensor<ElemT, QNT>::ElemSet(
   size_t inblk_data_idx = blk_idx_data_blk_it->second.DataCoorsToInBlkDataIdx(
       blk_coors_data_coors.second
   );
+#ifndef USE_GPU
   *(pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx) = elem;
+#else
+  cudaMemcpy(pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx,
+             &elem,
+             1 * sizeof(ElemT),
+             cudaMemcpyHostToDevice);
+#endif
 }
 
 /**
@@ -906,11 +938,6 @@ bool BlockSparseDataTensor<ElemT, QNT>::operator==(
 
   auto data_blk_size = blk_idx_data_blk_map_.size();
   if (data_blk_size != rhs.blk_idx_data_blk_map_.size()) { return false; }
-
-//  if constexpr (Fermionicable<QNT>::IsFermionic()) {
-//
-//
-//  } else {  //bosonic case
   auto lhs_idx_blk_it = blk_idx_data_blk_map_.begin();
   auto rhs_idx_blk_it = rhs.blk_idx_data_blk_map_.begin();
   for (size_t i = 0; i < data_blk_size; ++i) {
@@ -919,11 +946,20 @@ bool BlockSparseDataTensor<ElemT, QNT>::operator==(
     lhs_idx_blk_it++;
     rhs_idx_blk_it++;
   }
+#ifndef USE_GPU
   return ArrayEq(
       pactual_raw_data_, actual_raw_data_size_,
       rhs.pactual_raw_data_, rhs.actual_raw_data_size_
   );
-//  }
+#else
+  if (actual_raw_data_size_ != rhs.actual_raw_data_size_) {
+    return false;
+  }
+
+  return ArrayEq(pactual_raw_data_,
+                 rhs.pactual_raw_data_,
+                 actual_raw_data_size_);
+#endif
 }
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_BLK_SPAR_DATA_TEN_H */

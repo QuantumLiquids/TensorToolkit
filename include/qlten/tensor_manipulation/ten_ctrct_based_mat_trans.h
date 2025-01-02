@@ -178,9 +178,9 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_h
   if (a_trans_critical_axe_ > 0) {
     const auto &a_bsdt = pa_->GetBlkSparDataTen();
     const size_t a_raw_data_size = a_bsdt.GetActualRawDataSize();
-    a_trans_data_ = (TenElemT *) malloc(a_raw_data_size * sizeof(TenElemT));
+    a_trans_data_ = (TenElemT *) qlten::QLMalloc(a_raw_data_size * sizeof(TenElemT));
     set < size_t > selected_data_blk_idxs;
-    for (auto &task: raw_data_ctrct_tasks_) {
+    for (auto &task : raw_data_ctrct_tasks_) {
       selected_data_blk_idxs.insert(task.a_blk_idx);
     }
     a_bsdt.OutOfPlaceMatrixTransposeForSelectedDataBlk(
@@ -197,9 +197,9 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_h
   if (b_trans_critical_axe_ > 0) {
     const auto &b_bsdt = pb_->GetBlkSparDataTen();
     const size_t b_raw_data_size = b_bsdt.GetActualRawDataSize();
-    b_trans_data_ = (TenElemT *) malloc(b_raw_data_size * sizeof(TenElemT));
+    b_trans_data_ = (TenElemT *) qlten::QLMalloc(b_raw_data_size * sizeof(TenElemT));
     set < size_t > selected_data_blk_idxs;
-    for (auto &task: raw_data_ctrct_tasks_) {
+    for (auto &task : raw_data_ctrct_tasks_) {
       selected_data_blk_idxs.insert(task.b_blk_idx);
     }
     b_bsdt.OutOfPlaceMatrixTransposeForSelectedDataBlk(
@@ -217,8 +217,8 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_h
 
 template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
 void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::ExecutePost_() {
-  free(a_trans_data_);
-  free(b_trans_data_);
+  qlten::QLFree(a_trans_data_);
+  qlten::QLFree(b_trans_data_);
 }
 
 template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>

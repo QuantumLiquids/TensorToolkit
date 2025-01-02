@@ -20,6 +20,13 @@
 #include "../testing_utility.h"
 #include "qlten/utility/timer.h"
 
+// In CUDA code, include mkl/openblas to benchmark
+#ifndef USE_OPENBLAS
+#include "mkl.h"
+#else
+#include <cblas.h>
+#endif
+
 using namespace qlten;
 
 using fU1QN = special_qn::fU1QN;
@@ -123,8 +130,8 @@ void RunTestTenCtrct1DCase(QLTensor<TenElemT, QNT> &t, const QNT &div) {
   double Gflops_s = (end_flops - start_flops) * 1.e-9 / elapsed_time;
   std::cout << "Gflops/s = " << Gflops_s << std::endl;
   TenElemT res = 0.0;
-  for (auto &coors: GenAllCoors(t.GetShape())) {
-    res += std::norm(t.GetElem(coors));
+  for (auto &coors : GenAllCoors(t.GetShape())) {
+    res += qlten::norm(t.GetElem(coors));
   }
   GtestExpectNear(t_res.GetElem({}), res, kEpsilon);
 }
@@ -151,12 +158,12 @@ void RunTestTenCtrct2DInOutInOutSectDegnDs(
   auto dense_tb = new TenElemT[tb_size];
   auto dense_res = new TenElemT[m * n];
   size_t idx = 0;
-  for (auto &coors: GenAllCoors(ta.GetShape())) {
+  for (auto &coors : GenAllCoors(ta.GetShape())) {
     dense_ta[idx] = ta.GetElem(coors);
     idx++;
   }
   idx = 0;
-  for (auto &coors: GenAllCoors(ta.GetShape())) {
+  for (auto &coors : GenAllCoors(ta.GetShape())) {
     dense_tb[idx] = tb.GetElem(coors);
     idx++;
   }
@@ -183,7 +190,7 @@ void RunTestTenCtrct2DInOutInOutSectDegnDs(
   QLTensor<TenElemT, QNT> res1;
   Contract(&ta, &tb, {{1}, {0}}, &res1);
   idx = 0;
-  for (auto &coors: GenAllCoors(res1.GetShape())) {
+  for (auto &coors : GenAllCoors(res1.GetShape())) {
     GtestExpectNear(res1.GetElem(coors), dense_res[idx], kEpsilon);
     idx++;
   }
@@ -191,7 +198,7 @@ void RunTestTenCtrct2DInOutInOutSectDegnDs(
   TenElemT res_scalar = 0.0;
   for (size_t i = 0; i < m; i++) {
     int sign;
-    if( i < 3 || i >=6){
+    if (i < 3 || i >= 6) {
       sign = -1;
     } else {
       sign = 1;
@@ -215,7 +222,7 @@ void RunTestTenCtrctDagEqualNorm(
   std::vector<size_t> axes(t.Rank());
   std::iota(axes.begin(), axes.end(), 0);
   Contract(&t_dag, &t, {axes, axes}, &res_ten);
-  std::complex<double> res = std::complex<double>(res_ten());
+  QLTEN_Complex res = QLTEN_Complex(res_ten());
   if (res.real() > 0) {
     double norm = t.Get2Norm();
     GtestExpectNear(res.real(), norm * norm, kEpsilon);
@@ -449,8 +456,6 @@ bool BSDTCompareShell(
   }
   return true;
 }
-
-
 
 template<typename TenElemT, typename QNT>
 void RunTestTenMatBasedCtrct(

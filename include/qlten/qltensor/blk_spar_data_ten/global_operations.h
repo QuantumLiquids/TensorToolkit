@@ -214,7 +214,7 @@ void BlockSparseDataTensor<ElemT, QNT>::FuseFirstTwoIndex(
 #ifdef QLTEN_TIMING_MODE
     fuse_index_bsdt_raw_data_copy.PrintElapsed();
 #endif
-    delete pactual_raw_data_;
+    qlten::QLFree(pactual_raw_data_);
     // right value referece copy
     ten_rank = new_bsdt.ten_rank;
     blk_shape = new_bsdt.blk_shape;
@@ -235,7 +235,13 @@ template<typename ElemT, typename QNT>
 QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Norm(void) {
   if constexpr (Fermionicable<QNT>::IsFermionic()) {
     if (IsScalar()) {
-      return std::abs(*pactual_raw_data_);
+#ifndef USE_GPU
+      return qlten::abs(*pactual_raw_data_);
+#else
+      ElemT single_raw_data;
+      cudaMemcpy(&single_raw_data, pactual_raw_data_, sizeof(single_raw_data), cudaMemcpyDeviceToHost);
+      return qlten::abs(single_raw_data);
+#endif
     }
     auto tasks = GenFermionNormTask();
     return RawDataFermionNorm_(tasks);
@@ -295,7 +301,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ActFermionPOps() {
         in_indices.push_back(i);
       }
     }
-    if(in_indices.empty()){
+    if (in_indices.empty()) {
       return;
     }
     for (auto &[idx, data_blk] : blk_idx_data_blk_map_) {
@@ -443,7 +449,7 @@ void BlockSparseDataTensor<ElemT, QNT>::AddAndAssignIn(
 
   Allocate();
   RawDataCopy_(raw_data_copy_tasks_this, this_pactual_raw_data_);
-  free(this_pactual_raw_data_);
+  qlten::QLFree(this_pactual_raw_data_);
   RawDataCopy_(raw_data_copy_tasks_rhs, rhs.pactual_raw_data_);
 }
 
@@ -494,7 +500,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctTwoBSDTAndAssignIn(
         a_data = poss_it->second;
       } else {
         const auto &a_data_blk = bsdt_a.blk_idx_data_blk_map_.at(task.a_blk_idx);
-        ElemT *transed_data = (ElemT *) malloc(a_data_blk.size * sizeof(ElemT));
+        ElemT *transed_data = (ElemT *) qlten::QLMalloc(a_data_blk.size * sizeof(ElemT));
         std::vector<int> a_blk_transed_shape = Reorder(a_data_blk.shape, a_trans_orders);
         hp_numeric::TensorTranspose(
             a_trans_orders,
@@ -517,7 +523,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctTwoBSDTAndAssignIn(
         b_data = poss_it->second;
       } else {
         const auto &b_data_blk = bsdt_b.blk_idx_data_blk_map_.at(task.b_blk_idx);
-        ElemT *transed_data = (ElemT *) malloc(b_data_blk.size * sizeof(ElemT));
+        ElemT *transed_data = (ElemT *) qlten::QLMalloc(b_data_blk.size * sizeof(ElemT));
         std::vector<int> b_blk_transed_shape = Reorder(b_data_blk.shape, b_trans_orders);
         hp_numeric::TensorTranspose(
             b_trans_orders,
@@ -553,10 +559,10 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctTwoBSDTAndAssignIn(
   contract_mkl_timer.PrintElapsed();
 #endif
   for (auto &blk_idx_transed_data : a_blk_idx_transed_data_map) {
-    free(blk_idx_transed_data.second);
+    qlten::QLFree(blk_idx_transed_data.second);
   }
   for (auto &blk_idx_transed_data : b_blk_idx_transed_data_map) {
-    free(blk_idx_transed_data.second);
+    qlten::QLFree(blk_idx_transed_data.second);
   }
 }
 
@@ -589,7 +595,13 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctAccordingTask(
       }
 
     }
-
+#ifndef  USE_GPU
+    auto QLBlasNoTrans = CblasNoTrans;
+    auto QLBlasTrans = CblasTrans;
+#else
+    auto QLBlasNoTrans = CUBLAS_OP_N;
+    auto QLBlasTrans = CUBLAS_OP_T;
+#endif
     if (a_ctrct_tail && b_ctrct_head) {
       RawDataTwoMatMultiplyAndAssignIn_(
           a_data,
@@ -603,9 +615,9 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctAccordingTask(
       hp_numeric::MatMultiply(
           over_all_f_ex_sign,
           a_data,
-          CblasNoTrans,
+          QLBlasNoTrans,
           b_data,
-          CblasTrans,
+          QLBlasTrans,
           task.m, task.k, task.n,
           task.k, task.k,
           task.beta,
@@ -615,9 +627,9 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctAccordingTask(
       hp_numeric::MatMultiply(
           over_all_f_ex_sign,
           a_data,
-          CblasTrans,
+          QLBlasTrans,
           b_data,
-          CblasNoTrans,
+          QLBlasNoTrans,
           task.m, task.k, task.n,
           task.m, task.n,
           task.beta,
@@ -627,9 +639,9 @@ void BlockSparseDataTensor<ElemT, QNT>::CtrctAccordingTask(
       hp_numeric::MatMultiply(
           over_all_f_ex_sign,
           a_data,
-          CblasTrans,
+          QLBlasTrans,
           b_data,
-          CblasTrans,
+          QLBlasTrans,
           task.m, task.k, task.n,
           task.m, task.k,
           task.beta,
@@ -871,7 +883,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ConstructMCExpandedDataOnFirstIndex(
 
   Allocate(false);
 
-  memcpy(
+  qlten::QLMemcpy(
       pactual_raw_data_,
       bsdt_a.GetActualRawDataPtr(),
       bsdt_a.GetActualRawDataSize() * sizeof(ElemT)
@@ -893,6 +905,7 @@ void BlockSparseDataTensor<ElemT, QNT>::OutOfPlaceMatrixTransposeForSelectedData
     const size_t critical_axe,
     ElemT *transposed_data
 ) const {
+#ifndef  USE_GPU
   const size_t group_count = selected_data_blk_idxs.size();
   const ElemT **Amat_array = (const ElemT **) malloc(group_count * sizeof(ElemT *));
   ElemT **Bmat_array = (ElemT **) malloc(group_count * sizeof(ElemT *));
@@ -934,7 +947,35 @@ void BlockSparseDataTensor<ElemT, QNT>::OutOfPlaceMatrixTransposeForSelectedData
   free(Bmat_array);
   free(rows_array);
   free(cols_array);
+#else//USE_GPU
+  const size_t group_count = selected_data_blk_idxs.size();
+  auto iter = selected_data_blk_idxs.begin();
+  for (size_t i = 0; i < group_count; i++) {
+    const size_t idx = (*iter);
+    const DataBlk<QNT> &data_blk = blk_idx_data_blk_map_.at(idx);
+    if constexpr (Fermionicable<QNT>::IsFermionic()) {
 
+    }
+    const size_t off_set = data_blk.data_offset;
+    const std::vector<size_t> &shape = data_blk.shape;
+    auto a_mat = pactual_raw_data_ + off_set;
+    auto b_mat = transposed_data + off_set;
+    size_t rows(1), cols(1);
+    for (size_t j = 0; j < critical_axe; j++) {
+      rows *= shape[j];
+    }
+    for (size_t j = critical_axe; j < ten_rank; j++) {
+      cols *= shape[j];
+    }
+    hp_numeric::MatrixTranspose(
+        a_mat,
+        rows,
+        cols,
+        b_mat
+    );
+    iter++;
+  }
+#endif
 }
 
 /**
@@ -1009,7 +1050,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CollectiveLinearCombine(
   }
   RawDataCopy_(source_pointers, dest_pointers, copy_size);
 }
-
+#ifndef USE_GPU
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::SymMatEVDRawDataDecomposition(
     BlockSparseDataTensor<ElemT, QNT> &u,
@@ -1029,5 +1070,6 @@ void BlockSparseDataTensor<ElemT, QNT>::SymMatEVDRawDataDecomposition(
                           pu_start + task.data_offset);
   }
 }
+#endif
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_GLOBAL_OPERATIONS_H */

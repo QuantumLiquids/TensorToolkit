@@ -6,19 +6,28 @@
 #  Description: QuantumLiquids/tensor project. CMake file to control unittest.
 #
 
-if (QLTEN_USE_EXTERNAL_HPTT_LIB)
-    find_package(hptt REQUIRED)
+if (QLTEN_USE_GPU)
+    find_package(CUTENSOR REQUIRED)
+    # Find all .cc files in tests/ directory
+    file(GLOB_RECURSE TEST_SOURCES */*.cc)
+    message(STATUS "TEST_SOURCES" ${TEST_SOURCES})
+    # Treat all .cc files in tests/ as CUDA files
+    set_source_files_properties(${TEST_SOURCES} PROPERTIES LANGUAGE CUDA)
 else ()
-    set(hptt_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/external/hptt/include")
-    set(hptt_LIBRARY "${CMAKE_BINARY_DIR}/external/hptt/libhptt.a")
+    if (QLTEN_USE_EXTERNAL_HPTT_LIB)
+        find_package(hptt REQUIRED)
+    else ()
+        set(hptt_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/external/hptt/include")
+        set(hptt_LIBRARY "${CMAKE_BINARY_DIR}/external/hptt/libhptt.a")
+    endif ()
 endif ()
 
+find_package(MPI REQUIRED)
 find_package(Boost
         1.74.0
         REQUIRED
         COMPONENTS serialization mpi)
 
-find_package(MPI REQUIRED)
 
 option(TEST_ACTUAL_COMBAT "test the actual examples of mps tensors" OFF)
 
@@ -40,36 +49,68 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set(OMP_FLAGS -fopenmp)
 endif ()
 
-macro(add_unittest
-        TEST_NAME TEST_SRC CFLAGS LINK_LIBS LINK_LIB_FLAGS)
-    add_executable(${TEST_NAME}
-            ${TEST_SRC})
+if (QLTEN_USE_GPU)
+    macro(add_unittest
+            TEST_NAME TEST_SRC CFLAGS LINK_LIBS LINK_LIB_FLAGS)
+        add_executable(${TEST_NAME}
+                ${TEST_SRC})
 
-    target_compile_options(${TEST_NAME}
-            PRIVATE ${CFLAGS}
-            PRIVATE ${OMP_FLAGS}
-    )
-    target_include_directories(${TEST_NAME}
-            PRIVATE ${QLTEN_HEADER_PATH}
-            PRIVATE ${hptt_INCLUDE_DIR}
-            PRIVATE ${Boost_INCLUDE_DIR}
-            PRIVATE ${MPI_CXX_HEADER_DIR})
-    target_link_libraries(${TEST_NAME}
-            GTest::GTest GTest::Main
-            ${hptt_LIBRARY}
-            Boost::serialization
-            Boost::mpi
-            ${MPI_CXX_LINK_FLAGS}
-            ${MPI_mpi_LIBRARY}
-            "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
-    )
+        target_compile_options(${TEST_NAME}
+                PRIVATE ${CFLAGS}
+                PRIVATE ${OMP_FLAGS}
+        )
+        target_include_directories(${TEST_NAME}
+                PRIVATE ${QLTEN_HEADER_PATH}
+                PRIVATE ${CUTENSOR_INCLUDE_DIR}
+                PRIVATE ${Boost_INCLUDE_DIR}
+                PRIVATE ${MPI_CXX_HEADER_DIR}
+        )
+        target_link_libraries(${TEST_NAME}
+                PRIVATE CUDA::cublas_static
+                PRIVATE CUDA::cusolver_static
+                PRIVATE ${CUTENSOR_LIBRARY}
+                PRIVATE GTest::GTest GTest::Main
+                "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
+        ) #remove MPI and boost dependence since GPU code not support MPI upto now
 
-    add_test(
-            NAME ${TEST_NAME}
-            COMMAND "${TEST_NAME}")
+        add_test(
+                NAME ${TEST_NAME}
+                COMMAND "${TEST_NAME}")
 
-    set_target_properties(${TEST_NAME} PROPERTIES FOLDER tests)
-endmacro()
+        set_target_properties(${TEST_NAME} PROPERTIES FOLDER tests)
+    endmacro()
+else ()
+    macro(add_unittest
+            TEST_NAME TEST_SRC CFLAGS LINK_LIBS LINK_LIB_FLAGS)
+        add_executable(${TEST_NAME}
+                ${TEST_SRC})
+
+        target_compile_options(${TEST_NAME}
+                PRIVATE ${CFLAGS}
+                PRIVATE ${OMP_FLAGS}
+        )
+        target_include_directories(${TEST_NAME}
+                PRIVATE ${QLTEN_HEADER_PATH}
+                PRIVATE ${hptt_INCLUDE_DIR}
+                PRIVATE ${Boost_INCLUDE_DIR}
+                PRIVATE ${MPI_CXX_HEADER_DIR})
+        target_link_libraries(${TEST_NAME}
+                PRIVATE ${hptt_LIBRARY}
+                PRIVATE Boost::serialization
+                PRIVATE Boost::mpi
+                PRIVATE ${MPI_CXX_LINK_FLAGS}
+                PRIVATE ${MPI_mpi_LIBRARY}
+                PRIVATE GTest::GTest GTest::Main
+                "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
+        )
+
+        add_test(
+                NAME ${TEST_NAME}
+                COMMAND "${TEST_NAME}")
+
+        set_target_properties(${TEST_NAME} PROPERTIES FOLDER tests)
+    endmacro()
+endif ()
 
 
 macro(add_mpi_unittest
@@ -134,7 +175,7 @@ endmacro()
 
 add_unittest(test_fu1qn "test_qltensor/test_special_qn/test_fu1qn.cc" "" "" "")
 
-add_unittest(test_fermion_parity_exchange "test_utility/test_fermion_parity_exchange.cpp" "" "" "")
+add_unittest(test_fermion_parity_exchange "test_utility/test_fermion_parity_exchange.cc" "" "" "")
 
 ## Test quantum number related objects
 # Test quantum number vaules
@@ -189,11 +230,13 @@ add_unittest(test_ten_svd
         "test_tensor_manipulation/test_ten_svd.cc"
         "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
-# EVD
-add_unittest(test_sym_mat_evd
-        "test_tensor_manipulation/test_sym_mat_evd.cpp"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
-)
+if (NOT QLTEN_USE_GPU) # temporary remove because it is not used in DMRG
+    # EVD
+    add_unittest(test_sym_mat_evd
+            "test_tensor_manipulation/test_sym_mat_evd.cc"
+            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+    )
+endif ()
 # Test tensor QR.
 add_unittest(test_ten_qr
         "test_tensor_manipulation/test_ten_qr.cc"
@@ -221,27 +264,29 @@ add_unittest(test_ten_blk_expand
         "test_tensor_manipulation/test_ten_block_expand.cc"
         "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
-# Test tensor communication for serialization
-add_unittest(test_boost_serialization
-        "test_tensor_mpi/test_ten_boost_serialization.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
-)
+if (NOT QLTEN_USE_GPU)
+    # Test tensor communication for serialization
+    add_unittest(test_boost_serialization
+            "test_tensor_mpi/test_ten_boost_serialization.cc"
+            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+    )
 
-# Test boost mpi
-add_mpi_unittest(test_boost_mpi
-        "test_tensor_mpi/test_boost_mpi.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
-)
+    # Test boost mpi
+    add_mpi_unittest(test_boost_mpi
+            "test_tensor_mpi/test_boost_mpi.cc"
+            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
+    )
 
-# Test tensor communication for mpi
-add_mpi_unittest(test_ten_mpi_comm
-        "test_tensor_mpi/test_ten_mpi_comm.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
-)
+    # Test tensor communication for mpi
+    add_mpi_unittest(test_ten_mpi_comm
+            "test_tensor_mpi/test_ten_mpi_comm.cc"
+            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
+    )
 
 
-# Test mpi svd performance
-add_mpi_unittest(test_mpi_svd
-        "test_tensor_mpi/test_mpi_svd.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "3"
-)
+    # Test mpi svd performance
+    add_mpi_unittest(test_mpi_svd
+            "test_tensor_mpi/test_mpi_svd.cc"
+            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "3"
+    )
+endif ()

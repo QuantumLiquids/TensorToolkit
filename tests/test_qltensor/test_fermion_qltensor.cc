@@ -622,14 +622,14 @@ template<typename QLTensorT>
 void RunTestQLTensorFullEvenNormalizeCase(QLTensorT &t) {
   auto norm2 = 0.0;
   for (auto &coors: GenAllCoors(t.GetShape())) {
-    norm2 += std::norm(t.GetElem(coors));
+    norm2 += qlten::norm(t.GetElem(coors));
   }
   auto norm = t.Normalize();
-  EXPECT_NEAR(norm, std::sqrt(norm2), 1e-14);
+  EXPECT_NEAR(norm, qlten::sqrt(norm2), 1e-14);
 
   norm2 = 0.0;
   for (auto &coors: GenAllCoors(t.GetShape())) {
-    norm2 += std::norm(t.GetElem(coors));
+    norm2 += qlten::norm(t.GetElem(coors));
   }
   EXPECT_NEAR(norm2, 1.0, kEpsilon);
 }
@@ -640,7 +640,7 @@ TEST_F(TestQLTensor, TestNormalize) {
   dten_scalar.Random(fU1QN());
   auto dscalar = dten_scalar.GetElem({});
   auto dnorm = dten_scalar.Normalize();
-  EXPECT_DOUBLE_EQ(dnorm, std::abs(dscalar));
+  EXPECT_DOUBLE_EQ(dnorm, qlten::abs(dscalar));
   EXPECT_DOUBLE_EQ(dten_scalar.GetElem({}), 1.0);
 
   dten_1d_s.Random(qn0);
@@ -652,7 +652,7 @@ TEST_F(TestQLTensor, TestNormalize) {
   dten_2d_s({11, 11}) = d;
   zten_2d_s = ToComplex(dten_2d_s);
   double norm = dten_2d_s.Normalize();
-  EXPECT_NEAR(norm, std::sqrt(b * b - a * a - c * c - d * d), 1e-14);
+  EXPECT_NEAR(norm, qlten::sqrt(b * b - a * a - c * c - d * d), 1e-14);
 //  dten_3d_s.Random(qn0);
 //  RunTestQLTensorNormalizeCase(dten_3d_s);
 //
@@ -665,9 +665,9 @@ TEST_F(TestQLTensor, TestNormalize) {
   zten_1d_s.Random(qn0);
   RunTestQLTensorFullEvenNormalizeCase(zten_1d_s);
 
-  zten_2d_s *= std::complex<double>(0.5, std::sqrt(3.0) / 2.0);
+  zten_2d_s *= QLTEN_Complex (0.5, qlten::sqrt(3.0) / 2.0);
   norm = zten_2d_s.Normalize();
-  EXPECT_NEAR(norm, std::sqrt(b * b - a * a - c * c - d * d), 1e-14);
+  EXPECT_NEAR(norm, qlten::sqrt(b * b - a * a - c * c - d * d), 1e-14);
 //  RunTestQLTensorNormalizeCase(zten_2d_s);
 //  zten_3d_s.Random(qn0);
 //  RunTestQLTensorNormalizeCase(zten_3d_s);
@@ -832,10 +832,12 @@ void RunTestQLTensorElementWiseOperationCase(QLTensorT t, bool real_ten = true) 
   }
   t.ElementWiseBoundTo(0.05);
 
+#ifndef  USE_GPU
   std::uniform_real_distribution<double> u_double(0, 1);
   std::random_device rd;
   std::mt19937 gen(rd());
   t.ElementWiseRandSign(u_double, gen);
+#endif
 }
 
 TEST_F(TestQLTensor, ElementWiseOperation) {

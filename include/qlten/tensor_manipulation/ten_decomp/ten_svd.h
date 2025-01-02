@@ -14,12 +14,11 @@
 #define QLTEN_TENSOR_MANIPULATION_TEN_DECOMP_TEN_SVD_H
 
 #include <cassert>     // assert
+#include <utility>    // pair
 
 #include "qlten/framework/bases/executor.h"                           // Executor
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_decomp/ten_decomp_basic.h"    // GenIdxTenDecompDataBlkMats, IdxDataBlkMatMap
-
-#include <utility>    // pair
 
 #ifdef Release
 #define NDEBUG
@@ -257,17 +256,28 @@ std::vector<TruncedSVInfo> TensorSVDExecutor<TenElemT, QNT>::CalcTruncedSVInfo_(
 ) {
   std::vector<TruncedSVInfo> trunced_sv_info;
   trunced_sv_info.reserve(Dmin_);
-  for (auto &idx_svd_res: idx_svd_res_map) {
+  for (auto &idx_svd_res : idx_svd_res_map) {
     auto idx = idx_svd_res.first;
     auto svd_res = idx_svd_res.second;
     auto k = svd_res.k;
+#ifndef USE_GPU
     auto s = svd_res.s;
+#else
+    QLTEN_Double *s = new double[k];
+    auto cuda_err = cudaMemcpy(s, svd_res.s, k * sizeof(QLTEN_Double), cudaMemcpyDeviceToHost);
+    if (cuda_err != cudaSuccess) {
+      std::cerr << "cudaMemcpy error (1): " << cuda_err << std::endl;
+    }
+#endif
     for (size_t i = 0; i < k; ++i) {
       QLTEN_Double &sv = s[i];
       if (sv != 0.0) {
         trunced_sv_info.emplace_back(std::make_tuple(sv, idx, i, sv * sv));
       }
     }
+#ifdef  USE_GPU
+    delete[] s;
+#endif
   }
   size_t total_sv_size = trunced_sv_info.size();
 
@@ -403,7 +413,7 @@ QNSectorVec<QNT> GenMidQNSects(
 ) {
   QNSectorVec<QNT> mid_qnscts;
   mid_qnscts.reserve(idx_s_data_blk_info_map.size());
-  for (auto &idx_s_data_blk_info: idx_s_data_blk_info_map) {
+  for (auto &idx_s_data_blk_info : idx_s_data_blk_info_map) {
     auto idx = idx_s_data_blk_info.first;
     mid_qnscts.push_back(
         QNSector<QNT>(
@@ -441,7 +451,7 @@ UVtDataBlkInfoVecPair TensorSVDExecutor<TenElemT, QNT>::CreateSVDResTens_(
 
   // Insert empty data blocks
   UVtDataBlkInfoVec u_data_blks_info, vt_data_blks_info;
-  for (auto &idx_s_data_blk_info: idx_s_data_blk_info_map) {
+  for (auto &idx_s_data_blk_info : idx_s_data_blk_info_map) {
     auto data_blk_mat_idx = idx_s_data_blk_info.first;
     auto s_data_blk_info = idx_s_data_blk_info.second;
     auto blk_coor = s_data_blk_info.blk_coor;
@@ -451,7 +461,7 @@ UVtDataBlkInfoVecPair TensorSVDExecutor<TenElemT, QNT>::CreateSVDResTens_(
 
     ps_->GetBlkSparDataTen().DataBlkInsert({blk_coor, blk_coor}, false);
 
-    for (auto &row_sct: data_blk_mat.row_scts) {
+    for (auto &row_sct : data_blk_mat.row_scts) {
       CoorsT u_data_blk_coors(std::get<0>(row_sct));
       u_data_blk_coors.push_back(blk_coor);
       pu_->GetBlkSparDataTen().DataBlkInsert(u_data_blk_coors, false);
@@ -464,7 +474,7 @@ UVtDataBlkInfoVecPair TensorSVDExecutor<TenElemT, QNT>::CreateSVDResTens_(
       );
     }
 
-    for (auto &col_sct: data_blk_mat.col_scts) {
+    for (auto &col_sct : data_blk_mat.col_scts) {
       CoorsT vt_data_blk_coors{blk_coor};
       auto rpart_blk_coors = std::get<0>(col_sct);
       vt_data_blk_coors.insert(
@@ -493,7 +503,7 @@ void TensorSVDExecutor<TenElemT, QNT>::FillSVDResTens_(
   // Fill s tensor
   ps_->GetBlkSparDataTen().Allocate(true);    // Initialize memory to 0 here
   size_t s_coor = 0;
-  for (auto &idx_s_data_blk_info: idx_s_data_blk_info_map) {
+  for (auto &idx_s_data_blk_info : idx_s_data_blk_info_map) {
     auto s_data_blk_info = idx_s_data_blk_info.second;
     for (size_t i = 0; i < s_data_blk_info.blk_dim; ++i) {
       ps_->SetElem({s_coor, s_coor}, s_data_blk_info.svs[i]);
@@ -505,7 +515,7 @@ void TensorSVDExecutor<TenElemT, QNT>::FillSVDResTens_(
   // Fill u tensor
   pu_->GetBlkSparDataTen().Allocate();
   auto u_data_blks_info = u_vt_data_blks_info.first;
-  for (auto u_data_blk_info: u_data_blks_info) {
+  for (auto u_data_blk_info : u_data_blks_info) {
     auto svd_res = idx_svd_res_map.at(u_data_blk_info.data_blk_mat_idx);
     pu_->GetBlkSparDataTen().DataBlkCopySVDUdata(
         u_data_blk_info.blk_coors,
@@ -519,7 +529,7 @@ void TensorSVDExecutor<TenElemT, QNT>::FillSVDResTens_(
 
   pvt_->GetBlkSparDataTen().Allocate();
   auto vt_data_blks_info = u_vt_data_blks_info.second;
-  for (auto &vt_data_blk_info: vt_data_blks_info) {
+  for (auto &vt_data_blk_info : vt_data_blks_info) {
     auto svd_res = idx_svd_res_map.at(vt_data_blk_info.data_blk_mat_idx);
     pvt_->GetBlkSparDataTen().DataBlkCopySVDVtData(
         vt_data_blk_info.blk_coors,

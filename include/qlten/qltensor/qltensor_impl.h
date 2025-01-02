@@ -1023,6 +1023,17 @@ void QLTensor<ElemT, QNT>::ElementWiseSqrt(void) {
 }
 
 template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseSign() {
+  pblk_spar_data_ten_->ElementWiseSign();
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
+  pblk_spar_data_ten_->ElementWiseBoundTo(bound);
+}
+
+#ifndef USE_GPU
+template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::DiagMatInv(void) {
   for (size_t i = 0; i < GetShape()[0]; i++) {
     (*this)({i, i}) = 1.0 / (*this)({i, i});
@@ -1040,21 +1051,12 @@ void QLTensor<ElemT, QNT>::DiagMatInv(double tolerance) {
 }
 
 template<typename ElemT, typename QNT>
-void QLTensor<ElemT, QNT>::ElementWiseSign() {
-  pblk_spar_data_ten_->ElementWiseSign();
-}
-
-template<typename ElemT, typename QNT>
-void QLTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
-  pblk_spar_data_ten_->ElementWiseBoundTo(bound);
-}
-
-template<typename ElemT, typename QNT>
 template<typename RandGenerator>
 void QLTensor<ElemT, QNT>::ElementWiseRandSign(std::uniform_real_distribution<double> &dist,
                                                RandGenerator &g) {
   pblk_spar_data_ten_->ElementWiseRandSign(dist, g);
 }
+#endif //not USE_GPU
 
 // generate Identity tensor for bosonic tensors
 // or fermionic parity operator for fermionic tensors

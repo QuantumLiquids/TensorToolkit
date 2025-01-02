@@ -26,6 +26,9 @@ if (${CMAKE_BUILD_TYPE} MATCHES Debug)
     set(CMAKE_VERBOSE_MAKEFILE ON)
 endif ()
 
+# Compilation and linking control.
+set(CMAKE_CXX_STANDARD 17)
+add_definitions(-Wall -g)
 
 # Advanced options.
 option(QLTEN_BUILD_UNITTEST "Build unittests for TensorKit." OFF)
@@ -40,14 +43,27 @@ if (QLTEN_MPI_TIMING_MODE)
     add_definitions(-DQLTEN_MPI_TIMING_MODE)
 endif ()
 
-option(QLTEN_USE_EXTERNAL_HPTT_LIB "Use user pre-installed external hptt library" OFF)
+option(QLTEN_USE_GPU "Use GPU" OFF)
+if (QLTEN_USE_GPU)
+    add_definitions(-DUSE_GPU=1)
 
-option(QLTEN_USE_OPENBLAS "Use openblas rather mkl" OFF)
+    # Enable CUDA language support
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)  # Modern CUDA Toolkit detection
 
-# Compilation and linking control.
-set(CMAKE_CXX_STANDARD 17)
-add_definitions(-Wall -g)
+    include_directories(${CUDAToolkit_INCLUDE_DIRS})
+    message(STATUS "CUDA_INCLUDE_DIRS: '${CUDAToolkit_INCLUDE_DIRS}'")
 
+    # Set CUDA architectures
+    set(CMAKE_CUDA_ARCHITECTURES 70 80) # For V100 & A100, adjust if needed
+
+    # Compiler flags
+    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -lineinfo -Xcompiler=-fPIC")
+else ()
+    option(QLTEN_USE_EXTERNAL_HPTT_LIB "Use user pre-installed external hptt library" OFF)
+    option(QLTEN_USE_OPENBLAS "Use openblas rather mkl" OFF)
+endif ()
+#To test, use MKL/OpenBlas as benchmark. In practical use cases, above link is not need
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64" AND NOT QLTEN_USE_OPENBLAS)
     if (APPLE)
         if (CMAKE_CXX_COMPILER_ID MATCHES "Intel")
@@ -82,8 +98,8 @@ else () # Use OpenBlas
     if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
         #        list(APPEND CMAKE_PREFIX_PATH $ENV{OpenBLAS_ROOT})
         #        set(BLA_VENDOR OpenBLAS)
-                FIND_PACKAGE(BLAS REQUIRED)
-                FIND_PACKAGE(LAPACK REQUIRED)
+        FIND_PACKAGE(BLAS REQUIRED)
+        FIND_PACKAGE(LAPACK REQUIRED)
 
         set(OpenBLAS_INCLUDE_DIRS "$ENV{OpenBLAS_ROOT}/include")
         set(OpenBLAS_LIBRARIES "$ENV{OpenBLAS_ROOT}/lib/libopenblas.a")
@@ -92,8 +108,8 @@ else () # Use OpenBlas
         set(MATH_LIB_LINK_FLAGS ${OpenBLAS_LIBRARIES} -lm -lpthread -ldl -fopenmp -lclapack -lgfortran)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         set(BLA_VENDOR OpenBLAS)
-#        FIND_PACKAGE(BLAS REQUIRED)
-#        FIND_PACKAGE(LAPACK REQUIRED)
+        #        FIND_PACKAGE(BLAS REQUIRED)
+        #        FIND_PACKAGE(LAPACK REQUIRED)
         set(OpenBLAS_ROOT "/opt/homebrew/opt/openblas/")
         set(Lapack_ROOT "/opt/homebrew/opt/lapack")
         message(${OpenBLAS_ROOT})
@@ -101,7 +117,7 @@ else () # Use OpenBlas
         set(OpenBLAS_LIBRARIES "${OpenBLAS_ROOT}/lib/libblas.dylib")
         message(${OpenBLAS_LIBRARIES})
         set(MATH_LIB_COMPILE_FLAGS -I${OpenBLAS_INCLUDE_DIRS} -pthread)
-        set(MATH_LIB_LINK_FLAGS ${OpenBLAS_LIBRARIES} ${OpenBLAS_ROOT}/lib/liblapack.dylib -lm -lpthread -ldl -fopenmp -lclapack )
+        set(MATH_LIB_LINK_FLAGS ${OpenBLAS_LIBRARIES} ${OpenBLAS_ROOT}/lib/liblapack.dylib -lm -lpthread -ldl -fopenmp -lclapack)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "Intel")
         message("Don't support intel compiler to compile OpenBlas")
     endif ()

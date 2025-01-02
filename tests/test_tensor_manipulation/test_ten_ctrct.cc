@@ -12,6 +12,7 @@
 //#define PLAIN_TRANSPOSE 1
 
 
+
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_ctrct.h"            // Contract
 #include "qlten/tensor_manipulation/basic_operations.h"     // Dag
@@ -19,6 +20,14 @@
 #include "gtest/gtest.h"
 #include "../testing_utility.h"
 #include "qlten/utility/timer.h"
+
+//Additional add mkl/openblas for CUDA Benchmark.
+//Note add it at last otherwise some complex number type transfer error
+#ifndef USE_OPENBLAS
+#include "mkl.h"
+#else
+#include <cblas.h>
+#endif
 
 using namespace qlten;
 
@@ -123,8 +132,8 @@ void RunTestTenCtrct1DCase(QLTensor<TenElemT, QNT> &t, const QNT &div) {
   double Gflops_s = (end_flops - start_flops) * 1.e-9 / elapsed_time;
   std::cout << "Gflops/s = " << Gflops_s << std::endl;
   TenElemT res = 0.0;
-  for (auto &coors: GenAllCoors(t.GetShape())) {
-    res += std::norm(t.GetElem(coors));
+  for (auto &coors : GenAllCoors(t.GetShape())) {
+    res += qlten::norm(t.GetElem(coors));
   }
   GtestExpectNear(t_res.GetElem({}), res, kEpsilon);
 }
@@ -154,12 +163,12 @@ void RunTestTenCtrct2DInOutInOutSectDegnDsCase1(
   auto dense_tb = new TenElemT[tb_size];
   auto dense_res = new TenElemT[m * n];
   size_t idx = 0;
-  for (auto &coors: GenAllCoors(ta.GetShape())) {
+  for (auto &coors : GenAllCoors(ta.GetShape())) {
     dense_ta[idx] = ta.GetElem(coors);
     idx++;
   }
   idx = 0;
-  for (auto &coors: GenAllCoors(ta.GetShape())) {
+  for (auto &coors : GenAllCoors(ta.GetShape())) {
     dense_tb[idx] = tb.GetElem(coors);
     idx++;
   }
@@ -175,7 +184,7 @@ void RunTestTenCtrct2DInOutInOutSectDegnDsCase1(
   Contract(&ta, &tb, {{1},
                       {0}}, &res);
   idx = 0;
-  for (auto &coors: GenAllCoors(res.GetShape())) {
+  for (auto &coors : GenAllCoors(res.GetShape())) {
     GtestExpectNear(res.GetElem(coors), dense_res[idx], kEpsilon);
     idx++;
   }
@@ -199,12 +208,12 @@ void RunTestTenCtrct2DCase2(
   auto dense_ta = new TenElemT[ta_size];
   auto dense_tb = new TenElemT[tb_size];
   size_t idx = 0;
-  for (auto &coors: GenAllCoors(ta.GetShape())) {
+  for (auto &coors : GenAllCoors(ta.GetShape())) {
     dense_ta[idx] = ta.GetElem(coors);
     idx++;
   }
   idx = 0;
-  for (auto &coors: GenAllCoors(tb.GetShape())) {
+  for (auto &coors : GenAllCoors(tb.GetShape())) {
     dense_tb[idx] = tb.GetElem({coors[1], coors[0]});
     idx++;
   }
@@ -266,12 +275,12 @@ void RunTestTenCtrct3DCase1(
   auto dense_tb = new TenElemT[tb_size];
   auto dense_res = new TenElemT[m * n];
   size_t idx = 0;
-  for (auto &coors: GenAllCoors(ta.GetShape())) {
+  for (auto &coors : GenAllCoors(ta.GetShape())) {
     dense_ta[idx] = ta.GetElem(coors);
     idx++;
   }
   idx = 0;
-  for (auto &coors: GenAllCoors(tb.GetShape())) {
+  for (auto &coors : GenAllCoors(tb.GetShape())) {
     dense_tb[idx] = tb.GetElem(coors);
     idx++;
   }
@@ -287,7 +296,7 @@ void RunTestTenCtrct3DCase1(
   Contract(&ta, &tb, {{2},
                       {0}}, &res);
   idx = 0;
-  for (auto &coors: GenAllCoors(res.GetShape())) {
+  for (auto &coors : GenAllCoors(res.GetShape())) {
     GtestExpectNear(res.GetElem(coors), dense_res[idx], kEpsilon);
     idx++;
   }
@@ -312,12 +321,12 @@ void RunTestTenCtrct3DCase2(
   auto dense_tb = new TenElemT[tb_size];
   auto dense_res = new TenElemT[m * n];
   size_t idx = 0;
-  for (auto &coors: GenAllCoors(ta.GetShape())) {
+  for (auto &coors : GenAllCoors(ta.GetShape())) {
     dense_ta[idx] = ta.GetElem(coors);
     idx++;
   }
   idx = 0;
-  for (auto &coors: GenAllCoors(tb.GetShape())) {
+  for (auto &coors : GenAllCoors(tb.GetShape())) {
     dense_tb[idx] = tb.GetElem(coors);
     idx++;
   }
@@ -333,7 +342,7 @@ void RunTestTenCtrct3DCase2(
   Contract(&ta, &tb, {{1, 2},
                       {0, 1}}, &res);
   idx = 0;
-  for (auto &coors: GenAllCoors(res.GetShape())) {
+  for (auto &coors : GenAllCoors(res.GetShape())) {
     GtestExpectNear(res.GetElem(coors), dense_res[idx], kEpsilon);
     idx++;
   }
@@ -357,12 +366,12 @@ void RunTestTenCtrct3DCase3(
   auto dense_ta = new TenElemT[ta_size];
   auto dense_tb = new TenElemT[tb_size];
   size_t idx = 0;
-  for (auto &coors: GenAllCoors(ta.GetShape())) {
+  for (auto &coors : GenAllCoors(ta.GetShape())) {
     dense_ta[idx] = ta.GetElem(coors);
     idx++;
   }
   idx = 0;
-  for (auto &coors: GenAllCoors(tb.GetShape())) {
+  for (auto &coors : GenAllCoors(tb.GetShape())) {
     dense_tb[idx] = tb.GetElem(coors);
     idx++;
   }

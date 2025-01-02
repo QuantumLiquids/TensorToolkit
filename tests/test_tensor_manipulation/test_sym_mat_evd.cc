@@ -74,7 +74,7 @@ void RunTestSymMatEVDCase(
 
   Contract(&u, &d, {{1}, {0}}, &temp3);
   Contract(&temp3, &u_dag, {{1}, {1}}, &temp4);
-  for (auto &coors: GenAllCoors(t.GetShape())) {
+  for (auto &coors : GenAllCoors(t.GetShape())) {
     GtestExpectNear(t.GetElem(coors), temp4.GetElem(coors), 1E-14);
   }
 }
@@ -103,7 +103,7 @@ TEST_F(TestSvd, 2DCase) {
       if (i == j) {
         zten_2d_s({i, i}) = zten_2d_s.GetElem({i, i}).real();
       } else {
-        zten_2d_s({i, j}) = std::conj(zten_2d_s.GetElem({j, i}));
+        zten_2d_s({i, j}) = qlten::conj(zten_2d_s.GetElem({j, i}));
       }
 
     }

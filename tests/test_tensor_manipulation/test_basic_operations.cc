@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 /*
-* Author: Rongyang Sun <sun-rongyang@outlook.com>
+* Author: Haoxin Wang <wanghaoxin1996@gmail.com>
 * Creation Date: 2020-11-27 09:33
 *
 * Description: QuantumLiquids/tensor project. Unittests for basic tensor operations.
@@ -53,14 +53,14 @@ void RunTestTensorDagCase(const QLTensorT &t) {
     // Do nothing
   } else if (t.IsScalar()) {
     auto t_dag = Dag(t);
-    EXPECT_EQ(t_dag.GetElem({}), std::conj(t.GetElem({})));
+    EXPECT_EQ(t_dag.GetElem({}), CalcConj(t.GetElem({})));
   } else {
     auto t_dag = Dag(t);
     for (size_t i = 0; i < t.Rank(); ++i) {
       EXPECT_EQ(t_dag.GetIndexes()[i], InverseIndex(t.GetIndexes()[i]));
     }
     for (auto &coor : GenAllCoors(t.GetShape())) {
-      EXPECT_EQ(t_dag.GetElem(coor), std::conj(t.GetElem(coor)));
+      EXPECT_EQ(t_dag.GetElem(coor), CalcConj(t.GetElem(coor)));
     }
   }
 }

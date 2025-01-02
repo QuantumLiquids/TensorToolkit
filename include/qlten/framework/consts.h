@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 /*
-* Author: Rongyang Sun <sun-rongyang@outlook.com>
+* Author: Hao-Xin Wang <wanghaoxin1996@gmail.com>
 * Creation Date: 2019-09-11 20:43
 * 
 * Description: QuantumLiquids/tensor project. Constants used by this library.

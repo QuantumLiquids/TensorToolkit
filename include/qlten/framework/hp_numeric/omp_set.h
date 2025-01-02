@@ -20,6 +20,7 @@ namespace qlten {
 /// High performance numerical functions.
 namespace hp_numeric {
 
+#ifndef USE_GPU
 //thread for contract, svd, qr
 inline unsigned tensor_manipulation_num_threads = kTensorOperationDefaultNumThreads;
 
@@ -40,6 +41,7 @@ inline void SetTensorManipulationThreads(unsigned thread) {
 inline unsigned GetTensorManipulationThreads() {
   return tensor_manipulation_num_threads;
 }
+#endif
 } /* hp_numeric */
 } /* qlten */
 

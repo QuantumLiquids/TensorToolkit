@@ -15,17 +15,21 @@
 
 #include <vector>     // vector
 
+#ifndef USE_GPU
 #ifndef PLAIN_TRANSPOSE
-
 #include "hptt.h"
-
 #endif
-
+#else
+#ifndef PLAIN_TRANSPOSE
+#include "gpu_set.h"  // CutensorHandleManager
+#endif
+#endif
 namespace qlten {
 
 /// High performance numerical functions.
 namespace hp_numeric {
 
+#ifndef USE_GPU //USE CPU TRANPOSE
 inline int tensor_transpose_num_threads = kTensorOperationDefaultNumThreads;
 
 #ifndef PLAIN_TRANSPOSE
@@ -141,6 +145,133 @@ void TensorTranspose(
 }
 
 #endif
+
+#else // USE GPU case
+
+// Utility Functions
+template<typename ElemT>
+cutensorDataType_t GetCuTensorDataType();
+
+template<>
+cutensorDataType_t GetCuTensorDataType<QLTEN_Double>() { return CUTENSOR_R_64F; }
+template<>
+cutensorDataType_t GetCuTensorDataType<QLTEN_Complex>() { return CUTENSOR_C_64F; }
+
+template<typename ElemT>
+ElemT TypedAlpha(double);
+template<>
+QLTEN_Double TypedAlpha<QLTEN_Double>(double alpha) { return alpha; }
+template<>
+QLTEN_Complex TypedAlpha<QLTEN_Complex>(double alpha) { return {alpha, 0}; }
+
+template<typename ElemT, typename IntType>
+void TensorTranspose(
+    const std::vector<IntType> &transed_order,
+    const size_t ten_rank,
+    const ElemT *original_data,
+    const std::vector<size_t> &original_shape,
+    ElemT *transed_data,
+    const std::vector<IntType> &transed_shape,
+    const double alpha //scale factor, for boson tensor alpha = 1; for Fermion tensor additional minus sign may require
+) {
+  // Convert size_t to int64_t for cuTENSOR
+  std::vector<int64_t> shapeA(ten_rank);
+  std::vector<int64_t> strideA(ten_rank);
+  std::vector<int64_t> shapeB(ten_rank);
+  std::vector<int64_t> strideB(ten_rank);
+
+  // Compute strides for input and output tensors
+  int64_t stride = 1;
+  for (int i = int(ten_rank) - 1; i >= 0; --i) {
+    shapeA[i] = original_shape[i];
+    strideA[i] = stride;
+    stride *= original_shape[i];
+  }
+
+  stride = 1;
+  for (int i = int(ten_rank) - 1; i >= 0; --i) {
+    shapeB[i] = transed_shape[i];
+    strideB[i] = stride;
+    stride *= transed_shape[i];
+  }
+
+  // Initialize tensor descriptors
+  cutensorTensorDescriptor_t descA, descB;
+  auto handle = CutensorHandleManager::GetHandle();
+  int32_t perm[ten_rank];
+  int32_t no_perm[ten_rank];
+  for (size_t i = 0; i < ten_rank; ++i) {
+    perm[i] = transed_order[i];
+    no_perm[i] = i;
+  }
+
+  /**********************
+   * Create Tensor Descriptors
+   **********************/
+  cutensorCreateTensorDescriptor(handle, &descA,
+                                 ten_rank, shapeA.data(), strideA.data(),
+                                 GetCuTensorDataType<ElemT>(), sizeof(ElemT));
+  cutensorCreateTensorDescriptor(handle, &descB,
+                                 ten_rank, shapeB.data(), strideB.data(),
+                                 GetCuTensorDataType<ElemT>(), sizeof(ElemT));
+
+  /*******************************
+   * Create Permutation Descriptor
+   *******************************/
+
+  // Create permutation operation descriptor
+  cutensorOperationDescriptor_t op_desc;
+
+  cutensorStatus_t status = cutensorCreatePermutation(
+      handle, &op_desc,
+      descA, no_perm, CUTENSOR_OP_IDENTITY, // Identity operation
+      descB, perm, // Permuted order for output tensor
+      CUTENSOR_COMPUTE_DESC_64F);
+  HANDLE_CUTENSOR_ERROR(status);
+
+  /*****************************
+   * Optional (but recommended): ensure that the scalar type is correct.
+   *****************************/
+
+  cutensorDataType_t scalarType;
+  HANDLE_CUTENSOR_ERROR(cutensorOperationDescriptorGetAttribute(handle, op_desc,
+                                                                CUTENSOR_OPERATION_DESCRIPTOR_SCALAR_TYPE,
+                                                                (void *) &scalarType,
+                                                                sizeof(scalarType)));
+
+  assert(scalarType == GetCuTensorDataType<ElemT>());
+  /**************************
+   * Set the algorithm to use
+   ***************************/
+  const cutensorAlgo_t algo = CUTENSOR_ALGO_DEFAULT_PATIENT; //CUTENSOR_ALGO_DEFAULT;
+  cutensorPlanPreference_t planPref;
+  HANDLE_CUTENSOR_ERROR(cutensorCreatePlanPreference(handle,
+                                                     &planPref,
+                                                     algo,
+                                                     CUTENSOR_JIT_MODE_DEFAULT));
+  // Create the execution plan
+  cutensorPlan_t perm_plan;
+  status = cutensorCreatePlan(
+      handle, &perm_plan, op_desc, planPref, 0); // No preference and no workspace limit
+  HANDLE_CUTENSOR_ERROR(status);
+
+  // Perform the permutation operation
+  ElemT typed_alpha = TypedAlpha<ElemT>(alpha);
+  status = cutensorPermute(
+      handle, perm_plan,
+      &typed_alpha, original_data, transed_data,
+      nullptr); // Using default CUDA stream
+  HANDLE_CUTENSOR_ERROR(status);
+
+  // Clean up resources
+  cutensorDestroyPlan(perm_plan);
+  cutensorDestroyOperationDescriptor(op_desc);
+  cutensorDestroyPlanPreference(planPref);
+  cutensorDestroyTensorDescriptor(descA);
+  cutensorDestroyTensorDescriptor(descB);
+}
+
+#endif//USE_GPU
 
 } /* hp_numeric */
 } /* qlten */
