@@ -22,7 +22,6 @@
 #include <cstring>      // memcpy, memset
 #include <cassert>      // assert
 
-
 #ifndef  USE_GPU
 #ifndef USE_OPENBLAS
 #include "mkl.h"       
@@ -273,13 +272,6 @@ inline void MatQR(
 }
 #else // define USE GPU
 
-inline void CheckCusolverStatus(cusolverStatus_t status, const char *msg) {
-  if (status != CUSOLVER_STATUS_SUCCESS) {
-    std::cerr << "cuSOLVER Error: " << msg << std::endl;
-    std::exit(EXIT_FAILURE);
-  }
-}
-
 #ifndef  NDEBUG
 //row-major matrix A, m: rows, n: cols; lda: leading-dimension, usually be n
 inline void print_matrix(const int &m, const int &n, const double *A, const int &lda) {
@@ -315,9 +307,6 @@ inline cusolverStatus_t MatSVD(
 //  print_matrix(m, n, h_mat, n);
 #endif
   cusolverDnHandle_t handle = CusolverHandleManager::GetHandle();
-  cudaStream_t stream;
-  cudaStreamCreate(&stream);
-  cusolverDnSetStream(handle, stream);
 
   int lwork = 0;
   QLTEN_Double *d_work = nullptr;
@@ -331,17 +320,11 @@ inline cusolverStatus_t MatSVD(
   cudaMalloc((void **) &s, k * sizeof(QLTEN_Double));
   cudaMalloc((void **) &vt, n * k * sizeof(QLTEN_Double));
 
-  gesvdjInfo_t params = NULL;
+  gesvdjInfo_t params = nullptr;
   cusolverDnCreateGesvdjInfo(&params);
-  assert(reinterpret_cast<uintptr_t>(mat) % 16 == 0);
-  assert(reinterpret_cast<uintptr_t>(s) % 16 == 0);
-  assert(reinterpret_cast<uintptr_t>(vt) % 16 == 0);
-  assert(reinterpret_cast<uintptr_t>(ut) % 16 == 0);
-
-  CheckCusolverStatus(
+  HANDLE_CUSOLVER_ERROR(
       cusolverDnDgesvdj_bufferSize(
-          handle, CUSOLVER_EIG_MODE_VECTOR, 1, n, m, mat, n, s, vt, n, ut, m, &lwork, params),
-      "SVD buffer size computation failed");
+          handle, CUSOLVER_EIG_MODE_VECTOR, 1, n, m, mat, n, s, vt, n, ut, m, &lwork, params));
 
   HANDLE_CUDA_ERROR(cudaMalloc((void **) &d_work, lwork * sizeof(QLTEN_Double)));
 
@@ -354,7 +337,7 @@ inline cusolverStatus_t MatSVD(
   int info;
   cudaMemcpy(&info, devInfo, sizeof(int), cudaMemcpyDeviceToHost);
   if (0 == info) {
-    std::printf("gesvdj converges \n");
+
   } else if (0 > info) {
     std::printf("%d-th parameter is wrong \n", -info);
     exit(1);
@@ -411,7 +394,6 @@ inline cusolverStatus_t MatSVD(
   cudaFree(ut);
   cudaFree(d_work);
   cudaFree(devInfo);
-  cudaStreamDestroy(stream);
   return status;
 }
 
@@ -423,9 +405,6 @@ inline cusolverStatus_t MatSVD(
     QLTEN_Complex *&vt
 ) {
   cusolverDnHandle_t handle = CusolverHandleManager::GetHandle();
-  cudaStream_t stream;
-  cudaStreamCreate(&stream);
-  cusolverDnSetStream(handle, stream);
 
   int lwork = 0;
   cuDoubleComplex *d_work = nullptr;
@@ -439,17 +418,16 @@ inline cusolverStatus_t MatSVD(
   cudaMalloc((void **) &s, k * sizeof(QLTEN_Double));
   cudaMalloc((void **) &vt, n * k * sizeof(QLTEN_Complex));
 
-  gesvdjInfo_t params = NULL;
+  gesvdjInfo_t params = nullptr;
   cusolverDnCreateGesvdjInfo(&params);
 
-  CheckCusolverStatus(
+  HANDLE_CUSOLVER_ERROR(
       cusolverDnZgesvdj_bufferSize(
           handle, CUSOLVER_EIG_MODE_VECTOR, 1, n, m,
           reinterpret_cast<cuDoubleComplex *>(mat), n,
           s,
           reinterpret_cast<cuDoubleComplex *>(vt), n,
-          ut, m, &lwork, params),
-      "SVD buffer size computation failed");
+          ut, m, &lwork, params));
 
   cudaMalloc((void **) &d_work, lwork * sizeof(cuDoubleComplex));
 
@@ -462,10 +440,9 @@ inline cusolverStatus_t MatSVD(
   HANDLE_CUSOLVER_ERROR(status);
 
   // Transpose ut to u
-  cublasHandle_t cublasHandle = CublasHandleManager::GetHandle();
   const cuDoubleComplex alpha = {1.0, 0.0};
   const cuDoubleComplex beta = {0.0, 0.0};
-  cublasZgeam(cublasHandle,
+  cublasZgeam(CublasHandleManager::GetHandle(),
               CUBLAS_OP_C,
               CUBLAS_OP_N,
               k, m, &alpha, ut, m, &beta, nullptr, m,
@@ -475,7 +452,6 @@ inline cusolverStatus_t MatSVD(
   cudaFree(ut);
   cudaFree(d_work);
   cudaFree(devInfo);
-  cudaStreamDestroy(stream);
   return status;
 }
 
@@ -503,20 +479,32 @@ inline void MatQR(
 #endif
   // Copy input matrix and transpose (row-major to column-major)
   QLTEN_Double *d_A;
-  cudaMalloc(&d_A, sizeof(QLTEN_Double) * m * n);
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_A, sizeof(QLTEN_Double) * m * n));
 
   // Transpose mat (row-major to col-major)
   const QLTEN_Double alpha = 1.0, beta = 0.0;
-  cublasDgeam(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, &alpha, mat, n, &beta, nullptr, m, d_A, m);
+  HANDLE_CUBLAS_ERROR(cublasDgeam(cublas_handle,
+                                  CUBLAS_OP_T,
+                                  CUBLAS_OP_N,
+                                  m,
+                                  n,
+                                  &alpha,
+                                  mat,
+                                  n,
+                                  &beta,
+                                  nullptr,
+                                  m,
+                                  d_A,
+                                  m));
 
   // Allocate tau (for householder reflectors)
   QLTEN_Double *d_tau;
-  cudaMalloc(&d_tau, sizeof(QLTEN_Double) * k);
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_tau, sizeof(QLTEN_Double) * k));
 
   // Workspace size
-  int workspace_size_geqrf, workspace_size_ormqr;
+  int workspace_size_geqrf(0), workspace_size_ormqr(0);
   HANDLE_CUSOLVER_ERROR(cusolverDnDgeqrf_bufferSize(handle, m, n, d_A, lda, &workspace_size_geqrf));
-  HANDLE_CUSOLVER_ERROR(cusolverDnDorgqr_bufferSize(handle, m, n, n, d_A, lda, d_tau, &workspace_size_ormqr));
+  HANDLE_CUSOLVER_ERROR(cusolverDnDorgqr_bufferSize(handle, m, k, k, d_A, lda, d_tau, &workspace_size_ormqr));
   int lwork = std::max(workspace_size_geqrf, workspace_size_ormqr);
   // Allocate workspace
   QLTEN_Double *workspace;
@@ -552,7 +540,7 @@ inline void MatQR(
   cublasDgeam(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N,
               n, k, &alpha, rt, k, &beta, nullptr, n,
               r, n);
-  cudaFree(rt);
+  HANDLE_CUDA_ERROR(cudaFree(rt));
   for (size_t i = 0; i < k; ++i) {
     HANDLE_CUDA_ERROR(cudaMemset(r + i * n, 0, sizeof(QLTEN_Double) * i));
   }
@@ -563,7 +551,7 @@ inline void MatQR(
                                          workspace, lwork, devInfo));
 
   // Transpose Q back (col-major to row-major)
-  cudaMalloc(&q, sizeof(QLTEN_Double) * q_rows * q_cols);
+  HANDLE_CUDA_ERROR(cudaMalloc(&q, sizeof(QLTEN_Double) * q_rows * q_cols));
   cublasDgeam(cublas_handle,
               CUBLAS_OP_T,
               CUBLAS_OP_N,
@@ -631,21 +619,21 @@ inline void MatQR(
   auto k = std::min(m, n); //economy size
   // Allocate memory for input matrix
   cuDoubleComplex *d_A;
-  cudaMalloc(&d_A, sizeof(cuDoubleComplex) * m * n);
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_A, sizeof(cuDoubleComplex) * m * n));
   // Transpose mat (row-major to col-major)
   const cuDoubleComplex alpha = {1.0, 0.0}, beta = {0.0, 0.0};
-  cublasZgeam(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, &alpha,
-              reinterpret_cast<const cuDoubleComplex *>(mat), n, &beta, nullptr, m,
-              d_A, m);
+  HANDLE_CUBLAS_ERROR(cublasZgeam(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, &alpha,
+                                  reinterpret_cast<const cuDoubleComplex *>(mat), n, &beta, nullptr, m,
+                                  d_A, m));
 
   // Allocate tau
   cuDoubleComplex *d_tau;
-  cudaMalloc(&d_tau, sizeof(cuDoubleComplex) * k);
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_tau, sizeof(cuDoubleComplex) * k));
 
   // Workspace size
   int workspace_size_geqrf, workspace_size_ormqr;
   HANDLE_CUSOLVER_ERROR(cusolverDnZgeqrf_bufferSize(handle, m, n, d_A, lda, &workspace_size_geqrf));
-  HANDLE_CUSOLVER_ERROR(cusolverDnZungqr_bufferSize(handle, m, n, n, d_A, lda, d_tau, &workspace_size_ormqr));
+  HANDLE_CUSOLVER_ERROR(cusolverDnZungqr_bufferSize(handle, m, k, k, d_A, lda, d_tau, &workspace_size_ormqr));
   int lwork = std::max(workspace_size_geqrf, workspace_size_ormqr);
   // Allocate workspace
   cuDoubleComplex *workspace;
@@ -672,7 +660,7 @@ inline void MatQR(
               n, k, &alpha, rt, k, &beta, nullptr, n,
               reinterpret_cast<cuDoubleComplex *>(r), n);
 
-  cudaFree(rt);
+  HANDLE_CUDA_ERROR(cudaFree(rt));
   for (size_t i = 0; i < k; ++i) {
     HANDLE_CUDA_ERROR(cudaMemset(r + i * n, 0, sizeof(QLTEN_Complex) * i));
   }

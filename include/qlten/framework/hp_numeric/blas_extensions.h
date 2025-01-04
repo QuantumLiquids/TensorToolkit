@@ -147,38 +147,24 @@ inline void MatrixTransposeBatch(
 #endif
 }//MatrixTransposeBatch
 #else //USE_GPU
+
 //row major
-__global__ void transposeKernelDouble(const double *mat_a, double *mat_b, size_t rows, size_t cols) {
-  size_t row = blockIdx.y * blockDim.y + threadIdx.y;
-  size_t col = blockIdx.x * blockDim.x + threadIdx.x;
-
-  if (row < rows && col < cols) {
-    mat_b[col * rows + row] = mat_a[row * cols + col];
-  }
+/**
+ * Transpose row-major matrix with size m by n to another row-major matrix b
+ */
+inline void MatrixTranspose(const double *mat_a, size_t m, size_t n, double *mat_b) {
+  auto handle = CublasHandleManager::GetHandle();
+  const double alpha = 1.0, beta = 0.0;
+  cublasDgeam(handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, &alpha, mat_a, n, &beta, nullptr, m, mat_b, m);
 }
 
-__global__ void transposeKernelComplex(const QLTEN_Complex *mat_a, QLTEN_Complex *mat_b, size_t rows, size_t cols) {
-  size_t row = blockIdx.y * blockDim.y + threadIdx.y;
-  size_t col = blockIdx.x * blockDim.x + threadIdx.x;
-
-  if (row < rows && col < cols) {
-    mat_b[col * rows + row] = mat_a[row * cols + col];
-  }
-}
-
-void MatrixTranspose(const double *mat_a, size_t rows, size_t cols, double *mat_b) {
-  dim3 blockSize(16, 16); // 16x16 threads per block
-  dim3 gridSize((cols + blockSize.x - 1) / blockSize.x, (rows + blockSize.y - 1) / blockSize.y);
-  // Launch kernel
-  transposeKernelDouble<<<gridSize, blockSize>>>(mat_a, mat_b, rows, cols);
-}
-
-void MatrixTranspose(const QLTEN_Complex *mat_a, size_t rows, size_t cols, QLTEN_Complex *mat_b) {
-  dim3 blockSize(16, 16); // 16x16 threads per block
-  dim3 gridSize((cols + blockSize.x - 1) / blockSize.x, (rows + blockSize.y - 1) / blockSize.y);
-
-  // Launch kernel
-  transposeKernelComplex<<<gridSize, blockSize>>>(mat_a, mat_b, rows, cols);
+inline void MatrixTranspose(const QLTEN_Complex *mat_a, size_t m, size_t n, QLTEN_Complex *mat_b) {
+  auto handle = CublasHandleManager::GetHandle();
+  const cuDoubleComplex alpha{1.0, 0.0}, beta = {0.0, 0.0};
+  cublasZgeam(handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, &alpha,
+              reinterpret_cast<const cuDoubleComplex *>(mat_a),
+              n, &beta, nullptr, m,
+              reinterpret_cast< cuDoubleComplex *>(mat_b), m);
 }
 
 #endif//USE_GPU

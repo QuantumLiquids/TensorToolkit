@@ -276,7 +276,8 @@ inline void Rand(QLTEN_Complex &z) {
   z = zrand();
 }
 #ifdef USE_GPU
-__global__ void RandomKernel(QLTEN_Double *data, size_t size) {
+__global__
+inline void RandomKernel(QLTEN_Double *data, size_t size) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     curandState state;
@@ -285,7 +286,8 @@ __global__ void RandomKernel(QLTEN_Double *data, size_t size) {
   }
 }
 
-__global__ void RandomKernel(QLTEN_Complex *data, size_t size) {
+__global__
+inline void RandomKernel(QLTEN_Complex *data, size_t size) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     curandState state;
@@ -337,7 +339,8 @@ inline QLTEN_Complex CalcConj(QLTEN_Complex z) {
 }
 
 #ifdef USE_GPU
-__global__ void ConjugateKernel(QLTEN_Complex *data, size_t size) {
+__global__
+inline void ConjugateKernel(QLTEN_Complex *data, size_t size) {
   size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
   if (idx < size) {
     data[idx] = cuda::std::conj(data[idx]); // Call your conjugate function

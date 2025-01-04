@@ -321,7 +321,7 @@ inline void MatMultiplyBatch(
 #endif
 #else
 
-const char *cublasGetErrorString(cublasStatus_t status) {
+inline const char *cublasGetErrorString(cublasStatus_t status) {
   switch (status) {
     case CUBLAS_STATUS_SUCCESS: return "CUBLAS_STATUS_SUCCESS";
     case CUBLAS_STATUS_NOT_INITIALIZED: return "CUBLAS_STATUS_NOT_INITIALIZED";

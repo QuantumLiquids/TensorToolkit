@@ -128,7 +128,7 @@ inline void HandleCutensorError(cutensorStatus_t status, int line) {
   }
 }
 
-const char *cusolverGetErrorString(cusolverStatus_t status) {
+inline const char *cusolverGetErrorString(cusolverStatus_t status) {
   switch (status) {
     case CUSOLVER_STATUS_SUCCESS: return "CUSOLVER_STATUS_SUCCESS";
     case CUSOLVER_STATUS_NOT_INITIALIZED: return "CUSOLVER_STATUS_NOT_INITIALIZED";
@@ -153,9 +153,35 @@ inline void HandleCuSolverError(cusolverStatus_t status, int line) {
   }
 }
 
+template<typename T>
+const char *cublasGetErrorString(T status) {
+  switch (status) {
+    case CUBLAS_STATUS_SUCCESS: return "CUBLAS_STATUS_SUCCESS";
+    case CUBLAS_STATUS_NOT_INITIALIZED: return "CUBLAS_STATUS_NOT_INITIALIZED";
+    case CUBLAS_STATUS_ALLOC_FAILED: return "CUBLAS_STATUS_ALLOC_FAILED";
+    case CUBLAS_STATUS_INVALID_VALUE: return "CUBLAS_STATUS_INVALID_VALUE";
+    case CUBLAS_STATUS_ARCH_MISMATCH: return "CUBLAS_STATUS_ARCH_MISMATCH";
+    case CUBLAS_STATUS_MAPPING_ERROR: return "CUBLAS_STATUS_MAPPING_ERROR";
+    case CUBLAS_STATUS_EXECUTION_FAILED: return "CUBLAS_STATUS_EXECUTION_FAILED";
+    case CUBLAS_STATUS_INTERNAL_ERROR: return "CUBLAS_STATUS_INTERNAL_ERROR";
+    case CUBLAS_STATUS_NOT_SUPPORTED: return "CUBLAS_STATUS_NOT_SUPPORTED";
+    case CUBLAS_STATUS_LICENSE_ERROR: return "CUBLAS_STATUS_LICENSE_ERROR";
+    default: return "Unknown cuBLAS error";
+  }
+}
+
+inline void HandleCuBlasError(cublasStatus_t status, int line) {
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cuBLAS Error at line " << line << ": "
+              << cublasGetErrorString(status) << std::endl;
+    std::exit(EXIT_FAILURE);
+  }
+}
+
 // Utility to simplify calls with automatic line number capture
 #define HANDLE_CUTENSOR_ERROR(x) HandleCutensorError(x, __LINE__)
 #define HANDLE_CUSOLVER_ERROR(x) HandleCuSolverError(x, __LINE__)
+#define HANDLE_CUBLAS_ERROR(x) HandleCuBlasError(x, __LINE__)
 }//qlten
 
 #endif

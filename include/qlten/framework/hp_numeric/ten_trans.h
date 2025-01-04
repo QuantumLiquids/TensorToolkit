@@ -153,16 +153,16 @@ template<typename ElemT>
 cutensorDataType_t GetCuTensorDataType();
 
 template<>
-cutensorDataType_t GetCuTensorDataType<QLTEN_Double>() { return CUTENSOR_R_64F; }
+inline cutensorDataType_t GetCuTensorDataType<QLTEN_Double>() { return CUTENSOR_R_64F; }
 template<>
-cutensorDataType_t GetCuTensorDataType<QLTEN_Complex>() { return CUTENSOR_C_64F; }
+inline cutensorDataType_t GetCuTensorDataType<QLTEN_Complex>() { return CUTENSOR_C_64F; }
 
 template<typename ElemT>
 ElemT TypedAlpha(double);
 template<>
-QLTEN_Double TypedAlpha<QLTEN_Double>(double alpha) { return alpha; }
+inline QLTEN_Double TypedAlpha<QLTEN_Double>(double alpha) { return alpha; }
 template<>
-QLTEN_Complex TypedAlpha<QLTEN_Complex>(double alpha) { return {alpha, 0}; }
+inline QLTEN_Complex TypedAlpha<QLTEN_Complex>(double alpha) { return {alpha, 0}; }
 
 template<typename ElemT, typename IntType>
 void TensorTranspose(

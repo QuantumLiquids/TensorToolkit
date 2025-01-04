@@ -722,7 +722,8 @@ double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
 #else //GPU code
 // CUDA Kernel for element-wise inverse (no tolerance)
 template<typename ElemT>
-__global__ void ElementWiseInvKernel(ElemT *data, size_t size) {
+__global__
+inline void ElementWiseInvKernel(ElemT *data, size_t size) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     data[idx] = 1.0 / data[idx];
@@ -731,7 +732,8 @@ __global__ void ElementWiseInvKernel(ElemT *data, size_t size) {
 
 // CUDA Kernel for element-wise inverse (with tolerance)
 template<typename ElemT>
-__global__ void ElementWiseInvKernelWithTolerance(ElemT *data, size_t size, double tolerance) {
+__global__ 
+inline void ElementWiseInvKernelWithTolerance(ElemT *data, size_t size, double tolerance) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     ElemT val = data[idx];
@@ -764,7 +766,8 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv(double tolerance) {
 }
 
 template<typename ElemT>
-__global__ void ElementWiseSqrtKernel(ElemT *data, size_t size) {
+__global__ 
+inline void ElementWiseSqrtKernel(ElemT *data, size_t size) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     data[idx] = qlten::sqrt(data[idx]);
@@ -783,14 +786,16 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSqrt() {
   cudaDeviceSynchronize();
 }
 
-__global__ void ElementWiseSignKernel(double *data, size_t size) {
+__global__
+inline void ElementWiseSignKernel(double *data, size_t size) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     data[idx] = double(int(0 < data[idx]) - int(data[idx] < 0));
   }
 }
 
-__global__ void ElementWiseSignKernel(cuda::std::complex<double> *data, size_t size) {
+__global__
+inline void ElementWiseSignKernel(cuda::std::complex<double> *data, size_t size) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     data[idx].real((int(0 < data[idx].real()) - int(data[idx].real() < 0)));
@@ -810,7 +815,8 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSign() {
   cudaDeviceSynchronize();
 }
 
-__global__ void ElementWiseBoundKernel(double *data, size_t size, double bound) {
+__global__
+inline void ElementWiseBoundKernel(double *data, size_t size, double bound) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     double sign = (int(0 < data[idx]) - int(data[idx] < 0));
@@ -818,7 +824,8 @@ __global__ void ElementWiseBoundKernel(double *data, size_t size, double bound) 
   }
 }
 
-__global__ void ElementWiseBoundKernel(cuda::std::complex<double> *data, size_t size, double bound) {
+__global__
+inline void ElementWiseBoundKernel(cuda::std::complex<double> *data, size_t size, double bound) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     data[idx] = data[idx] * bound / cuda::std::abs(data[idx]);
@@ -839,7 +846,8 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
 
 // Kernel to compute the maximum absolute value
 template<typename ElemT>
-__global__ void maxAbsKernel(const ElemT *data, double *result, int size) {
+__global__
+inline void maxAbsKernel(const ElemT *data, double *result, int size) {
   extern __shared__ double shared_data[]; // Shared memory for reduction
 
   int tid = threadIdx.x;

@@ -91,7 +91,7 @@ inline void QLFree(void *data) {
 #endif
 }
 
-void *QLMemcpy(void *dest, const void *src, std::size_t count) {
+inline void *QLMemcpy(void *dest, const void *src, std::size_t count) {
 #ifndef USE_GPU // CPU code
   return memcpy(dest, src, count);
 #else

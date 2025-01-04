@@ -420,7 +420,8 @@ inline double Vector2Norm(
 }
 
 // CUDA kernel to convert real array to complex array
-__global__ void VectorRealToCplxKernel(
+__global__ 
+inline void VectorRealToCplxKernel(
     const QLTEN_Double *real, QLTEN_Complex *cplx, size_t size
 ) {
   int idx = threadIdx.x + blockIdx.x * blockDim.x;
