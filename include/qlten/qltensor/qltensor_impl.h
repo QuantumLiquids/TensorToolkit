@@ -757,6 +757,15 @@ void QLTensor<ElemT, QNT>::ConciseShow(const size_t indent_level) const {
        << "tensor sparsity:\t" << double(data_size) / double(size_) << endl;
 }
 
+
+template<typename ElemT, typename QNT>
+double QLTensor<ElemT, QNT>::GetRawDataMemUsage() const {
+    const size_t raw_data_size = pblk_spar_data_ten_->GetActualRawDataSize();
+    const size_t bytes = raw_data_size * sizeof(ElemT);
+    return double(bytes) / 1024 / 1024 /1024;
+}
+
+
 // helper
 inline bool is_nan(const double &value) {
   return std::isnan(value);

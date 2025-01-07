@@ -386,6 +386,7 @@ void SubMatMemCpy(
 ) {
   size_t offset = row_offset * n + col_offset;
   size_t sub_offset = 0;
+#ifndef USE_GPU
   for (size_t row_idx = row_offset; row_idx < row_offset + sub_m; ++row_idx) {
     qlten::QLMemcpy(
         mem_begin + offset,
@@ -395,6 +396,15 @@ void SubMatMemCpy(
     offset += n;
     sub_offset += sub_n;
   }
+#else //USE_GPU
+  cudaMemcpy2D(
+        mem_begin + offset, 
+	n * sizeof(ElemT),                        // Destination pointer and pitch
+        sub_mem_begin, sub_n * sizeof(ElemT),     // Source pointer and pitch
+        sub_n * sizeof(ElemT), 
+	sub_m, 
+	cudaMemcpyDeviceToDevice);      // Width (bytes) and height (rows)
+#endif
 }
 
 
