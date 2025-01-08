@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 /*
-* Author: Hao-Xin <wanghx18@mails.tsinghua.edu.cn>
+* Author: Hao-Xin Wang <wanghaoxin1996@gmail.com>
 * Creation Date: 2021-10-23.
 *
 * Description: Implementation of fast tensor contraction functions without tensor transposition.

@@ -12,8 +12,6 @@
 #include "qlten/utility/utils_inl.h"      // GenAllCoors
 #include "qlten/utility/timer.h"
 
-namespace mpi = boost::mpi;
-
 using namespace qlten;
 
 using U1QN = special_qn::U1QN;
@@ -76,81 +74,87 @@ IndexT RandIndex(const unsigned qn_sct_num,  //how many quantum number sectors?
 }
 
 struct TestBoostMPI : public testing::Test {
-  mpi::communicator world;
+  MPI_Comm comm = MPI_COMM_WORLD;
+  int rank;
+
+  DQLTensor dten1;
+  ZQLTensor zten1;
 
   void SetUp(void) {
     ::testing::TestEventListeners &listeners =
         ::testing::UnitTest::GetInstance()->listeners();
-    if (world.rank() != 0) {
+    MPI_Comm_rank(comm, &rank);
+    if (rank != kMPIMasterRank) {
       delete listeners.Release(listeners.default_result_printer());
+    } else {
+      auto index1_in = RandIndex(50, 400, qlten::IN);
+      auto index2_in = RandIndex(4, 1, qlten::IN);
+      auto index1_out = RandIndex(4, 1, qlten::OUT);
+      auto index2_out = RandIndex(50, 400, qlten::OUT);
+
+      dten1 = DQLTensor({index2_out, index1_in, index2_in, index1_out});
+      dten1.Random(qn0);
+      dten1.ConciseShow();
+
+      zten1 = ZQLTensor({index2_out, index1_in, index2_in, index1_out});
+      zten1.Random(qn0);
+      zten1.ConciseShow();
     }
   }
 };
 
+TEST_F(TestBoostMPI, Serialization) {
+  if (rank == kMPIMasterRank) {
+    auto buffer = dten1.SerializeShell();
+    DQLTensor dten1_cp;
+    dten1_cp.DeserializeShell(buffer);
+    EXPECT_EQ(dten1_cp.GetActualDataSize(), dten1.GetActualDataSize());
+  }
+}
+
 ///< only master has the tensor
 template<typename ElemT, typename QNT>
 void TestTensorCommunication(
-    const QLTensor<ElemT, QNT> &tensor,
-    const mpi::communicator &world
+    QLTensor<ElemT, QNT> &tensor,
+    const MPI_Comm &comm
 ) {
   using Tensor = QLTensor<ElemT, QNT>;
   const size_t assist_proc = 1;
-  if (world.rank() == kMPIMasterRank) {
+  int rank;
+  MPI_Comm_rank(comm, &rank);
+  if (rank == kMPIMasterRank) {
     Tensor recv_bsdt_ten;
-    Timer mpi_ten_passing_timer("mpi_ten_send_bsdt_recv");
-    send_qlten(world, assist_proc, 35, tensor);
+    Timer mpi_ten_passing_timer("mpi_ten_send_recv");
+    send_qlten(comm, assist_proc, 35, tensor);
     recv_bsdt_ten = Tensor(tensor.GetIndexes());
     auto &bsdt = recv_bsdt_ten.GetBlkSparDataTen();
-    bsdt.MPIRecv(world, assist_proc, 3);
+    bsdt.MPIRecv(comm, assist_proc, 3);
     mpi_ten_passing_timer.PrintElapsed();
     EXPECT_EQ(tensor, recv_bsdt_ten);
-    SendBroadCastQLTensor(world, tensor, kMPIMasterRank);
-  } else if (world.rank() == assist_proc) {
+    BCastTensor(comm, tensor, kMPIMasterRank);
+  } else if (rank == assist_proc) {
     Tensor recv_ten, recv_bcast_ten;
-    recv_qlten(world, mpi::any_source, mpi::any_tag, recv_ten);
+    recv_qlten(comm, MPI_ANY_SOURCE, MPI_ANY_TAG, recv_ten);
     auto &bsdt = recv_ten.GetBlkSparDataTen();
-    bsdt.MPISend(world, kMPIMasterRank, 3);
-    RecvBroadCastQLTensor(world, recv_bcast_ten, kMPIMasterRank);
+    bsdt.MPISend(comm, kMPIMasterRank, 3);
+    BCastTensor(comm, recv_bcast_ten, kMPIMasterRank);
     EXPECT_EQ(recv_ten, recv_bcast_ten);
   } else {
     Tensor recv_bcast_ten;
-    RecvBroadCastQLTensor(world, recv_bcast_ten, kMPIMasterRank);
+    BCastTensor(comm, recv_bcast_ten, kMPIMasterRank);
   }
   return;
 }
 
-TEST_F(TestBoostMPI, SendRecvBroadCastRandomTensor) {
-  DQLTensor dten1;
-  if (world.rank() == 0) {
-    auto index1_in = RandIndex(50, 400, qlten::IN);
-    auto index2_in = RandIndex(4, 1, qlten::IN);
-    auto index1_out = RandIndex(4, 1, qlten::OUT);
-    auto index2_out = RandIndex(50, 400, qlten::OUT);
-
-    dten1 = DQLTensor({index2_out, index1_in, index2_in, index1_out});
-    dten1.Random(qn0);
-    dten1.ConciseShow();
-  }
-  TestTensorCommunication(dten1, world);
-
-  std::cout << std::endl;
-
-  ZQLTensor zten1;
-  if (world.rank() == 0) {
-    auto index1_in = RandIndex(50, 400, qlten::IN);
-    auto index2_in = RandIndex(4, 1, qlten::IN);
-    auto index1_out = RandIndex(4, 1, qlten::OUT);
-    auto index2_out = RandIndex(50, 400, qlten::OUT);
-
-    zten1 = ZQLTensor({index2_out, index1_in, index2_in, index1_out});
-    zten1.Random(qn0);
-    zten1.ConciseShow();
-  }
-  TestTensorCommunication(zten1, world);
+TEST_F(TestBoostMPI, TensorCommuniation) {
+  TestTensorCommunication(dten1, comm);
+  TestTensorCommunication(zten1, comm);
 }
 
 int main(int argc, char *argv[]) {
+  MPI_Init(NULL, NULL);
   ::testing::InitGoogleTest(&argc, argv);
-  boost::mpi::environment env;
-  return RUN_ALL_TESTS();;
+  int test_err = RUN_ALL_TESTS();
+  MPI_Finalize();
+  return test_err;
 }

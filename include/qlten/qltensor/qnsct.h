@@ -18,7 +18,6 @@
 #include <vector>     // vector
 #include <cassert>     // assert
 
-#include <boost/serialization/serialization.hpp>
 #include "qlten/framework/bases/hashable.h"       // Hashable
 #include "qlten/framework/bases/streamable.h"     // Streamable
 #include "qlten/framework/bases/showable.h"       // Showable
@@ -140,15 +139,6 @@ class QNSector : public Hashable, public Streamable, public Showable, public Fer
   size_t hash_;
 
   size_t CalcHash_(void) const { return qn_.Hash() ^ dgnc_; }
-
-  friend class boost::serialization::access;
-  template<class Archive>
-  void serialize(Archive &ar, const unsigned int version) {
-    ar & dgnc_;
-    ar & dim_;
-    ar & hash_;
-    ar & qn_;
-  }
 };
 
 template<typename QNT>

@@ -363,7 +363,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataCopyNoAdd_(
         cudaMemcpyDeviceToDevice
     );
   }
-#else 
+#else
   // CPU memory copy with OpenMP parallelization for large datasets
   size_t ompth = hp_numeric::tensor_manipulation_num_threads;
 
@@ -567,21 +567,56 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataWrite_(std::ostream &os) const {
   os.write((char *) pactual_raw_data_, actual_raw_data_size_ * sizeof(ElemT));
   os << std::endl;
 #else
-// Allocate temporary host buffer
-  ElemT *h_buffer = new ElemT[actual_raw_data_size_];
+  // Allocate temporary host buffer
+    ElemT *h_buffer = new ElemT[actual_raw_data_size_];
 
-  // Copy data from device to host
-  cudaMemcpy(h_buffer, pactual_raw_data_,
-             actual_raw_data_size_ * sizeof(ElemT),
-             cudaMemcpyDeviceToHost);
+    // Copy data from device to host
+    cudaMemcpy(h_buffer, pactual_raw_data_,
+               actual_raw_data_size_ * sizeof(ElemT),
+               cudaMemcpyDeviceToHost);
 
-  // Write the data to output stream
-  os.write(reinterpret_cast<char *>(h_buffer), actual_raw_data_size_ * sizeof(ElemT));
-  os << std::endl;
+    // Write the data to output stream
+    os.write(reinterpret_cast<char *>(h_buffer), actual_raw_data_size_ * sizeof(ElemT));
+    os << std::endl;
 
-  // Free host memory
-  delete[] h_buffer;
+    // Free host memory
+    delete[] h_buffer;
 #endif
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::RawDataMPISend(const MPI_Comm &mpi_comm,
+                                                       const int dest,
+                                                       const int tag) const {
+  if (IsScalar() && actual_raw_data_size_ == 0) {
+    ElemT zero = ElemT(0);
+    hp_numeric::MPI_Send(&zero, 1, dest, tag, mpi_comm);
+  } else {
+    hp_numeric::MPI_Send(pactual_raw_data_, actual_raw_data_size_, dest, tag, mpi_comm);
+  }
+}
+
+template<typename ElemT, typename QNT>
+MPI_Status BlockSparseDataTensor<ElemT, QNT>::RawDataMPIRecv(
+    const MPI_Comm &mpi_comm,
+    const int source,
+    const int tag_data
+) {
+  assert(source != MPI_ANY_SOURCE);
+  auto status = hp_numeric::MPI_Recv(pactual_raw_data_, actual_raw_data_size_, source, tag_data, mpi_comm);
+  return status;
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::RawDataMPIBcast(const MPI_Comm &comm, const int root) {
+  int rank;
+  MPI_Comm_rank(comm, &rank);
+  if (rank == root && IsScalar() && actual_raw_data_size_ == 0) {
+    ElemT zero = ElemT(0);
+    hp_numeric::MPI_Bcast(&zero, 1, root, comm);
+  } else {
+    hp_numeric::MPI_Bcast(pactual_raw_data_, actual_raw_data_size_, root, comm);
+  }
 }
 
 #ifndef  USE_GPU
@@ -645,7 +680,6 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSign() {
   }
 }
 
-
 template<typename RandGenerator>
 inline void RandSign(QLTEN_Double *number,
                      std::uniform_real_distribution<double> &dist,
@@ -706,8 +740,6 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
     }
   }
 }
-
-
 
 template<typename ElemT, typename QNT>
 double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {

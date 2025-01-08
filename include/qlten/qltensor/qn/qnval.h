@@ -13,25 +13,20 @@
 #ifndef QLTEN_QLTENSOR_QN_QNVAL_H
 #define QLTEN_QLTENSOR_QN_QNVAL_H
 
-
 #include "qlten/framework/bases/hashable.h"       // Hashable
 #include "qlten/framework/bases/streamable.h"     // Streamable
 #include "qlten/framework/bases/showable.h"       // Showable
-#include <boost/serialization/serialization.hpp>
-#include <boost/serialization/export.hpp>
 
 #include <vector>     // vector
 #include <memory>     // shared_ptr
 
-
 namespace qlten {
-
 
 /**
 Abstract base class for quantum number value.
 */
 class QNVal : public Hashable, public Streamable, public Showable {
-public:
+ public:
   QNVal(void) = default;
   virtual ~QNVal(void) = default;
 
@@ -66,14 +61,9 @@ public:
   Add the other quantum number value to this quantum number value.
   */
   virtual void AddAssign(const QNVal *) = 0;
-
-  friend class boost::serialization::access;
-  template<class Archive>
-  void serialize(Archive & ar, const unsigned int version){;}
 };
 
 using QNValPtrVec = std::vector<QNVal *>;
 using QNValSharedPtr = std::shared_ptr<QNVal>;
 } /* qlten */
-BOOST_SERIALIZATION_ASSUME_ABSTRACT(qlten::QNVal)
 #endif /* ifndef QLTEN_QLTENSOR_QN_QNVAL_H */

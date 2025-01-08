@@ -20,12 +20,6 @@
 #include <cassert>          // assert
 #include <random>
 
-#include <boost/serialization/serialization.hpp>
-#include <boost/serialization/split_member.hpp>
-#include <boost/serialization/array.hpp>
-#include <boost/serialization/array_wrapper.hpp>
-#include <boost/mpi.hpp>
-
 #include "qlten/framework/mem_ops.h"                                      // QLMemcpy, QLMalloc, QLFree, QLCalloc
 #include "qlten/framework/value_t.h"                                      // CoorsT, ShapeT
 #include "qlten/framework/bases/streamable.h"                             // Streamable
@@ -151,7 +145,7 @@ class BlockSparseDataTensor : public Streamable {
 
   std::map<size_t, DataBlkMatSvdRes<ElemT>> DataBlkDecompSVDMaster(
       const IdxDataBlkMatMap<QNT> &,
-      const boost::mpi::communicator &
+      const MPI_Comm &comm
   ) const;
 
   void DataBlkCopySVDUdata(
@@ -301,6 +295,13 @@ class BlockSparseDataTensor : public Streamable {
 
   void StreamWrite(std::ostream &) const override;
 
+  // For idx_blk_idx_data_map part,
+  // below function is faster than StreamRead
+  void StreamReadBlkIdxDataBlkMapForMPI(std::istream &);
+  void StreamWriteBlkIdxDataBlkMapForMPI(std::ostream &) const;
+  void DeserializeBlkIdxDataBlkMap(const std::string &buffer);
+  std::string SerializeBlkIdxDataBlkMap() const;
+
   // Misc
   bool IsScalar(void) const;
 
@@ -346,29 +347,14 @@ class BlockSparseDataTensor : public Streamable {
       const std::vector<const BlockSparseDataTensor *>
   );
 
-  void MPISend(
-      const boost::mpi::communicator &,
-      const int dest,
-      const int tag
-  );
+  void MPISend(const MPI_Comm &, const int, const int) const;
 
-  boost::mpi::status MPIRecv(
-      const boost::mpi::communicator &,
-      const int source,
-      const int tag
-  );
+  MPI_Status MPIRecv(const MPI_Comm &, int, int);
 
-  boost::mpi::status MPIRecvIdxDataBlkMap(
-      const boost::mpi::communicator &,
-      const int source,
-      const int tag
-  );
-
-  MPI_Status MPIRecvActualData(
-      boost::mpi::communicator &world,
-      const int source,
-      const int tag
-  );
+  //public for QLTensor MPI usage
+  void RawDataMPISend(const MPI_Comm &, const int, const int) const;
+  MPI_Status RawDataMPIRecv(const MPI_Comm &, const int, const int);
+  void RawDataMPIBcast(const MPI_Comm &, const int);
 
 #ifdef USE_GPU
 
@@ -488,26 +474,6 @@ class BlockSparseDataTensor : public Streamable {
   void RawDataRead_(std::istream &);
 
   void RawDataWrite_(std::ostream &) const;
-
-  friend class boost::serialization::access;
-
-  template<class Archive>
-  void save(Archive &ar, const unsigned int version) const;
-
-  template<class Archive>
-  void load(Archive &ar, const unsigned int version);
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER()
-
-  template<typename ElemT2, typename QNT2>
-  friend inline boost::mpi::status recv_qlten(boost::mpi::communicator world,
-                                              int source, int tag,
-                                              QLTensor<ElemT2, QNT2> &qlten);
-
-  template<typename ElemT2, typename QNT2>
-  friend inline void RecvBroadCastQLTensor(boost::mpi::communicator world,
-                                           QLTensor<ElemT2, QNT2> &qlten,
-                                           const int root);
 
   friend class BlockSparseDataTensor<QLTEN_Complex, QNT>; //access private data in double BSDT from complex BSDT
 };
@@ -770,91 +736,83 @@ void BlockSparseDataTensor<ElemT, QNT>::StreamWrite(std::ostream &os) const {
   }
 }
 
-/**
- * @note only save the shell, no data!
- */
 template<typename ElemT, typename QNT>
-template<class Archive>
-void BlockSparseDataTensor<ElemT, QNT>::save(Archive &ar, const unsigned int version) const {
-  ar & blk_idx_data_blk_map_.size();
-  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_) {
-    ar & blk_idx_data_blk.first;
-    for (auto &blk_coor : blk_idx_data_blk.second.blk_coors) {
-      ar & blk_coor;
-    }
-  }
-}
-
-/** 
- * load the shell and allocate the memory, no data is read.
- */
-template<typename ElemT, typename QNT>
-template<class Archive>
-void BlockSparseDataTensor<ElemT, QNT>::load(Archive &ar, const unsigned int version) {
+void BlockSparseDataTensor<ElemT, QNT>::StreamReadBlkIdxDataBlkMapForMPI(std::istream &is) {
   size_t data_blk_num;
-  ar & data_blk_num;
+  is >> data_blk_num;
   std::vector<CoorsT> blk_coors_s(data_blk_num, CoorsT(ten_rank));
+  blk_coors_s.reserve(data_blk_num);
   std::vector<size_t> idxs(data_blk_num);
   for (size_t i = 0; i < data_blk_num; ++i) {
-    ar & idxs[i];
+    is >> idxs[i];
     for (size_t j = 0; j < ten_rank; ++j) {
-      ar & blk_coors_s[i][j];
+      is >> blk_coors_s[i][j];
     }
   }
-
   DataBlksInsert(idxs, blk_coors_s, false, false);
-  if (IsScalar()) { raw_data_size_ = 1; }
 
+  if (IsScalar()) { raw_data_size_ = 1; }
   Allocate();
 }
 
 template<typename ElemT, typename QNT>
-inline void BlockSparseDataTensor<ElemT, QNT>::MPISend(
-    const boost::mpi::communicator &world,
-    const int dest,
-    const int tag) {
-  world.send(dest, tag, *this);
-  int tag_data = 2 * tag + 1;
-  if (IsScalar() && actual_raw_data_size_ == 0) {
-    ElemT zero = ElemT(0.0);
-    ElemT *data_pointer = &zero;
-    int data_size = 1;
-    hp_numeric::MPI_Send(data_pointer, data_size, dest, tag_data, MPI_Comm(world));
-  } else {
-    hp_numeric::MPI_Send(pactual_raw_data_, actual_raw_data_size_, dest, tag_data, MPI_Comm(world));
+void BlockSparseDataTensor<ElemT, QNT>::StreamWriteBlkIdxDataBlkMapForMPI(std::ostream &os) const {
+  os << blk_idx_data_blk_map_.size() << "\n";
+  for (auto &blk_idx_data_blk : blk_idx_data_blk_map_) {
+    os << blk_idx_data_blk.first << "\n";
+    for (auto &blk_coor : blk_idx_data_blk.second.blk_coors) {
+      os << blk_coor << "\n";
+    }
   }
 }
 
 template<typename ElemT, typename QNT>
-inline boost::mpi::status BlockSparseDataTensor<ElemT, QNT>::MPIRecv(
-    const boost::mpi::communicator &world,
-    const int source,
-    const int tag) {
-  boost::mpi::status recv_ten_status = world.recv(source, tag, *this);
-  const int data_source = recv_ten_status.source();
-  const int data_tag = 2 * recv_ten_status.tag() + 1;
-  hp_numeric::MPI_Recv(pactual_raw_data_, actual_raw_data_size_, data_source, data_tag, MPI_Comm(world));
-  return recv_ten_status;
+std::string BlockSparseDataTensor<ElemT, QNT>::SerializeBlkIdxDataBlkMap() const {
+  std::ostringstream oss(std::ios::binary);
+  StreamWriteBlkIdxDataBlkMapForMPI(oss); // Use your existing StreamWrite function
+  return oss.str();
 }
 
 template<typename ElemT, typename QNT>
-inline boost::mpi::status BlockSparseDataTensor<ElemT, QNT>::MPIRecvIdxDataBlkMap(
-    const boost::mpi::communicator &world,
-    const int source,
-    const int tag
-) {
-  return world.recv(source, tag, *this);
+void BlockSparseDataTensor<ElemT, QNT>::DeserializeBlkIdxDataBlkMap(const std::string &buffer) {
+  std::istringstream iss(buffer, std::ios::binary);
+  StreamReadBlkIdxDataBlkMapForMPI(iss);
+}
+
+inline int DataTag(const int tag) {
+  return 2 * tag + 1;
 }
 
 template<typename ElemT, typename QNT>
-inline MPI_Status BlockSparseDataTensor<ElemT, QNT>::MPIRecvActualData(
-    boost::mpi::communicator &world,
-    const int source,
-    const int tag_data
-) {
-  assert(source != boost::mpi::any_source);
-  auto status = hp_numeric::MPI_Recv(pactual_raw_data_, actual_raw_data_size_, source, tag_data, MPI_Comm(world));
-  return status;
+inline void BlockSparseDataTensor<ElemT, QNT>::MPISend(
+    const MPI_Comm &mpi_comm,
+    const int dest,
+    const int tag) const {
+  auto buffer = SerializeBlkIdxDataBlkMap(); // blk_idx_data_blk_map_ info
+  size_t buffer_size = buffer.size();
+  hp_numeric::MPI_Send(buffer_size, dest, tag, mpi_comm);
+  HANDLE_MPI_ERROR(::MPI_Send(buffer.data(), buffer_size, MPI_CHAR, dest, tag, mpi_comm));
+  RawDataMPISend(mpi_comm, dest, DataTag(tag));
+}
+
+/**
+ *
+ * @param source  can be any source.
+ */
+template<typename ElemT, typename QNT>
+MPI_Status BlockSparseDataTensor<ElemT, QNT>::MPIRecv(const MPI_Comm &mpi_comm,
+                                                      int source,
+                                                      int tag) {
+  std::string buffer;
+  size_t buffer_size;
+  MPI_Status mpi_status = hp_numeric::MPI_Recv(buffer_size, source, tag, mpi_comm);
+  buffer.resize(buffer_size);
+  source = mpi_status.MPI_SOURCE;
+  tag = mpi_status.MPI_TAG;
+  HANDLE_MPI_ERROR(::MPI_Recv(buffer.data(), buffer_size, MPI_CHAR, source, tag, mpi_comm, &mpi_status));
+  this->DeserializeBlkIdxDataBlkMap(buffer);
+  MPI_Status raw_data_status = RawDataMPIRecv(mpi_comm, source, DataTag(tag));
+  return raw_data_status;
 }
 
 /**

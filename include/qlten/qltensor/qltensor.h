@@ -22,11 +22,6 @@
 
 #include <vector>       // vector
 #include <iostream>     // istream, ostream
-
-#include <boost/serialization/serialization.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/serialization/split_member.hpp>
-// #include <boost/mpi.hpp>
 namespace qlten {
 
 /**
@@ -193,8 +188,12 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
 
   // Override base class
   void StreamRead(std::istream &);
-
   void StreamWrite(std::ostream &) const;
+
+  void StreamReadShellForMPI(std::istream &);
+  void StreamWriteShellForMPI(std::ostream &) const;
+  std::string SerializeShell() const;
+  void DeserializeShell(const std::string &);
 
   void Show(const size_t indent_level = 0) const override;
 
@@ -230,17 +229,6 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   size_t CalcSize_(void) const;
 
   std::pair<CoorsT, CoorsT> CoorsToBlkCoorsDataCoors_(const CoorsT &) const;
-
-  /// NB: Only serialization of shell of tensors. For the mpi communication,
-  friend class boost::serialization::access;
-
-  template<class Archive>
-  void save(Archive &ar, const unsigned int version) const;
-
-  template<class Archive>
-  void load(Archive &ar, const unsigned int version);
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER()
 };
 
 // Out-of-class declaration and definition.

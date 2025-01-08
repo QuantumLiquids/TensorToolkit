@@ -8,8 +8,6 @@
 */
 
 #include <fstream>                            // ifstream, ofstream
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
 
 #include "gtest/gtest.h"
 #include "qlten/qltensor_all.h"               // QLTensor, Index, QN, U1QNVal, QNSectorVec

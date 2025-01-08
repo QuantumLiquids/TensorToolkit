@@ -20,7 +20,6 @@
 #include "qlten/qltensor/qn/qn.h"   //QNCardVec
 #include "qlten/qltensor/qn/qnval.h"    //QNVal
 #include "qlten/qltensor/qn/qnval_u1.h" //U1QNVal
-#include <boost/serialization/serialization.hpp>
 
 namespace qlten {
 namespace special_qn {
@@ -80,13 +79,6 @@ class U1U1QN : public Showable {
 
   int vals_[2];
   size_t hash_;
-
-  friend class boost::serialization::access;
-  template<class Archive>
-  void serialize(Archive &ar, const unsigned int version) {
-    ar & vals_;
-    ar & hash_;
-  }
 };
 
 inline U1U1QN::U1U1QN(void) : vals_{0, 0}, hash_(CalcHash_()) {}

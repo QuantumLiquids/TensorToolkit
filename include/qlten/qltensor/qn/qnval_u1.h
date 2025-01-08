@@ -15,9 +15,6 @@
 
 
 #include"qlten/qltensor/qn/qnval.h"    // QNVal
-#include <boost/serialization/serialization.hpp>
-#include <boost/serialization/export.hpp>
-#include <boost/serialization/base_object.hpp>
 
 
 namespace qlten {
@@ -66,13 +63,6 @@ public:
 private:
   int val_;
   std::hash<int> hasher_;
-
-  friend class boost::serialization::access;
-  template<class Archive>
-  void serialize(Archive & ar, const unsigned int version){
-    ar & boost::serialization::base_object<QNVal>(*this);
-    ar & val_;
-  }
 };
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_QN_QNVAL_U1_H */

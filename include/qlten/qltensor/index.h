@@ -18,9 +18,6 @@
 #include <functional>     // std::hash
 #include <string>         // string
 
-#include <boost/serialization/serialization.hpp>
-#include <boost/serialization/vector.hpp>
-
 #include "qlten/framework/value_t.h"            // CoorsT
 #include "qlten/framework/bases/hashable.h"     // Hashable
 #include "qlten/framework/bases/streamable.h"   // Streamable
@@ -176,7 +173,7 @@ class Index : public Hashable, public Streamable, public Showable, public Fermio
     size_t qnscts_size;
     is >> qnscts_size;
     qnscts_ = QNSectorVec<QNT>(qnscts_size);
-    for (auto &qnsct: qnscts_) { is >> qnsct; }
+    for (auto &qnsct : qnscts_) { is >> qnsct; }
     int dir_int_repr;
     is >> dir_int_repr;
     dir_ = static_cast<TenIndexDirType>(dir_int_repr);
@@ -186,7 +183,7 @@ class Index : public Hashable, public Streamable, public Showable, public Fermio
 
   void StreamWrite(std::ostream &os) const override {
     os << qnscts_.size() << "\n";
-    for (auto &qnsct: qnscts_) { os << qnsct; }
+    for (auto &qnsct : qnscts_) { os << qnsct; }
     int dir_int_repr = dir_;
     os << dir_int_repr << "\n";
     os << dim_ << "\n";
@@ -208,7 +205,7 @@ class Index : public Hashable, public Streamable, public Showable, public Fermio
       default:assert(false);
     }
     std::cout << dir_str << std::endl;
-    for (auto &qnsct: qnscts_) {
+    for (auto &qnsct : qnscts_) {
       qnsct.Show(indent_level + 1);
     }
   }
@@ -221,7 +218,7 @@ class Index : public Hashable, public Streamable, public Showable, public Fermio
 
   size_t CalcDim_(void) {
     size_t dim = 0;
-    for (auto &qnsct: qnscts_) {
+    for (auto &qnsct : qnscts_) {
       dim += qnsct.dim();
     }
     return dim;
@@ -230,15 +227,6 @@ class Index : public Hashable, public Streamable, public Showable, public Fermio
   size_t CalcHash_(void) {
     std::hash<int> int_hasher;
     return VecHasher(qnscts_) ^ int_hasher(dir_);
-  }
-
-  friend class boost::serialization::access;
-  template<class Archive>
-  void serialize(Archive &ar, const unsigned int version) {
-    ar & dir_;
-    ar & dim_;
-    ar & hash_;
-    ar & qnscts_;
   }
 };
 
@@ -269,7 +257,7 @@ Calculate the number of quantum number sectors of Index from a vector of Index.
 template<typename IndexVecT>
 std::vector<size_t> CalcQNSctNumOfIdxs(const IndexVecT &indexes) {
   std::vector<size_t> qnsct_num_of_idxes;
-  for (auto &index: indexes) {
+  for (auto &index : indexes) {
     qnsct_num_of_idxes.push_back(index.GetQNSctNum());
   }
   return qnsct_num_of_idxes;

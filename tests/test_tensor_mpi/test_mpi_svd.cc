@@ -48,22 +48,21 @@ Index<U1QN> RandIndex(const unsigned qn_sct_num,  //how many quantum number sect
   return Index(qnsv, dir);
 }
 
-namespace mpi = boost::mpi;
-
 struct TestMPISvd : public testing::Test {
   const U1QN qn0 = U1QN(0);
-
-  boost::mpi::communicator world;
+  MPI_Comm comm = MPI_COMM_WORLD;
+  int rank;
 
   DQLTensor1 dstate;
   ZQLTensor1 zstate;
   void SetUp(void) {
     ::testing::TestEventListeners &listeners =
         ::testing::UnitTest::GetInstance()->listeners();
-    if (world.rank() != 0) {
+    MPI_Comm_rank(comm, &rank);
+    if (rank != kMPIMasterRank) {
       delete listeners.Release(listeners.default_result_printer());
     }
-    if (world.rank() == kMPIMasterRank) {
+    if (rank == kMPIMasterRank) {
       auto index1_in = RandIndex(20, 30, qlten::IN);
       auto index2_in = RandIndex(4, 5, qlten::IN);
       auto index1_out = RandIndex(4, 5, qlten::OUT);
@@ -87,10 +86,12 @@ void RunTestSvdCase(
     const double &trunc_err,
     const size_t &dmin,
     const size_t &dmax,
-    const mpi::communicator &world) {
+    const MPI_Comm &comm) {
   using Tensor = QLTensor<TenElemT, QNT>;
   using DTensor = QLTensor<QLTEN_Double, QNT>;
-  if (world.rank() == kMPIMasterRank) {
+  int rank;
+  MPI_Comm_rank(comm, &rank);
+  if (rank == kMPIMasterRank) {
     Tensor u, vt, u2, vt2;
     DTensor s, s2;
     double actual_trunc_err, actual_trunc_err2;
@@ -101,7 +102,7 @@ void RunTestSvdCase(
                  svd_ldims, left_div,
                  trunc_err, dmin, dmax,
                  &u, &s, &vt, &actual_trunc_err, &D,
-                 world
+                 comm
     );
     parallel_svd_timer.PrintElapsed();
 
@@ -117,17 +118,17 @@ void RunTestSvdCase(
     DTensor ds_diff = s + (-s2);
     EXPECT_NEAR(ds_diff.Normalize() / s.Normalize(), 0.0, 1e-13);
   } else {
-    MPISVDSlave<TenElemT>(world);
+    MPISVDSlave<TenElemT>(comm);
   }
 }
 
 TEST_F(TestMPISvd, SVD_RandState) {
   size_t dmax = 1;
-  if (world.rank() == kMPIMasterRank) {
+  if (rank == kMPIMasterRank) {
     dmax = dstate.GetIndexes()[0].dim();
   }
-  RunTestSvdCase(dstate, 2, qn0, 1e-8, 1, dmax, world);
-  RunTestSvdCase(zstate, 2, qn0, 1e-8, 1, dmax, world);
+  RunTestSvdCase(dstate, 2, qn0, 1e-8, 1, dmax, comm);
+  RunTestSvdCase(zstate, 2, qn0, 1e-8, 1, dmax, comm);
 #ifdef ACTUALCOMBAT
   DQLTensor2 state_load;
   if (world.rank() == kMPIMasterRank) {
@@ -156,9 +157,9 @@ TEST_F(TestMPISvd, SVD_RandState) {
 }
 
 int main(int argc, char *argv[]) {
+  MPI_Init(NULL, NULL);
   int result = 0;
   ::testing::InitGoogleTest(&argc, argv);
-  boost::mpi::environment env;
   size_t thread_num;
   if (argc == 1) {// no input parameter
     thread_num = 12;
@@ -167,5 +168,6 @@ int main(int argc, char *argv[]) {
   }
   hp_numeric::SetTensorManipulationThreads(thread_num);
   result = RUN_ALL_TESTS();
+  MPI_Finalize();
   return result;
 }

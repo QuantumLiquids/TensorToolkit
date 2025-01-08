@@ -18,7 +18,6 @@
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_decomp/ten_decomp_basic.h"    // GenIdxTenDecompDataBlkMats, IdxDataBlkMatMap
 #include "qlten/tensor_manipulation/ten_decomp/ten_svd.h"             // TensorSVDExecutor
-#include "boost/mpi.hpp"                                              // communicator
 
 namespace qlten {
 /**
@@ -39,7 +38,7 @@ class MPITensorSVDExecutor : public TensorSVDExecutor<TenElemT, QNT> {
       QLTensor<QLTEN_Double, QNT> *,
       QLTensor<TenElemT, QNT> *,
       QLTEN_Double *, size_t *,
-      const boost::mpi::communicator &
+      const MPI_Comm &
   );
 
   ~MPITensorSVDExecutor(void) = default;
@@ -47,7 +46,7 @@ class MPITensorSVDExecutor : public TensorSVDExecutor<TenElemT, QNT> {
   void Execute(void) override;
 
  private:
-  const boost::mpi::communicator &world_;
+  const MPI_Comm &mpi_comm_;
 };
 
 template<typename TenElemT, typename QNT>
@@ -60,9 +59,9 @@ MPITensorSVDExecutor<TenElemT, QNT>::MPITensorSVDExecutor(
     QLTensor<QLTEN_Double, QNT> *ps,
     QLTensor<TenElemT, QNT> *pvt,
     QLTEN_Double *pactual_trunc_err, size_t *pD,
-    const boost::mpi::communicator &world
+    const MPI_Comm &comm
 ): TensorSVDExecutor<TenElemT, QNT>(pt, ldims, lqndiv, trunc_err, Dmin, Dmax, pu, ps, pvt,
-                                    pactual_trunc_err, pD), world_(world) {}
+                                    pactual_trunc_err, pD), mpi_comm_(comm) {}
 
 /**
 MPI Execute tensor SVD calculation.
@@ -73,7 +72,7 @@ void MPITensorSVDExecutor<TenElemT, QNT>::Execute(void) {
 
   auto idx_raw_data_svd_res = this->pt_->GetBlkSparDataTen().DataBlkDecompSVDMaster(
       this->idx_ten_decomp_data_blk_mat_map_,
-      world_
+      mpi_comm_
   );
   auto kept_sv_info = this->CalcTruncedSVInfo_(idx_raw_data_svd_res);
   this->ConstructSVDResTens_(kept_sv_info, idx_raw_data_svd_res);
@@ -111,7 +110,7 @@ void MPISVDMaster(
     QLTensor<QLTEN_Double, QNT> *ps,
     QLTensor<TenElemT, QNT> *pvt,
     QLTEN_Double *pactual_trunc_err, size_t *pD,
-    const boost::mpi::communicator &world
+    const MPI_Comm &comm
 ) {
   MPITensorSVDExecutor<TenElemT, QNT> mpi_ten_svd_executor(
       pt,
@@ -119,7 +118,7 @@ void MPISVDMaster(
       lqndiv,
       trunc_err, Dmin, Dmax,
       pu, ps, pvt, pactual_trunc_err, pD,
-      world
+      comm
   );
   mpi_ten_svd_executor.Execute();
 }
@@ -130,9 +129,9 @@ void MPISVDMaster(
  */
 template<typename TenElemT>
 inline void MPISVDSlave(
-    const boost::mpi::communicator &world
+    const MPI_Comm &comm
 ) {
-  DataBlkDecompSVDSlave<TenElemT>(world);
+  DataBlkDecompSVDSlave<TenElemT>(comm);
 }
 
 }

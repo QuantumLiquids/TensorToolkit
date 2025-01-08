@@ -52,13 +52,6 @@ class ZnQN : public Showable {
   size_t CalcHash_(void) const;
   int znval_;
   size_t hash_;
-
-  friend class boost::serialization::access;
-  template<class Archive>
-  void serialize(Archive &ar, const unsigned int version) {
-    ar & znval_;
-    ar & hash_;
-  }
 };
 
 template<size_t n>

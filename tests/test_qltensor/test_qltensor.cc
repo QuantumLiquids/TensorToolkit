@@ -618,13 +618,18 @@ TEST_F(TestQLTensor, TestTranspose) {
 
 template<typename QLTensorT>
 void RunTestQLTensorNormalizeCase(QLTensorT &t) {
-  auto norm2 = 0.0;
+
+  std::vector<double> elem_norms;
   for (auto &coors : GenAllCoors(t.GetShape())) {
-    norm2 += qlten::norm(t.GetElem(coors));
+    elem_norms.push_back(qlten::norm(t.GetElem(coors)));
+  }
+  std::sort(elem_norms.begin(), elem_norms.end());// ascent order
+  auto norm2 = 0.0;
+  for (auto norm : elem_norms) {
+    norm2 += norm;
   }
   auto norm = t.Normalize();
-  EXPECT_NEAR(norm, qlten::sqrt(norm2), 1e-14);
-
+  EXPECT_NEAR(1, qlten::sqrt(norm2) / norm, 1e-14);
   norm2 = 0.0;
   for (auto &coors : GenAllCoors(t.GetShape())) {
     norm2 += qlten::norm(t.GetElem(coors));

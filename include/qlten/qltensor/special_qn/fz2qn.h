@@ -62,12 +62,6 @@ class fZ2QN : public Showable {
   size_t znval_;
   size_t hash_;
 
-  friend class boost::serialization::access;
-  template<class Archive>
-  void serialize(Archive &ar, const unsigned int version) {
-    ar & znval_;
-    ar & hash_;
-  }
   static const size_t n = 2;
 };
 

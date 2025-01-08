@@ -11,7 +11,6 @@
 
 #include "qlten/framework/vec_hash.h"   //_HASH_XXPRIME_1...
 #include "qlten/qltensor/qn/qnval.h"    //QNVal
-#include <boost/serialization/serialization.hpp>
 
 namespace qlten {
 namespace special_qn {
@@ -57,12 +56,7 @@ class TrivialRepQN : public Showable {
 
  private:
 
-  static size_t CalcHash_(void) ;
-
-  friend class boost::serialization::access;
-  template<class Archive>
-  void serialize(Archive &ar, const unsigned int version) {
-  }
+  static size_t CalcHash_(void);
 };
 
 inline TrivialRepQN::TrivialRepQN(void) {}

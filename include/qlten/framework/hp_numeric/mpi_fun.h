@@ -38,7 +38,7 @@ inline void HandleMPIError(int error_code, int line) {
   }
 }
 
-#define HANDLE_MPI_ERROR(x) HandleMPIError(x, __LINE__)
+#define HANDLE_MPI_ERROR(x) hp_numeric::HandleMPIError(x, __LINE__)
 
 ///< Send a solely number with type of size_t
 inline void MPI_Send(const size_t n,
@@ -103,11 +103,11 @@ inline void MPI_Send(const QLTEN_Complex *data,
     for (size_t i = 0; i < num_fragment - 1; i++) {
       char *fragment_start = (char *) data + i * kAssumedMPICommunicationMaxDataLength;
       HANDLE_MPI_ERROR(::MPI_Send((const void *) fragment_start,
-                            kAssumedMPICommunicationMaxComplexDataSize,
-                            MPI_CXX_DOUBLE_COMPLEX,
-                            dest,
-                            tag + i,
-                            comm));
+                                  kAssumedMPICommunicationMaxComplexDataSize,
+                                  MPI_CXX_DOUBLE_COMPLEX,
+                                  dest,
+                                  tag + i,
+                                  comm));
     }
     size_t remain_data_size =
         data_size - kAssumedMPICommunicationMaxComplexDataSize * (num_fragment - 1);
@@ -121,13 +121,13 @@ inline void MPI_Send(const QLTEN_Complex *data,
   }
 }
 
-// Assume source != mpi_any_source
 inline MPI_Status MPI_Recv(QLTEN_Double *data,
                            const size_t data_size,
                            const int source,
                            const int tag,
                            const MPI_Comm &comm
 ) {
+  assert(source != MPI_ANY_SOURCE);
   ::MPI_Status status;
   if (data_size <= kAssumedMPICommunicationMaxDoubleDataSize) {
     HANDLE_MPI_ERROR(::MPI_Recv((void *) data, data_size, MPI_DOUBLE, source, tag, comm, &status));

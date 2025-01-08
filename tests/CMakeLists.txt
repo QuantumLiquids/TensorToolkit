@@ -23,10 +23,6 @@ else ()
 endif ()
 
 find_package(MPI REQUIRED)
-find_package(Boost
-        1.74.0
-        REQUIRED
-        COMPONENTS serialization mpi)
 
 
 option(TEST_ACTUAL_COMBAT "test the actual examples of mps tensors" OFF)
@@ -62,7 +58,6 @@ if (QLTEN_USE_GPU)
         target_include_directories(${TEST_NAME}
                 PRIVATE ${QLTEN_HEADER_PATH}
                 PRIVATE ${CUTENSOR_INCLUDE_DIR}
-                PRIVATE ${Boost_INCLUDE_DIR}
                 PRIVATE ${MPI_CXX_HEADER_DIR}
         )
         target_link_libraries(${TEST_NAME}
@@ -71,7 +66,7 @@ if (QLTEN_USE_GPU)
                 PRIVATE ${CUTENSOR_LIBRARY}
                 PRIVATE GTest::GTest GTest::Main
                 "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
-        ) #remove MPI and boost dependence since GPU code not support MPI upto now
+        ) #remove MPI dependence since GPU code not support MPI upto now
 
         add_test(
                 NAME ${TEST_NAME}
@@ -92,12 +87,9 @@ else ()
         target_include_directories(${TEST_NAME}
                 PRIVATE ${QLTEN_HEADER_PATH}
                 PRIVATE ${hptt_INCLUDE_DIR}
-                PRIVATE ${Boost_INCLUDE_DIR}
                 PRIVATE ${MPI_CXX_HEADER_DIR})
         target_link_libraries(${TEST_NAME}
                 PRIVATE ${hptt_LIBRARY}
-                PRIVATE Boost::serialization
-                PRIVATE Boost::mpi
                 PRIVATE ${MPI_CXX_LINK_FLAGS}
                 PRIVATE ${MPI_mpi_LIBRARY}
                 PRIVATE GTest::GTest GTest::Main
@@ -125,13 +117,10 @@ macro(add_mpi_unittest
     target_include_directories(${TEST_NAME}
             PRIVATE ${QLTEN_HEADER_PATH}
             PRIVATE ${hptt_INCLUDE_DIR}
-            PRIVATE ${Boost_INCLUDE_DIR}
             PRIVATE ${MPI_CXX_HEADER_DIR})
     target_link_libraries(${TEST_NAME}
             GTest::GTest GTest::Main
             ${hptt_LIBRARY}
-            Boost::serialization
-            Boost::mpi
             ${MPI_CXX_LINK_FLAGS}
             ${MPI_mpi_LIBRARY}
             "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
@@ -159,13 +148,10 @@ macro(compile_unittest
     )
     target_include_directories(${TEST_NAME}
             PRIVATE ${hptt_INCLUDE_DIR}
-            PRIVATE ${Boost_INCLUDE_DIR}
             PRIVATE ${MPI_CXX_HEADER_DIR})
     target_link_libraries(${TEST_NAME}
             GTest::GTest GTest::Main
             ${hptt_LIBRARY}
-            Boost::serialization
-            Boost::mpi
             ${MPI_CXX_LINK_FLAGS}
             ${MPI_mpi_LIBRARY}
             "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
@@ -266,20 +252,20 @@ add_unittest(test_ten_blk_expand
 )
 if (NOT QLTEN_USE_GPU)
     # Test tensor communication for serialization
-    add_unittest(test_boost_serialization
-            "test_tensor_mpi/test_ten_boost_serialization.cc"
-            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
-    )
+#    add_unittest(test_boost_serialization
+#            "test_tensor_mpi/test_ten_boost_serialization.cc"
+#            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+#    )
 
     # Test boost mpi
-    add_mpi_unittest(test_boost_mpi
-            "test_tensor_mpi/test_boost_mpi.cc"
-            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
-    )
+#    add_mpi_unittest(test_boost_mpi
+#            "test_tensor_mpi/test_boost_mpi.cc"
+#            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
+#    )
 
     # Test tensor communication for mpi
-    add_mpi_unittest(test_ten_mpi_comm
-            "test_tensor_mpi/test_ten_mpi_comm.cc"
+    add_mpi_unittest(test_ten_mpi_basic
+            "test_tensor_mpi/test_ten_mpi_basic.cc"
             "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
     )
 

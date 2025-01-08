@@ -13,29 +13,24 @@
 #ifndef QLTEN_QLTENSOR_QN_QN_H
 #define QLTEN_QLTENSOR_QN_QN_H
 
-
 #include "qlten/qltensor/qn/qnval.h"              // QNVal, QNValSharedPtr
 #include "qlten/framework/bases/hashable.h"       // Hashable
 #include "qlten/framework/bases/streamable.h"     // Streamable
 #include "qlten/framework/bases/showable.h"       // Showable
 #include "qlten/framework/vec_hash.h"             // VecPtrHasher
-#include <boost/serialization/serialization.hpp>
-#include <boost/serialization/split_member.hpp>
 
 #ifdef Release
-  #define NDEBUG
+#define NDEBUG
 #endif
 #include <cassert>
 
-
 namespace qlten {
-
 
 /**
 Quantum number card for name-value pair.
 */
 class QNCard {
-public:
+ public:
   /**
   Create a quantum number card.
 
@@ -48,22 +43,21 @@ public:
   /// Get a std::shared_ptr which point to the quantum number value.
   QNValSharedPtr GetValPtr(void) const { return pqnval_; }
 
-private:
+ private:
   std::string name_;
   QNValSharedPtr pqnval_;
 };
 
 using QNCardVec = std::vector<QNCard>;
 
-
 /**
 The quantum number of a system.
 
 @tparam QNValTs Types of quantum number values of the quantum number.
 */
-template <typename... QNValTs>
-class QN : public Hashable, public Streamable, public Showable{
-public:
+template<typename... QNValTs>
+class QN : public Hashable, public Streamable, public Showable {
+ public:
   QN(void);
   QN(const QNCardVec &);
   ~QN(void);
@@ -97,7 +91,7 @@ public:
 
   void Show(const size_t indent_level = 0) const override;
 
-private:
+ private:
   QNValPtrVec pqnvals_;
   size_t dim_;
   size_t hash_;
@@ -106,17 +100,9 @@ private:
   size_t CalcHash_(void) const;
 
   QN(const QNValPtrVec &);    // Intra used private constructor
-
-  friend class boost::serialization::access;
-  template<class Archive>
-  void save(Archive & ar, const unsigned int version) const;
-  template<class Archive>
-  void load(Archive & ar, const unsigned int version);
-  BOOST_SERIALIZATION_SPLIT_MEMBER()
 };
 
-
-template <typename... QNValTs>
+template<typename... QNValTs>
 inline size_t QN<QNValTs...>::CalcDim_(void) const {
   if (pqnvals_.empty()) {
     return 0;
@@ -129,8 +115,7 @@ inline size_t QN<QNValTs...>::CalcDim_(void) const {
   }
 }
 
-
-template <typename... QNValTs>
+template<typename... QNValTs>
 inline size_t QN<QNValTs...>::CalcHash_(void) const {
   if (pqnvals_.size() == 0) {
     return 0;
@@ -139,20 +124,18 @@ inline size_t QN<QNValTs...>::CalcHash_(void) const {
   }
 }
 
-
 /**
 Create a default quantum number.
 */
-template <typename... QNValTs>
+template<typename... QNValTs>
 QN<QNValTs...>::QN(void) : dim_(CalcDim_()), hash_(CalcHash_()) {}
-
 
 /**
 Create a quantum number using a vector of quantum number cards.
 
 @param qncards A vector of quantum number cards.
 */
-template <typename... QNValTs>
+template<typename... QNValTs>
 QN<QNValTs...>::QN(const QNCardVec &qncards) {
   for (auto &qncard : qncards) {
     pqnvals_.push_back((qncard.GetValPtr())->Clone());
@@ -161,30 +144,27 @@ QN<QNValTs...>::QN(const QNCardVec &qncards) {
   hash_ = CalcHash_();
 }
 
-
 // WARNING: private constructor
-template <typename... QNValTs>
+template<typename... QNValTs>
 QN<QNValTs...>::QN(const QNValPtrVec &pqnvals) {
   pqnvals_ = pqnvals;
   dim_ = CalcDim_();
   hash_ = CalcHash_();
 }
 
-
-template <typename... QNValTs>
+template<typename... QNValTs>
 QN<QNValTs...>::~QN(void) {
   for (auto &qnval : pqnvals_) {
     delete qnval;
   }
 }
 
-
 /**
 Copy from a quantum number instance.
 
 @param qn A quantum number instance to be copied.
 */
-template <typename... QNValTs>
+template<typename... QNValTs>
 QN<QNValTs...>::QN(const QN &qn) :
     dim_(qn.dim_), hash_(qn.hash_) {
   for (auto &qnval : qn.pqnvals_) {
@@ -192,13 +172,12 @@ QN<QNValTs...>::QN(const QN &qn) :
   }
 }
 
-
 /**
 Assign from another quantum number instance.
 
 @param rhs A quantum number instance.
 */
-template <typename... QNValTs>
+template<typename... QNValTs>
 QN<QNValTs...> &QN<QNValTs...>::operator=(const QN &rhs) {
   for (auto &qnval : pqnvals_) {
     delete qnval;
@@ -212,11 +191,10 @@ QN<QNValTs...> &QN<QNValTs...>::operator=(const QN &rhs) {
   return *this;
 }
 
-
 /**
 Calculate the negation of a quantum number.
 */
-template <typename... QNValTs>
+template<typename... QNValTs>
 QN<QNValTs...> QN<QNValTs...>::operator-(void) const {
   QNValPtrVec new_qnvals;
   for (auto &qnval : pqnvals_) {
@@ -225,11 +203,10 @@ QN<QNValTs...> QN<QNValTs...>::operator-(void) const {
   return QN(new_qnvals);    // WARNING: use private constructor here
 }
 
-
 /**
 Add and assign operation to a quantum number.
 */
-template <typename... QNValTs>
+template<typename... QNValTs>
 QN<QNValTs...> &QN<QNValTs...>::operator+=(const QN &rhs) {
   auto qnvals_size = this->pqnvals_.size();
   assert(qnvals_size == rhs.pqnvals_.size());
@@ -241,8 +218,7 @@ QN<QNValTs...> &QN<QNValTs...>::operator+=(const QN &rhs) {
   return *this;
 }
 
-
-template <typename... QNValTs>
+template<typename... QNValTs>
 void QN<QNValTs...>::StreamRead(std::istream &is) {
   pqnvals_ = {(new QNValTs)...};     // Initialize the quantum number value slots
   for (auto &qnval : pqnvals_) {
@@ -252,8 +228,7 @@ void QN<QNValTs...>::StreamRead(std::istream &is) {
   dim_ = CalcDim_();    // Recalculate the dimension.
 }
 
-
-template <typename... QNValTs>
+template<typename... QNValTs>
 void QN<QNValTs...>::StreamWrite(std::ostream &os) const {
   for (auto &qnval : pqnvals_) {
     qnval->StreamWrite(os);
@@ -262,35 +237,11 @@ void QN<QNValTs...>::StreamWrite(std::ostream &os) const {
   os << hash_ << "\n";
 }
 
-
-template <typename... QNValTs>
+template<typename... QNValTs>
 void QN<QNValTs...>::Show(const size_t indent_level) const {
   std::cout << IndentPrinter(indent_level) << "QN:" << std::endl;
   for (auto &qnval : pqnvals_) {
     qnval->Show(indent_level + 1);
-  }
-}
-class U1QNVal;
-template <typename... QNValTs>
-template <class Archive>
-void QN<QNValTs...>::save(Archive & ar, const unsigned int version) const {
-  ar & dim_;
-  ar & hash_;
-  for(auto& pqnval: pqnvals_){
-    ar.template register_type<U1QNVal>();
-    ar & pqnval;
-  }
-}
-
-template <typename... QNValTs>
-template <class Archive>
-void QN<QNValTs...>::load(Archive & ar, const unsigned int version){
-  pqnvals_ = {(new QNValTs)...};
-  ar & dim_;
-  ar & hash_;
-  for(auto& pqnval: pqnvals_){
-    ar.template register_type<U1QNVal>();
-    ar & pqnval;
   }
 }
 } /* qlten */
