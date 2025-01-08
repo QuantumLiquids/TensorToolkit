@@ -597,7 +597,11 @@ void QLTensor<ElemT, QNT>::StreamRead(std::istream &is) {
 }
 
 /**
-Boost serialization
+Boost serialization which is used in MPI receive.
+
+@note this function only anti-serialize the shell of Tensor without the raw data
+call the function like world.recv(tensor ...) will give unexpected consequence
+except explicitly following a raw data receive.
 */
 template<typename ElemT, typename QNT>
 template<class Archive>
@@ -622,7 +626,11 @@ void QLTensor<ElemT, QNT>::StreamWrite(std::ostream &os) const {
 }
 
 /**
-Boost serialization
+Boost serialization which is used in MPI send.
+
+@note this function only serialize the shell of Tensor without the raw data
+call the function like world.send(tensor ...) will give unexpected consequence
+except manually following a raw data sending.
 */
 template<typename ElemT, typename QNT>
 template<class Archive>
@@ -851,12 +859,6 @@ const int kMPIDataTagMultiplyFactor = 11;
 
 /**
  * Note use this function rather world.send() directly
- * @tparam ElemT
- * @tparam QNT
- * @param world
- * @param dest
- * @param tag
- * @param qlten
  */
 template<typename ElemT, typename QNT>
 inline void send_qlten(boost::mpi::communicator world,
@@ -901,6 +903,7 @@ inline void send_qlten(boost::mpi::communicator world,
 #endif
 }
 
+// function to receive the full tensor include the raw data
 template<typename ElemT, typename QNT>
 inline boost::mpi::status recv_qlten(boost::mpi::communicator world,
                                      int source, int tag,

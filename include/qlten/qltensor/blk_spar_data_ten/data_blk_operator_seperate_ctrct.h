@@ -7,7 +7,8 @@
 * sparse data tensor for seperated contract task.
 */
 
-#pragma once
+#ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_DATA_BLK_OPERATION_SEPERATE_CTRCT_H
+#define QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_DATA_BLK_OPERATION_SEPERATE_CTRCT_H
 
 #include "qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h"
 #include "qlten/qltensor/blk_spar_data_ten/raw_data_operations.h"
@@ -307,3 +308,5 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenFor1SectTenCtrct(
 }
 
 }//qlten
+
+#endif

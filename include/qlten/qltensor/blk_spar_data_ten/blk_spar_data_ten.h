@@ -364,7 +364,7 @@ class BlockSparseDataTensor : public Streamable {
       const int tag
   );
 
-  boost::mpi::status MPIRecvActualData(
+  MPI_Status MPIRecvActualData(
       boost::mpi::communicator &world,
       const int source,
       const int tag
@@ -847,14 +847,14 @@ inline boost::mpi::status BlockSparseDataTensor<ElemT, QNT>::MPIRecvIdxDataBlkMa
 }
 
 template<typename ElemT, typename QNT>
-inline boost::mpi::status BlockSparseDataTensor<ElemT, QNT>::MPIRecvActualData(
+inline MPI_Status BlockSparseDataTensor<ElemT, QNT>::MPIRecvActualData(
     boost::mpi::communicator &world,
     const int source,
     const int tag_data
 ) {
   assert(source != boost::mpi::any_source);
-  boost::mpi::status recv_ten_status = world.recv(source, tag_data, pactual_raw_data_, actual_raw_data_size_);
-  return recv_ten_status;
+  auto status = hp_numeric::MPI_Recv(pactual_raw_data_, actual_raw_data_size_, source, tag_data, MPI_Comm(world));
+  return status;
 }
 
 /**

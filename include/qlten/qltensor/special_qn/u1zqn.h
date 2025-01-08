@@ -3,7 +3,7 @@
 * Author: Hao-Xin Wang <wanghx18@mails.tsinghua.edu.cn>
 * Creation Date: 2023-6-18
 *
-* Description: QuantumLiquids/tensor project. `U(1) \cross U(1) \cross Zn` QN class, with dynamic value of n
+* Description: QuantumLiquids/tensor project. `U(1) \cross Zn` QN class, with dynamic value of n
 */
 
 
@@ -167,7 +167,7 @@ inline void U1ZQN::StreamWrite(std::ostream &os) const {
 
 inline void U1ZQN::Show(const size_t indent_level) const {
   std::cout << IndentPrinter(indent_level)
-            << "U1U1Z" << n << "QN:  ("
+            << "U1Z" << n << "QN:  ("
             << u1val_
             << ", "
             << znval_
