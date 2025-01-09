@@ -852,10 +852,8 @@ inline int TensorDataTag(const int tag) {
  * Note use this function rather world.send() directly
  */
 template<typename ElemT, typename QNT>
-inline void send_qlten(const MPI_Comm &comm,
-                       int dest, int tag,
-                       const QLTensor<ElemT, QNT> &qlten) {
-  const bool is_default = qlten.IsDefault();
+void QLTensor<ElemT, QNT>::MPI_Send(int dest, int tag, const MPI_Comm &comm) const {
+  const bool is_default = this->IsDefault();
   ::MPI_Send(&is_default, 1, MPI_CXX_BOOL, dest, tag, comm);
   if (is_default) { return; }
 #ifdef QLTEN_MPI_TIMING_MODE
@@ -867,7 +865,7 @@ inline void send_qlten(const MPI_Comm &comm,
                              + std::to_string(dest)
   );
 #endif
-  auto buffer = qlten.SerializeShell(); // blk_idx_data_blk_map_ info
+  auto buffer = SerializeShell(); // blk_idx_data_blk_map_ info
   size_t buffer_size = buffer.size();
   hp_numeric::MPI_Send(buffer_size, dest, tag, comm);
   ::MPI_Send(buffer.data(), buffer_size, MPI_CHAR, dest, tag, comm);
@@ -878,10 +876,10 @@ inline void send_qlten(const MPI_Comm &comm,
                                 + " to "
                                 + std::to_string(dest)
                                 + ", data size = "
-                                + std::to_string(qlten.GetBlkSparDataTen().GetActualRawDataSize())
+                                + std::to_string(GetBlkSparDataTen().GetActualRawDataSize())
   );
 #endif
-  qlten.GetBlkSparDataTen().RawDataMPISend(comm, dest, TensorDataTag(tag));
+  GetBlkSparDataTen().RawDataMPISend(comm, dest, TensorDataTag(tag));
 #ifdef QLTEN_MPI_TIMING_MODE
   send_raw_data_timer.PrintElapsed();
 #endif
@@ -889,10 +887,8 @@ inline void send_qlten(const MPI_Comm &comm,
 
 // function to receive the full tensor include the raw data
 template<typename ElemT, typename QNT>
-MPI_Status recv_qlten(const MPI_Comm &comm,
-                      int source, int tag,
-                      QLTensor<ElemT, QNT> &qlten) {
-  assert(qlten.IsDefault());
+MPI_Status QLTensor<ElemT, QNT>::MPI_Recv(int source, int tag, const MPI_Comm &comm) {
+  assert(IsDefault());
   bool is_default;
   MPI_Status status;
   ::MPI_Recv(&is_default, 1, MPI_CXX_BOOL, source, tag, comm, &status);
@@ -912,8 +908,8 @@ MPI_Status recv_qlten(const MPI_Comm &comm,
   size_t buffer_size;
   MPI_Status mpi_status = hp_numeric::MPI_Recv(buffer_size, source, tag, comm);
   buffer.resize(buffer_size);
-  ::MPI_Recv(buffer.data(), buffer_size, MPI_CHAR, source, tag, comm, &mpi_status);
-  qlten.DeserializeShell(buffer);
+  HANDLE_MPI_ERROR(::MPI_Recv(buffer.data(), buffer_size, MPI_CHAR, source, tag, comm, &mpi_status));
+  DeserializeShell(buffer);
 #ifdef QLTEN_MPI_TIMING_MODE
   recv_shell_timer.PrintElapsed();
   Timer recv_raw_data_timer("mpi_recv_ten_raw_data from rank "
@@ -921,31 +917,26 @@ MPI_Status recv_qlten(const MPI_Comm &comm,
                                 + " to "
                                 + std::to_string(mpi_rank)
                                 + ", data size = "
-                                + std::to_string(qlten.GetBlkSparDataTen().GetActualRawDataSize())
+                                + std::to_string(GetBlkSparDataTen().GetActualRawDataSize())
   );
 #endif
-  qlten.GetBlkSparDataTen().RawDataMPIRecv(comm, source, TensorDataTag(tag));
+  GetBlkSparDataTen().RawDataMPIRecv(comm, source, TensorDataTag(tag));
 #ifdef QLTEN_MPI_TIMING_MODE
   recv_raw_data_timer.PrintElapsed();
 #endif
-
   return status;
 }
 
 template<typename ElemT, typename QNT>
-inline void BCastTensor(
-    const MPI_Comm &comm,
-    QLTensor<ElemT, QNT> &tensor,
-    const int root
-) {
+void QLTensor<ElemT, QNT>::MPI_Bcast(const int root, const MPI_Comm &comm) {
   int rank;
   MPI_Comm_rank(comm, &rank);
   if (rank != root) {
-    assert(tensor.IsDefault());
+    assert(IsDefault());
   }
   bool is_default;
   if (rank == root) {
-    is_default = tensor.IsDefault();
+    is_default = IsDefault();
   }
   HANDLE_MPI_ERROR(::MPI_Bcast(&is_default, 1, MPI_CXX_BOOL, root, comm));
   if (is_default) {
@@ -955,7 +946,7 @@ inline void BCastTensor(
   std::string buffer;
   int buffer_size;
   if (rank == root) {
-    buffer = tensor.SerializeShell();
+    buffer = SerializeShell();
     buffer_size = buffer.size();
   }
   HANDLE_MPI_ERROR(::MPI_Bcast(&buffer_size, 1, MPI_INT, root, comm));
@@ -964,20 +955,25 @@ inline void BCastTensor(
   }
   HANDLE_MPI_ERROR(::MPI_Bcast(buffer.data(), buffer_size, MPI_CHAR, root, comm));
   if (rank != root) {
-    tensor.DeserializeShell(buffer);
+    DeserializeShell(buffer);
   }
 
 #ifdef QLTEN_MPI_TIMING_MODE
   Timer mpi_bcast_raw_data_timer("mpi_bcast_raw_data: root = "
                                      + std::to_string(root)
                                      + " data size = "
-                                     + std::to_string(tensor.GetBlkSparDataTen().GetActualRawDataSize())
+                                     + std::to_string(GetBlkSparDataTen().GetActualRawDataSize())
   );
 #endif
-  tensor.GetBlkSparDataTen().RawDataMPIBcast(comm, root);
+  GetBlkSparDataTen().RawDataMPIBcast(comm, root);
 #ifdef QLTEN_MPI_TIMING_MODE
   mpi_bcast_raw_data_timer.PrintElapsed();
 #endif
+}
+
+template<typename ElemT, typename QNT>
+void MPI_Bcast(QLTensor<ElemT, QNT> &qlten, const int root, const MPI_Comm &comm) {
+  qlten.MPI_Bcast(root, comm);
 }
 
 template<typename ElemT, typename QNT>

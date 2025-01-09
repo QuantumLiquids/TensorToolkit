@@ -730,7 +730,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
   for (auto &[idx_next, data_blk_mat_next] : idx_data_blk_mat_map) {
     // Wait for a worker to become available
     MPI_Status status;
-    MPI_Recv(&idx, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &status);
+    HANDLE_MPI_ERROR(::MPI_Recv(&idx, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &status));
     size_t worker_id = status.MPI_SOURCE;
     if (status.MPI_TAG > 0) { //valid results
       hp_numeric::MPI_Recv(m, worker_id, idx + 14, comm);
@@ -748,7 +748,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
     // Distribute data to available worker
     ElemT *mat = RawDataGenDenseDataBlkMat_(data_blk_mat_next);
     size_t data_length = data_blk_mat_next.rows * data_blk_mat_next.cols;
-    MPI_Send(&idx_next, 1, MPI_INT, worker_id, idx_next + 6, comm); // The tag should be positive
+    HANDLE_MPI_ERROR(::MPI_Send(&idx_next, 1, MPI_INT, worker_id, idx_next + 6, comm)); // The tag should be positive
     hp_numeric::MPI_Send(data_blk_mat_next.rows, worker_id, idx_next + 7, comm);
     hp_numeric::MPI_Send(data_blk_mat_next.cols, worker_id, idx_next + 8, comm);
     hp_numeric::MPI_Send(mat, data_length, worker_id, idx_next + 9, comm);
@@ -759,7 +759,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
   for (int num_terminated = 0; num_terminated < worker_num; num_terminated++) {
     // Wait for a worker to become available
     MPI_Status status;
-    MPI_Recv(&idx, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &status);
+    HANDLE_MPI_ERROR(::MPI_Recv(&idx, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &status));
     size_t worker_id = status.MPI_SOURCE;
     // If a matrix was decomposed
     if (status.MPI_TAG > 0) {
@@ -777,9 +777,9 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
     }
 
     // Send termination signal (tag = 0); workers receive the variable as idx
-    MPI_Send(&num_terminated, 1, MPI_INT, worker_id, 0, comm);
+    HANDLE_MPI_ERROR(::MPI_Send(&num_terminated, 1, MPI_INT, worker_id, 0, comm));
   }
-  MPI_Barrier(comm);
+  ::MPI_Barrier(comm);
 #ifdef QLTEN_MPI_TIMING_MODE
   data_blk_decomp_svd_master_timer.PrintElapsed();
 #endif

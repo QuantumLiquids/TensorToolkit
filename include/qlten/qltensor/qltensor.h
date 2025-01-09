@@ -190,6 +190,10 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   void StreamRead(std::istream &);
   void StreamWrite(std::ostream &) const;
 
+  void MPI_Send(int, int, const MPI_Comm &) const;
+  MPI_Status MPI_Recv(int, int, const MPI_Comm &);
+  void MPI_Bcast(const int, const MPI_Comm &) ;
+
   void StreamReadShellForMPI(std::istream &);
   void StreamWriteShellForMPI(std::ostream &) const;
   std::string SerializeShell() const;

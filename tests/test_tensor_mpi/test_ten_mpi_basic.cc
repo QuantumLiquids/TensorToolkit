@@ -125,23 +125,23 @@ void TestTensorCommunication(
   if (rank == kMPIMasterRank) {
     Tensor recv_bsdt_ten;
     Timer mpi_ten_passing_timer("mpi_ten_send_recv");
-    send_qlten(comm, assist_proc, 35, tensor);
+    tensor.MPI_Send(assist_proc, 35, comm);
     recv_bsdt_ten = Tensor(tensor.GetIndexes());
     auto &bsdt = recv_bsdt_ten.GetBlkSparDataTen();
-    bsdt.MPIRecv(comm, assist_proc, 3);
+    bsdt.MPI_Recv(comm, assist_proc, 3);
     mpi_ten_passing_timer.PrintElapsed();
     EXPECT_EQ(tensor, recv_bsdt_ten);
-    BCastTensor(comm, tensor, kMPIMasterRank);
+    tensor.MPI_Bcast(kMPIMasterRank, comm);
   } else if (rank == assist_proc) {
     Tensor recv_ten, recv_bcast_ten;
-    recv_qlten(comm, MPI_ANY_SOURCE, MPI_ANY_TAG, recv_ten);
+    recv_ten.MPI_Recv(MPI_ANY_SOURCE, MPI_ANY_TAG, comm);
     auto &bsdt = recv_ten.GetBlkSparDataTen();
-    bsdt.MPISend(comm, kMPIMasterRank, 3);
-    BCastTensor(comm, recv_bcast_ten, kMPIMasterRank);
+    bsdt.MPI_Send(comm, kMPIMasterRank, 3);
+    recv_bcast_ten.MPI_Bcast(kMPIMasterRank, comm);
     EXPECT_EQ(recv_ten, recv_bcast_ten);
   } else {
     Tensor recv_bcast_ten;
-    BCastTensor(comm, recv_bcast_ten, kMPIMasterRank);
+    recv_bcast_ten.MPI_Bcast(kMPIMasterRank, comm);
   }
   return;
 }

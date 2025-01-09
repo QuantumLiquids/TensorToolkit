@@ -347,9 +347,9 @@ class BlockSparseDataTensor : public Streamable {
       const std::vector<const BlockSparseDataTensor *>
   );
 
-  void MPISend(const MPI_Comm &, const int, const int) const;
+  void MPI_Send(const MPI_Comm &, const int, const int) const;
 
-  MPI_Status MPIRecv(const MPI_Comm &, int, int);
+  MPI_Status MPI_Recv(const MPI_Comm &, int, int);
 
   //public for QLTensor MPI usage
   void RawDataMPISend(const MPI_Comm &, const int, const int) const;
@@ -784,7 +784,7 @@ inline int DataTag(const int tag) {
 }
 
 template<typename ElemT, typename QNT>
-inline void BlockSparseDataTensor<ElemT, QNT>::MPISend(
+inline void BlockSparseDataTensor<ElemT, QNT>::MPI_Send(
     const MPI_Comm &mpi_comm,
     const int dest,
     const int tag) const {
@@ -800,9 +800,9 @@ inline void BlockSparseDataTensor<ElemT, QNT>::MPISend(
  * @param source  can be any source.
  */
 template<typename ElemT, typename QNT>
-MPI_Status BlockSparseDataTensor<ElemT, QNT>::MPIRecv(const MPI_Comm &mpi_comm,
-                                                      int source,
-                                                      int tag) {
+MPI_Status BlockSparseDataTensor<ElemT, QNT>::MPI_Recv(const MPI_Comm &mpi_comm,
+                                                       int source,
+                                                       int tag) {
   std::string buffer;
   size_t buffer_size;
   MPI_Status mpi_status = hp_numeric::MPI_Recv(buffer_size, source, tag, mpi_comm);
