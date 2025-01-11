@@ -13,12 +13,12 @@
 #ifndef QLTEN_QLTENSOR_QN_QNVAL_H
 #define QLTEN_QLTENSOR_QN_QNVAL_H
 
+#include <vector>     // vector
+#include <memory>     // shared_ptr
+
 #include "qlten/framework/bases/hashable.h"       // Hashable
 #include "qlten/framework/bases/streamable.h"     // Streamable
 #include "qlten/framework/bases/showable.h"       // Showable
-
-#include <vector>     // vector
-#include <memory>     // shared_ptr
 
 namespace qlten {
 

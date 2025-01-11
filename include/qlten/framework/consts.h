@@ -21,7 +21,5 @@ const double kDoubleEpsilon = 1.0E-15;
 // Default omp threads number.
 const int kTensorOperationDefaultNumThreads = 4;
 
-// MPI master's rank
-const size_t kMPIMasterRank = 0;
 } /* qlten */
 #endif /* ifndef QLTEN_FRAMEWORK_CONSTS_H */

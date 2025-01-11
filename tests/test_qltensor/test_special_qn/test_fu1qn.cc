@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 /*
 * Author: Hao-Xin Wang <wanghaoxin1996@gmail.com>
-* Creation Date: 20201-9-28
+* Creation Date: 2024-09-28
 *
-* Description: QuantumLiquids/tensor project. Unit test for U(1) QN class.
+* Description: QuantumLiquids/tensor project. Unit test for fermion U(1) QN class.
 */
 
 #include "gtest/gtest.h"
 #include <sstream>
 #include "qlten/qltensor/special_qn/fu1qn.h"   // test target
 //#include "qlten/qlten.h"                       // Test contract case.
-#include "../../testing_utility.h"             // RandInt
 
 using namespace qlten::special_qn;
 

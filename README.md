@@ -26,7 +26,7 @@ to be installed in order to build and run successfully:
 - CMake (version 3.12 or higher)
 - Intel MKL or OpenBlas
 - MPI
-- Boost::serialization, Boost::mpi (version 1.74 or higher)
+- CUDA compiler, cuBlas, cuSolver, cuTensor2 (if CUDA is required)
 - GoogleTest (if testing is required)
 
 ## Install

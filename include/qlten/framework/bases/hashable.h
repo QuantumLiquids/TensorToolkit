@@ -14,18 +14,15 @@
 #ifndef QLTEN_FRAMEWORK_BASES_HASHABLE_H
 #define QLTEN_FRAMEWORK_BASES_HASHABLE_H
 
-
-#include <stddef.h>     // size_t
-
+#include <cstddef>     // size_t
 
 namespace qlten {
-
 
 /**
 Abstract base class for hashable object.
 */
 class Hashable {
-public:
+ public:
   Hashable(void) = default;
   virtual ~Hashable(void) = default;
 
@@ -52,7 +49,6 @@ public:
   */
   virtual bool operator!=(const Hashable &rhs) const { return !(*this == rhs); }
 };
-
 
 /**
 Hash function for Hashable object.

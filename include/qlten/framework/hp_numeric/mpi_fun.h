@@ -3,11 +3,11 @@
 * Author: Hao-Xin Wang <wanghx18@mails.tsinghua.edu.cn>
 * Creation Date: 2021-09-27 12:34
 *
-* Description: QuantumLiquids/tensor project. MPI related
+* Description: QuantumLiquids/tensor project. MPI wrapper.
 */
 
 /**
-@file blas_level1.h
+@file mpi_fun.h
 @brief Wrapper for the MPI related functions.
 */
 
@@ -15,14 +15,14 @@
 #define QLTEN_FRAMEWORK_HP_NUMERIC_MPI_FUN_H
 
 #include "qlten/framework/value_t.h"      // QLTEN_Double, QLTEN_Complex
-#include "mpi.h"                          // MPI_Send, MPI_Recv...
+#include "mpi.h"                          // MPI_Send, MPI_Recv, MPI_Bcast
 
 namespace qlten {
 /// High performance numerical functions.
+// MPI master's rank
+const size_t kMPIMasterRank = 0;
 namespace hp_numeric {
-const size_t kAssumedMPICommunicationMaxDataLength = 4e9;      // char, multiples of 16 (size of complex number)
-const size_t kAssumedMPICommunicationMaxDoubleDataSize = kAssumedMPICommunicationMaxDataLength / sizeof(QLTEN_Double);
-const size_t kAssumedMPICommunicationMaxComplexDataSize = kAssumedMPICommunicationMaxDataLength / sizeof(QLTEN_Complex);
+const size_t kMPIMaxChunkSize = ((size_t) 1 << 31) - 1;  // byte
 
 // Function to handle MPI errors
 inline void HandleMPIError(int error_code, int line) {
@@ -39,6 +39,14 @@ inline void HandleMPIError(int error_code, int line) {
 }
 
 #define HANDLE_MPI_ERROR(x) hp_numeric::HandleMPIError(x, __LINE__)
+
+template<typename ElemT>
+MPI_Datatype GetMPIDataType();
+
+template<>
+inline MPI_Datatype GetMPIDataType<QLTEN_Double>() { return MPI_DOUBLE; }
+template<>
+inline MPI_Datatype GetMPIDataType<QLTEN_Complex>() { return MPI_CXX_DOUBLE_COMPLEX; }
 
 ///< Send a solely number with type of size_t
 inline void MPI_Send(const size_t n,
@@ -57,192 +65,74 @@ inline ::MPI_Status MPI_Recv(size_t &n,
   return status;
 }
 
-///< Block point-to-point communication wrapper
-///< The upperbound of size_t is much large than int that is used in MPI API.
-inline void MPI_Send(const QLTEN_Double *data,
-                     const size_t data_size,
-                     const int dest,
-                     const int tag,
-                     const MPI_Comm &comm
+template<typename ElemT>
+void MPI_Send(const ElemT *data,
+              const size_t data_size,
+              const int dest,
+              const int tag,
+              const MPI_Comm &comm
 ) {
-  if (data_size <= kAssumedMPICommunicationMaxDoubleDataSize) {
-    HANDLE_MPI_ERROR(::MPI_Send((const void *) data, data_size, MPI_DOUBLE, dest, tag, comm));
-  } else {
-    size_t num_fragments = data_size / kAssumedMPICommunicationMaxDoubleDataSize + 1;
-    for (size_t i = 0; i < num_fragments - 1; i++) {
-      char *fragment_start = (char *) data + i * kAssumedMPICommunicationMaxDataLength;
-      HANDLE_MPI_ERROR(::MPI_Send((const void *) fragment_start,
-                                  kAssumedMPICommunicationMaxDoubleDataSize,
-                                  MPI_DOUBLE,
-                                  dest,
-                                  tag + i,
-                                  comm));
-    }
-    size_t remain_data_size =
-        data_size - kAssumedMPICommunicationMaxDoubleDataSize * (num_fragments - 1);
-    char *fragment_start = (char *) data + (num_fragments - 1) * kAssumedMPICommunicationMaxDataLength;
-    HANDLE_MPI_ERROR(::MPI_Send((const void *) fragment_start,
-                                remain_data_size,
-                                MPI_DOUBLE,
-                                dest,
-                                tag + num_fragments - 1,
-                                comm));
+  constexpr size_t chunk_count = kMPIMaxChunkSize / sizeof(ElemT); // Max number of elements per chunk
+  size_t num_chunks = data_size / chunk_count;
+  size_t remainder = data_size % chunk_count;
+  for (size_t i = 0; i < num_chunks; i++) {
+    const ElemT *chunk_start = data + i * chunk_count;
+    HANDLE_MPI_ERROR(::MPI_Send(chunk_start, chunk_count, GetMPIDataType<ElemT>(), dest, tag + i, comm));
+  }
+
+  if (remainder > 0) {
+    const ElemT *chunk_start = data + num_chunks * chunk_count;
+    HANDLE_MPI_ERROR(::MPI_Send(chunk_start, remainder, GetMPIDataType<ElemT>(), dest, tag + num_chunks, comm));
   }
 }
 
-inline void MPI_Send(const QLTEN_Complex *data,
-                     const size_t data_size,
-                     const int dest,
-                     const int tag,
-                     const MPI_Comm &comm
-) {
-  if (data_size <= kAssumedMPICommunicationMaxComplexDataSize) {
-    HANDLE_MPI_ERROR(::MPI_Send((const void *) data, data_size, MPI_CXX_DOUBLE_COMPLEX, dest, tag, comm));
-  } else {
-    size_t num_fragment = data_size / kAssumedMPICommunicationMaxComplexDataSize + 1;
-    for (size_t i = 0; i < num_fragment - 1; i++) {
-      char *fragment_start = (char *) data + i * kAssumedMPICommunicationMaxDataLength;
-      HANDLE_MPI_ERROR(::MPI_Send((const void *) fragment_start,
-                                  kAssumedMPICommunicationMaxComplexDataSize,
-                                  MPI_CXX_DOUBLE_COMPLEX,
-                                  dest,
-                                  tag + i,
-                                  comm));
-    }
-    size_t remain_data_size =
-        data_size - kAssumedMPICommunicationMaxComplexDataSize * (num_fragment - 1);
-    char *fragment_start = (char *) data + (num_fragment - 1) * kAssumedMPICommunicationMaxDataLength;
-    HANDLE_MPI_ERROR(::MPI_Send((const void *) fragment_start,
-                                remain_data_size,
-                                MPI_CXX_DOUBLE_COMPLEX,
-                                dest,
-                                tag + num_fragment - 1,
-                                comm));
-  }
-}
-
-inline MPI_Status MPI_Recv(QLTEN_Double *data,
-                           const size_t data_size,
-                           const int source,
-                           const int tag,
-                           const MPI_Comm &comm
+template<typename ElemT>
+MPI_Status MPI_Recv(ElemT *data,
+                    const size_t data_size,
+                    const int source,
+                    const int tag,
+                    const MPI_Comm &comm
 ) {
   assert(source != MPI_ANY_SOURCE);
+  constexpr size_t chunk_count = kMPIMaxChunkSize / sizeof(ElemT); // Max number of elements per chunk
+  size_t num_chunks = data_size / chunk_count;
+  size_t remainder = data_size % chunk_count;
   ::MPI_Status status;
-  if (data_size <= kAssumedMPICommunicationMaxDoubleDataSize) {
-    HANDLE_MPI_ERROR(::MPI_Recv((void *) data, data_size, MPI_DOUBLE, source, tag, comm, &status));
-  } else {
-    size_t num_fragment = data_size / kAssumedMPICommunicationMaxDoubleDataSize + 1;
-    for (size_t i = 0; i < num_fragment - 1; i++) {
-      char *fragment_start = (char *) data + i * kAssumedMPICommunicationMaxDataLength;
-      HANDLE_MPI_ERROR(::MPI_Recv((void *) fragment_start,
-                                  kAssumedMPICommunicationMaxDoubleDataSize,
-                                  MPI_DOUBLE,
-                                  source,
-                                  tag + i,
-                                  comm,
-                                  &status));
-    }
-    size_t remain_data_size =
-        data_size - kAssumedMPICommunicationMaxDoubleDataSize * (num_fragment - 1);
-    char *fragment_start = (char *) data + (num_fragment - 1) * kAssumedMPICommunicationMaxDataLength;
-    HANDLE_MPI_ERROR(::MPI_Recv((void *) fragment_start,
-                                remain_data_size,
-                                MPI_DOUBLE,
+  for (size_t i = 0; i < num_chunks; i++) {
+    ElemT *chunk_start = data + i * chunk_count;
+    HANDLE_MPI_ERROR(::MPI_Recv(chunk_start, chunk_count, GetMPIDataType<ElemT>(), source, tag + i, comm, &status));
+  }
+
+  if (remainder > 0) {
+    ElemT *chunk_start = data + num_chunks * chunk_count;
+    HANDLE_MPI_ERROR(::MPI_Recv(chunk_start,
+                                remainder,
+                                GetMPIDataType<ElemT>(),
                                 source,
-                                tag + num_fragment - 1,
+                                tag + num_chunks,
                                 comm,
                                 &status));
   }
   return status;
 }
 
-///< note sizeof(QLTEN_Complex) = 16, while sizeof(MPI_CXX_DOUBLE_COMPLEX) = 8
-inline MPI_Status MPI_Recv(QLTEN_Complex *data,
-                           const size_t data_size,
-                           const size_t source,
-                           const int tag,
-                           const MPI_Comm &comm) {
-  ::MPI_Status status;
-  if (data_size <= kAssumedMPICommunicationMaxComplexDataSize) {
-    HANDLE_MPI_ERROR(::MPI_Recv((void *) data, data_size, MPI_CXX_DOUBLE_COMPLEX, source, tag, comm, &status));
-  } else {
-    size_t num_fragment = data_size / kAssumedMPICommunicationMaxComplexDataSize + 1;
-    for (size_t i = 0; i < num_fragment - 1; i++) {
-      char *fragment_start = (char *) data + i * kAssumedMPICommunicationMaxDataLength;
-      HANDLE_MPI_ERROR(::MPI_Recv((void *) fragment_start,
-                                  kAssumedMPICommunicationMaxComplexDataSize,
-                                  MPI_CXX_DOUBLE_COMPLEX,
-                                  source,
-                                  tag + i,
-                                  comm,
-                                  &status));
-    }
-    size_t remain_data_size =
-        data_size - kAssumedMPICommunicationMaxComplexDataSize * (num_fragment - 1);
-    char *fragment_start = (char *) data + (num_fragment - 1) * kAssumedMPICommunicationMaxDataLength;
-    HANDLE_MPI_ERROR(::MPI_Recv((void *) fragment_start,
-                                remain_data_size,
-                                MPI_CXX_DOUBLE_COMPLEX,
-                                source,
-                                tag + num_fragment - 1,
-                                comm,
-                                &status));
-  }
-  return status;
-}
-
-inline void MPI_Bcast(QLTEN_Double *data,
+template<typename ElemT>
+inline void MPI_Bcast(ElemT *data,
                       const size_t data_size,
                       const int root,
                       const MPI_Comm &comm) {
-  if (data_size <= kAssumedMPICommunicationMaxDoubleDataSize) {
-    HANDLE_MPI_ERROR(::MPI_Bcast((void *) data, data_size, MPI_DOUBLE, root, comm));
-  } else {
-    size_t times_of_sending = data_size / kAssumedMPICommunicationMaxDoubleDataSize + 1;
-    for (size_t i = 0; i < times_of_sending - 1; i++) {
-      char *fragment_start = (char *) data + i * kAssumedMPICommunicationMaxDataLength;
-      HANDLE_MPI_ERROR(::MPI_Bcast((void *) fragment_start,
-                                   kAssumedMPICommunicationMaxDoubleDataSize,
-                                   MPI_DOUBLE,
-                                   root,
-                                   comm));
-    }
-    size_t remain_data_size =
-        data_size - kAssumedMPICommunicationMaxDoubleDataSize * (times_of_sending - 1);
-    char *fragment_start = (char *) data + (times_of_sending - 1) * kAssumedMPICommunicationMaxDataLength;
-    HANDLE_MPI_ERROR(::MPI_Bcast((void *) fragment_start,
-                                 remain_data_size,
-                                 MPI_DOUBLE,
-                                 root,
-                                 comm));
-  }
-}
+  constexpr size_t chunk_count = kMPIMaxChunkSize / sizeof(ElemT); // Max number of elements per chunk
+  size_t num_chunks = data_size / chunk_count;
+  size_t remainder = data_size % chunk_count;
 
-inline void MPI_Bcast(QLTEN_Complex *data,
-                      const size_t data_size,
-                      const int root,
-                      const MPI_Comm &comm) {
-  if (data_size <= kAssumedMPICommunicationMaxComplexDataSize) {
-    HANDLE_MPI_ERROR(::MPI_Bcast((void *) data, data_size, MPI_CXX_DOUBLE_COMPLEX, root, comm));
-  } else {
-    size_t times_of_sending = data_size / kAssumedMPICommunicationMaxComplexDataSize + 1;
-    for (size_t i = 0; i < times_of_sending - 1; i++) {
-      char *fragment_start = (char *) data + i * kAssumedMPICommunicationMaxDataLength;
-      HANDLE_MPI_ERROR(::MPI_Bcast((void *) fragment_start,
-                                   kAssumedMPICommunicationMaxComplexDataSize,
-                                   MPI_CXX_DOUBLE_COMPLEX,
-                                   root,
-                                   comm));
-    }
-    size_t remain_data_size =
-        data_size - kAssumedMPICommunicationMaxComplexDataSize * (times_of_sending - 1);
-    char *fragment_start = (char *) data + (times_of_sending - 1) * kAssumedMPICommunicationMaxDataLength;
-    HANDLE_MPI_ERROR(::MPI_Bcast((void *) fragment_start,
-                                 remain_data_size,
-                                 MPI_CXX_DOUBLE_COMPLEX,
-                                 root,
-                                 comm));
+  for (size_t i = 0; i < num_chunks; i++) {
+    ElemT *chunk_start = data + i * chunk_count;
+    HANDLE_MPI_ERROR(::MPI_Bcast(chunk_start, chunk_count, GetMPIDataType<ElemT>(), root, comm));
+  }
+
+  if (remainder > 0) {
+    ElemT *chunk_start = data + num_chunks * chunk_count;
+    HANDLE_MPI_ERROR(::MPI_Bcast(chunk_start, remainder, GetMPIDataType<ElemT>(), root, comm));
   }
 }
 
