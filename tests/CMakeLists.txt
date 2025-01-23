@@ -90,8 +90,7 @@ else ()
                 PRIVATE ${MPI_CXX_HEADER_DIR})
         target_link_libraries(${TEST_NAME}
                 PRIVATE ${hptt_LIBRARY}
-                PRIVATE ${MPI_CXX_LINK_FLAGS}
-                PRIVATE ${MPI_mpi_LIBRARY}
+                MPI::MPI_CXX
                 PRIVATE GTest::GTest GTest::Main
                 "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
         )
@@ -121,8 +120,7 @@ macro(add_mpi_unittest
     target_link_libraries(${TEST_NAME}
             GTest::GTest GTest::Main
             ${hptt_LIBRARY}
-            ${MPI_CXX_LINK_FLAGS}
-            ${MPI_mpi_LIBRARY}
+            MPI::MPI_CXX
             "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
     )
 
@@ -152,8 +150,7 @@ macro(compile_unittest
     target_link_libraries(${TEST_NAME}
             GTest::GTest GTest::Main
             ${hptt_LIBRARY}
-            ${MPI_CXX_LINK_FLAGS}
-            ${MPI_mpi_LIBRARY}
+            MPI::MPI_CXX
             "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
     )
     set_target_properties(${TEST_NAME} PROPERTIES FOLDER tests)

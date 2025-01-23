@@ -891,7 +891,7 @@ MPI_Status QLTensor<ElemT, QNT>::MPI_Recv(int source, int tag, const MPI_Comm &c
   assert(IsDefault());
   bool is_default;
   MPI_Status status;
-  ::MPI_Recv(&is_default, 1, MPI_CXX_BOOL, source, tag, comm, &status);
+  HANDLE_MPI_ERROR(::MPI_Recv(&is_default, 1, MPI_CXX_BOOL, source, tag, comm, &status));
   if (is_default) { return status; }
   source = status.MPI_SOURCE;
   tag = status.MPI_TAG;

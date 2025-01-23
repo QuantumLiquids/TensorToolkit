@@ -80,7 +80,7 @@ void MPI_Send(const ElemT *data,
     HANDLE_MPI_ERROR(::MPI_Send(chunk_start, chunk_count, GetMPIDataType<ElemT>(), dest, tag + i, comm));
   }
 
-  if (remainder > 0) {
+  if (remainder > 0 || data_size == 0) {
     const ElemT *chunk_start = data + num_chunks * chunk_count;
     HANDLE_MPI_ERROR(::MPI_Send(chunk_start, remainder, GetMPIDataType<ElemT>(), dest, tag + num_chunks, comm));
   }
@@ -103,7 +103,8 @@ MPI_Status MPI_Recv(ElemT *data,
     HANDLE_MPI_ERROR(::MPI_Recv(chunk_start, chunk_count, GetMPIDataType<ElemT>(), source, tag + i, comm, &status));
   }
 
-  if (remainder > 0) {
+  //communication when data_size == 0 will write the status
+  if (remainder > 0 || data_size == 0) {
     ElemT *chunk_start = data + num_chunks * chunk_count;
     HANDLE_MPI_ERROR(::MPI_Recv(chunk_start,
                                 remainder,
