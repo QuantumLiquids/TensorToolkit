@@ -36,10 +36,19 @@ endif ()
 
 FIND_PACKAGE(BLAS REQUIRED)
 FIND_PACKAGE(LAPACK REQUIRED)
-find_package(OpenMP REQUIRED)
 find_package(MPI REQUIRED)
 
-set(MATH_LIB_LINK_FLAGS "BLAS::BLAS" "LAPACK::LAPACK")
+# Intel MKL multi-thread may conflict with other compiler's OpenMP
+# Close OpenMP if using MKL with other compiler
+# If one must use GCC OpenMP + MKL, one possible solution is to manually static link MKL
+# Relevant discussion : https://stackoverflow.com/questions/54699309/multithreaded-mkl-openmp-compiled-with-gcc
+if (NOT BLA_VENDOR STREQUAL "Intel10_64lp" OR CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
+    find_package(OpenMP REQUIRED)
+    link_libraries(OpenMP::OpenMP_CXX)
+endif ()
+
+set(MATH_LIB_LINK_FLAGS "BLAS::BLAS;LAPACK::LAPACK")
+
 
 option(TEST_ACTUAL_COMBAT "test the actual examples of mps tensors" OFF)
 
@@ -69,8 +78,9 @@ if (QLTEN_USE_GPU)
                 PRIVATE CUDA::cublas_static
                 PRIVATE CUDA::cusolver_static
                 PRIVATE ${CUTENSOR_LIBRARY}
-                PRIVATE GTest::GTest GTest::Main OpenMP::OpenMP_CXX
-                "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
+                PRIVATE GTest::GTest GTest::Main
+                "${LINK_LIBS}"
+                PRIVATE "${LINK_LIB_FLAGS}"
         ) #remove MPI dependence since GPU code not support MPI upto now
 
         add_test(
@@ -92,9 +102,10 @@ else ()
                 PRIVATE ${MPI_CXX_HEADER_DIR})
         target_link_libraries(${TEST_NAME}
                 PRIVATE ${hptt_LIBRARY}
-                MPI::MPI_CXX
-                PRIVATE GTest::GTest GTest::Main OpenMP::OpenMP_CXX
-                "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
+                PRIVATE MPI::MPI_CXX
+                PRIVATE GTest::GTest GTest::Main
+                "${LINK_LIBS}"
+                PRIVATE "${LINK_LIB_FLAGS}"
         )
 
         add_test(
@@ -117,10 +128,11 @@ macro(add_mpi_unittest
             PRIVATE ${hptt_INCLUDE_DIR}
             PRIVATE ${MPI_CXX_HEADER_DIR})
     target_link_libraries(${TEST_NAME}
-            GTest::GTest GTest::Main OpenMP::OpenMP_CXX
-            ${hptt_LIBRARY}
-            MPI::MPI_CXX
-            "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
+            PRIVATE GTest::GTest GTest::Main
+            PRIVATE ${hptt_LIBRARY}
+            PRIVATE MPI::MPI_CXX
+            "${LINK_LIBS}"
+            PRIVATE "${LINK_LIB_FLAGS}"
     )
 
     if (NOT (MPIEXEC_MAX_NUMPROCS MATCHES "1"))
