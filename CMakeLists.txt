@@ -62,73 +62,11 @@ if (QLTEN_USE_GPU)
 else ()
     option(QLTEN_USE_EXTERNAL_HPTT_LIB "Use user pre-installed external hptt library" OFF)
 endif ()
-option(QLTEN_USE_OPENBLAS "Use openblas rather mkl" OFF)
-#To test, use MKL/OpenBlas as benchmark. In practical use cases, above link is not need
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64" AND NOT QLTEN_USE_OPENBLAS)
-    if (APPLE)
-        if (CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-            set(MATH_LIB_COMPILE_FLAGS "-I$ENV{MKLROOT}/include")
-            #Need test
-            set(MATH_LIB_LINK_FLAGS $ENV{MKLROOT}/lib/libmkl_intel_lp64.a $ENV{MKLROOT}/lib/libmkl_intel_thread.a $ENV{MKLROOT}/lib/libmkl_core.a -liomp5 -lpthread -lm -ldl)
-        elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-            set(MATH_LIB_COMPILE_FLAGS -m64 -I$ENV{MKLROOT}/include)
-            # May not work
-            set(MATH_LIB_LINK_FLAGS $ENV{MKLROOT}/lib/libmkl_intel_lp64.a $ENV{MKLROOT}/lib/libmkl_intel_thread.a $ENV{MKLROOT}/lib/libmkl_core.a -L$ENV{MKLROOT}/lib -L$ENV{CMPLR_ROOT}/mac/compiler/lib/ -liomp5 -lpthread -lm -ldl)
-        elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-            set(MATH_LIB_COMPILE_FLAGS -m64 -I$ENV{MKLROOT}/include)
-            # Note as of Intel oneAPI 2021.2, "source /opt/intel/oneapi/compiler/latest/env/vars.sh"
-            set(MATH_LIB_LINK_FLAGS $ENV{MKLROOT}/lib/libmkl_intel_lp64.a $ENV{MKLROOT}/lib/libmkl_intel_thread.a $ENV{MKLROOT}/lib/libmkl_core.a -L$ENV{MKLROOT}/lib -L$ENV{CMPLR_ROOT}/mac/compiler/lib/ -Wl, -rpath $ENV{CMPLR_ROOT}/mac/compiler/lib/libiomp5.dylib -liomp5 -lpthread -lm -ldl)
-        endif ()
-    elseif (UNIX)
-        #UNIX include APPLE, but we except it here
-        if (CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-            set(MATH_LIB_COMPILE_FLAGS "-I$ENV{MKLROOT}/include")
-            set(MATH_LIB_LINK_FLAGS -Wl,--start-group $ENV{MKLROOT}/lib/intel64/libmkl_intel_lp64.a $ENV{MKLROOT}/lib/intel64/libmkl_intel_thread.a $ENV{MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -liomp5 -lpthread -lm -ldl)
-        elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-            set(MATH_LIB_COMPILE_FLAGS -m64 -I$ENV{MKLROOT}/include)
-            # Link the Intel's OpenMP library to avoid performance issue when the library calls the MKL's gesdd function.
-            set(MATH_LIB_LINK_FLAGS -Wl,--start-group $ENV{MKLROOT}/lib/intel64/libmkl_intel_lp64.a $ENV{MKLROOT}/lib/intel64/libmkl_intel_thread.a $ENV{MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -L$ENV{MKLROOT}/lib/intel64 -liomp5 -lpthread -lm -ldl)
-        elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-            set(MATH_LIB_COMPILE_FLAGS -m64 -I$ENV{MKLROOT}/include)
-            set(MATH_LIB_LINK_FLAGS -Wl,--start-group $ENV{MKLROOT}/lib/intel64/libmkl_intel_lp64.a $ENV{MKLROOT}/lib/intel64/libmkl_intel_thread.a $ENV{MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -L$ENV{MKLROOT}/lib/intel64 -liomp5 -lpthread -lm -ldl)
-        endif ()
-    endif ()
-else () # Use OpenBlas
-    add_definitions(-DUSE_OPENBLAS)
-    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        #        list(APPEND CMAKE_PREFIX_PATH $ENV{OpenBLAS_ROOT})
-        #        set(BLA_VENDOR OpenBLAS)
-        FIND_PACKAGE(BLAS REQUIRED)
-        FIND_PACKAGE(LAPACK REQUIRED)
-
-        set(OpenBLAS_INCLUDE_DIRS "$ENV{OpenBLAS_ROOT}/include")
-        set(OpenBLAS_LIBRARIES "$ENV{OpenBLAS_ROOT}/lib/libopenblas.a")
-
-        set(MATH_LIB_COMPILE_FLAGS -I${OpenBLAS_INCLUDE_DIRS} -pthread)
-        set(MATH_LIB_LINK_FLAGS ${OpenBLAS_LIBRARIES} -lm -lpthread -ldl -fopenmp -lclapack -lgfortran)
-    elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(BLA_VENDOR OpenBLAS)
-        #        FIND_PACKAGE(BLAS REQUIRED)
-        #        FIND_PACKAGE(LAPACK REQUIRED)
-        set(OpenBLAS_ROOT "/opt/homebrew/opt/openblas/")
-        set(Lapack_ROOT "/opt/homebrew/opt/lapack")
-        message(${OpenBLAS_ROOT})
-        set(OpenBLAS_INCLUDE_DIRS "${OpenBLAS_ROOT}/include")
-        set(OpenBLAS_LIBRARIES "${OpenBLAS_ROOT}/lib/libblas.dylib")
-        message(${OpenBLAS_LIBRARIES})
-        set(MATH_LIB_COMPILE_FLAGS -I${OpenBLAS_INCLUDE_DIRS} -pthread)
-        set(MATH_LIB_LINK_FLAGS ${OpenBLAS_LIBRARIES} ${OpenBLAS_ROOT}/lib/liblapack.dylib -lm -lpthread -ldl -fopenmp -lclapack)
-    elseif (CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-        message("Don't support intel compiler to compile OpenBlas")
-    endif ()
-endif ()
-
 
 # Build dependencies.
 if (NOT QLTEN_USE_EXTERNAL_HPTT_LIB)
     add_subdirectory(external/hptt)
 endif ()
-
 
 # Installation.
 set(QLTEN_HEADER_PATH "${PROJECT_SOURCE_DIR}/include")
@@ -136,7 +74,6 @@ set(QLTEN_HEADER_DIR ${QLTEN_HEADER_PATH}/qlten)
 set(QLTEN_INCLUDE_DEST "${CMAKE_INSTALL_PREFIX}/include")
 install(DIRECTORY ${QLTEN_HEADER_DIR}
         DESTINATION ${QLTEN_INCLUDE_DEST})
-
 
 # Unittests
 if (QLTEN_BUILD_UNITTEST)

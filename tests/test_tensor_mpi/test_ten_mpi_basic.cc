@@ -73,12 +73,15 @@ IndexT RandIndex(const unsigned qn_sct_num,  //how many quantum number sectors?
   return Index(qnsv, dir);
 }
 
-struct TestBoostMPI : public testing::Test {
+struct TestMPITenData : public testing::Test {
   MPI_Comm comm = MPI_COMM_WORLD;
   int rank;
 
   DQLTensor dten1;
+  DQLTensor dten2;
+
   ZQLTensor zten1;
+  ZQLTensor zten2;
 
   void SetUp(void) {
     ::testing::TestEventListeners &listeners =
@@ -93,22 +96,36 @@ struct TestBoostMPI : public testing::Test {
       auto index2_out = RandIndex(50, 400, qlten::OUT);
 
       dten1 = DQLTensor({index2_out, index1_in, index2_in, index1_out});
-      dten1.Random(qn0);
-      dten1.ConciseShow();
+
+      dten2 = DQLTensor({index2_out, index1_in, index2_in, index1_out});
+      dten2.Random(qn0);
+      dten2.ConciseShow();
 
       zten1 = ZQLTensor({index2_out, index1_in, index2_in, index1_out});
-      zten1.Random(qn0);
-      zten1.ConciseShow();
+
+      zten2 = ZQLTensor({index2_out, index1_in, index2_in, index1_out});
+      zten2.Random(qn0);
+      zten2.ConciseShow();
     }
   }
 };
 
-TEST_F(TestBoostMPI, Serialization) {
+template<typename ElemT, typename QNT>
+void TestTensorSerialization(
+    QLTensor<ElemT, QNT> &tensor
+) {
+  auto buffer = tensor.SerializeShell();
+  DQLTensor ten_cp;
+  ten_cp.DeserializeShell(buffer);
+  EXPECT_EQ(ten_cp.GetActualDataSize(), tensor.GetActualDataSize());
+}
+
+TEST_F(TestMPITenData, Serialization) {
   if (rank == kMPIMasterRank) {
-    auto buffer = dten1.SerializeShell();
-    DQLTensor dten1_cp;
-    dten1_cp.DeserializeShell(buffer);
-    EXPECT_EQ(dten1_cp.GetActualDataSize(), dten1.GetActualDataSize());
+    TestTensorSerialization(dten1);
+    TestTensorSerialization(dten2);
+    TestTensorSerialization(zten1);
+    TestTensorSerialization(zten2);
   }
 }
 
@@ -146,13 +163,15 @@ void TestTensorCommunication(
   return;
 }
 
-TEST_F(TestBoostMPI, TensorCommuniation) {
+TEST_F(TestMPITenData, TensorCommuniation) {
   TestTensorCommunication(dten1, comm);
+  TestTensorCommunication(dten2, comm);
   TestTensorCommunication(zten1, comm);
+  TestTensorCommunication(zten2, comm);
 }
 
 int main(int argc, char *argv[]) {
-  MPI_Init(NULL, NULL);
+  MPI_Init(nullptr, nullptr);
   ::testing::InitGoogleTest(&argc, argv);
   int test_err = RUN_ALL_TESTS();
   MPI_Finalize();

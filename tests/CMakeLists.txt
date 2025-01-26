@@ -22,8 +22,24 @@ else ()
     endif ()
 endif ()
 
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set(BLA_VENDOR Intel10_64lp)   #FOR VENDOR CHOICE: https://cmake.org/cmake/help/latest/module/FindBLAS.html
+    set(BLAS_INCLUDE_DIR "$ENV{MKLROOT}/include")
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "arm64") # (e.g., Apple Silicon)
+    add_definitions(-DUSE_OPENBLAS)
+    set(BLA_VENDOR OpenBLAS)
+    set(OpenBLAS_ROOT "/opt/homebrew/opt/openblas/") #work for homebrew installed openblas in MacOSX
+    set(Lapack_ROOT "/opt/homebrew/opt/lapack")
+    set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${OpenBLAS_ROOT} ${Lapack_ROOT}) # For find
+    set(BLAS_INCLUDE_DIR "${OpenBLAS_ROOT}/include")
+endif ()
+
+FIND_PACKAGE(BLAS REQUIRED)
+FIND_PACKAGE(LAPACK REQUIRED)
+find_package(OpenMP REQUIRED)
 find_package(MPI REQUIRED)
 
+set(MATH_LIB_LINK_FLAGS "BLAS::BLAS" "LAPACK::LAPACK")
 
 option(TEST_ACTUAL_COMBAT "test the actual examples of mps tensors" OFF)
 
@@ -36,26 +52,15 @@ if (TEST_LARGE_MATRIX)
     add_definitions(-DTEST_LARGE_MATRIX)
 endif ()
 
-#set omp flag
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
-    set(OMP_FLAGS -qopenmp)
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set(OMP_FLAGS -fopenmp)
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    set(OMP_FLAGS -fopenmp)
-endif ()
 
 if (QLTEN_USE_GPU)
     macro(add_unittest
-            TEST_NAME TEST_SRC CFLAGS LINK_LIBS LINK_LIB_FLAGS)
+            TEST_NAME TEST_SRC MATH_INCLUDE_DIR LINK_LIBS LINK_LIB_FLAGS)
         add_executable(${TEST_NAME}
                 ${TEST_SRC})
 
-        target_compile_options(${TEST_NAME}
-                PRIVATE ${CFLAGS}
-                PRIVATE ${OMP_FLAGS}
-        )
         target_include_directories(${TEST_NAME}
+                PRIVATE ${MATH_INCLUDE_DIR}
                 PRIVATE ${QLTEN_HEADER_PATH}
                 PRIVATE ${CUTENSOR_INCLUDE_DIR}
                 PRIVATE ${MPI_CXX_HEADER_DIR}
@@ -64,7 +69,7 @@ if (QLTEN_USE_GPU)
                 PRIVATE CUDA::cublas_static
                 PRIVATE CUDA::cusolver_static
                 PRIVATE ${CUTENSOR_LIBRARY}
-                PRIVATE GTest::GTest GTest::Main
+                PRIVATE GTest::GTest GTest::Main OpenMP::OpenMP_CXX
                 "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
         ) #remove MPI dependence since GPU code not support MPI upto now
 
@@ -76,22 +81,19 @@ if (QLTEN_USE_GPU)
     endmacro()
 else ()
     macro(add_unittest
-            TEST_NAME TEST_SRC CFLAGS LINK_LIBS LINK_LIB_FLAGS)
+            TEST_NAME TEST_SRC MATH_INCLUDE_DIR LINK_LIBS LINK_LIB_FLAGS)
         add_executable(${TEST_NAME}
                 ${TEST_SRC})
 
-        target_compile_options(${TEST_NAME}
-                PRIVATE ${CFLAGS}
-                PRIVATE ${OMP_FLAGS}
-        )
         target_include_directories(${TEST_NAME}
+                PRIVATE ${MATH_INCLUDE_DIR}
                 PRIVATE ${QLTEN_HEADER_PATH}
                 PRIVATE ${hptt_INCLUDE_DIR}
                 PRIVATE ${MPI_CXX_HEADER_DIR})
         target_link_libraries(${TEST_NAME}
                 PRIVATE ${hptt_LIBRARY}
                 MPI::MPI_CXX
-                PRIVATE GTest::GTest GTest::Main
+                PRIVATE GTest::GTest GTest::Main OpenMP::OpenMP_CXX
                 "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
         )
 
@@ -105,20 +107,17 @@ endif ()
 
 
 macro(add_mpi_unittest
-        TEST_NAME TEST_SRC CFLAGS LINK_LIBS LINK_LIB_FLAGS PROCESSOR_NUM)
+        TEST_NAME TEST_SRC MATH_INCLUDE_DIR LINK_LIBS LINK_LIB_FLAGS PROCESSOR_NUM)
     add_executable(${TEST_NAME}
             ${TEST_SRC})
 
-    target_compile_options(${TEST_NAME}
-            PRIVATE ${CFLAGS}
-            PRIVATE ${OMP_FLAGS}
-    )
     target_include_directories(${TEST_NAME}
+            PRIVATE ${MATH_INCLUDE_DIR}
             PRIVATE ${QLTEN_HEADER_PATH}
             PRIVATE ${hptt_INCLUDE_DIR}
             PRIVATE ${MPI_CXX_HEADER_DIR})
     target_link_libraries(${TEST_NAME}
-            GTest::GTest GTest::Main
+            GTest::GTest GTest::Main OpenMP::OpenMP_CXX
             ${hptt_LIBRARY}
             MPI::MPI_CXX
             "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
@@ -131,28 +130,6 @@ macro(add_mpi_unittest
                 ${MPIEXEC_NUMPROC_FLAG} ${PROCESSOR_NUM}
                 $<TARGET_FILE:${TEST_NAME}>)
     endif ()
-    set_target_properties(${TEST_NAME} PROPERTIES FOLDER tests)
-endmacro()
-
-
-macro(compile_unittest
-        TEST_NAME TEST_SRC CFLAGS LINK_LIBS LINK_LIB_FLAGS)
-    add_executable(${TEST_NAME}
-            ${TEST_SRC})
-
-    target_compile_options(${TEST_NAME}
-            PRIVATE ${CFLAGS}
-            PRIVATE ${OMP_FLAGS}
-    )
-    target_include_directories(${TEST_NAME}
-            PRIVATE ${hptt_INCLUDE_DIR}
-            PRIVATE ${MPI_CXX_HEADER_DIR})
-    target_link_libraries(${TEST_NAME}
-            GTest::GTest GTest::Main
-            ${hptt_LIBRARY}
-            MPI::MPI_CXX
-            "${LINK_LIBS}" "${LINK_LIB_FLAGS}"
-    )
     set_target_properties(${TEST_NAME} PROPERTIES FOLDER tests)
 endmacro()
 
@@ -175,101 +152,101 @@ add_unittest(test_index "test_qltensor/test_index.cc" "" "" "")
 ## Test symmetry-blocked sparse tensor, QLTensor.
 add_unittest(test_qltensor
         "test_qltensor/test_qltensor.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 
 add_unittest(test_fermion_qltensor
         "test_qltensor/test_fermion_qltensor.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 
 ## Test tensor manipulation functions.
 # Test basic tensor operations.
 add_unittest(test_basic_operations
         "test_tensor_manipulation/test_basic_operations.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor linear combination.
 add_unittest(test_ten_linear_combine
         "test_tensor_manipulation/test_ten_linear_combine.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor contraction.
 add_unittest(test_ten_ctrct
         "test_tensor_manipulation/test_ten_ctrct.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 add_unittest(test_fermion_ten_ctrct
         "test_tensor_manipulation/test_fermion_ten_ctrct.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 #Test tensor restriction contract
 add_unittest(test_ten_ctrct_1sct
         "test_tensor_manipulation/test_ten_ctrct_1sct.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor SVD.
 add_unittest(test_ten_svd
         "test_tensor_manipulation/test_ten_svd.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 if (NOT QLTEN_USE_GPU) # temporary remove because it is not used in DMRG
     # EVD
     add_unittest(test_sym_mat_evd
             "test_tensor_manipulation/test_sym_mat_evd.cc"
-            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+            "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
     )
 endif ()
 # Test tensor QR.
 add_unittest(test_ten_qr
         "test_tensor_manipulation/test_ten_qr.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor index combination.
 add_unittest(test_index_combine
         "test_tensor_manipulation/test_index_combine.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor expansion
 add_unittest(test_ten_expand
         "test_tensor_manipulation/test_ten_expand.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 
 # Test tensor fuse index
 add_unittest(test_ten_fuse_index
         "test_tensor_manipulation/test_ten_fuse_index.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 
 # Test tensor block expansion
 add_unittest(test_ten_blk_expand
         "test_tensor_manipulation/test_ten_block_expand.cc"
-        "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 if (NOT QLTEN_USE_GPU)
     # Test tensor communication for serialization
-#    add_unittest(test_boost_serialization
-#            "test_tensor_mpi/test_ten_boost_serialization.cc"
-#            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}"
-#    )
+    #    add_unittest(test_boost_serialization
+    #            "test_tensor_mpi/test_ten_boost_serialization.cc"
+    #            "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+    #    )
 
     # Test boost mpi
-#    add_mpi_unittest(test_boost_mpi
-#            "test_tensor_mpi/test_boost_mpi.cc"
-#            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
-#    )
+    #    add_mpi_unittest(test_boost_mpi
+    #            "test_tensor_mpi/test_boost_mpi.cc"
+    #            "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}" "2"
+    #    )
 
     # Test tensor communication for mpi
     add_mpi_unittest(test_ten_mpi_basic
             "test_tensor_mpi/test_ten_mpi_basic.cc"
-            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
+            "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}" "2"
     )
 
 
     # Test mpi svd performance
     add_mpi_unittest(test_mpi_svd
             "test_tensor_mpi/test_mpi_svd.cc"
-            "${MATH_LIB_COMPILE_FLAGS}" "" "${MATH_LIB_LINK_FLAGS}" "3"
+            "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}" "3"
     )
 endif ()
