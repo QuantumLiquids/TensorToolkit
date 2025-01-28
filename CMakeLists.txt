@@ -15,6 +15,17 @@ project("TensorToolkit"
         LANGUAGES CXX
 )
 
+set(CMAKE_CXX_STANDARD 17)
+
+# options.
+option(QLTEN_USE_GPU "Use GPU" OFF)
+option(QLTEN_COMPILE_HPTT_LIB "Compile hptt library; Invalid if Use GPU" ON)
+option(QLTEN_BUILD_UNITTEST "Build unittests for TensorKit." OFF)
+
+option(QLTEN_TIMING_MODE "Enable Timing mode." ON)
+option(QLTEN_MPI_TIMING_MODE "Enable MPI timing mode." ON)
+
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/Modules/")
 
 # Build type.
@@ -27,44 +38,24 @@ if (${CMAKE_BUILD_TYPE} MATCHES Debug)
 endif ()
 
 # Compilation and linking control.
-set(CMAKE_CXX_STANDARD 17)
 add_definitions(-Wall -g)
 
-# Advanced options.
-option(QLTEN_BUILD_UNITTEST "Build unittests for TensorKit." OFF)
+if (QLTEN_USE_GPU)
+    set(QLTEN_COMPILE_HPTT_LIB OFF)
+endif ()
 
-option(QLTEN_TIMING_MODE "Timing mode." ON)
+
 if (QLTEN_TIMING_MODE)
     add_definitions(-DQLTEN_TIMING_MODE)
 endif ()
 
-option(QLTEN_MPI_TIMING_MODE "Timing mode." ON)
+
 if (QLTEN_MPI_TIMING_MODE)
     add_definitions(-DQLTEN_MPI_TIMING_MODE)
 endif ()
 
-option(QLTEN_USE_GPU "Use GPU" OFF)
-if (QLTEN_USE_GPU)
-    add_definitions(-DUSE_GPU=1)
-
-    # Enable CUDA language support
-    enable_language(CUDA)
-    find_package(CUDAToolkit REQUIRED)  # Modern CUDA Toolkit detection
-
-    include_directories(${CUDAToolkit_INCLUDE_DIRS})
-    message(STATUS "CUDA_INCLUDE_DIRS: '${CUDAToolkit_INCLUDE_DIRS}'")
-
-    # Set CUDA architectures
-    set(CMAKE_CUDA_ARCHITECTURES 70 80) # For V100 & A100, adjust if needed
-
-    # Compiler flags
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -lineinfo -Xcompiler=-fPIC")
-else ()
-    option(QLTEN_USE_EXTERNAL_HPTT_LIB "Use user pre-installed external hptt library" OFF)
-endif ()
-
 # Build dependencies.
-if (NOT QLTEN_USE_EXTERNAL_HPTT_LIB)
+if (QLTEN_COMPILE_HPTT_LIB)
     add_subdirectory(external/hptt)
 endif ()
 

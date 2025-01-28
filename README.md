@@ -68,6 +68,7 @@ To build and run the unit tests:
              -DCUTENSOR_ROOT=/path/to/cutensor/if/using/cuda
     make -j16
     ```
+    Tip: Use `${HOME}` instead of `~` when defining CMAKE path variables.
 
 2. Run the tests:
     ```bash

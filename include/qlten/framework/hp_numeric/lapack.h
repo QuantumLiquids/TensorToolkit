@@ -7,7 +7,7 @@
 * based on MKL/Opanblas, or cuSolver.
 *
 * The matrices in the wrapped API are all assumed to be ROW-MAJOR. cuSolver and cuBlas are all use
-* COLUMN-MAJOR matrix as default. Current file has carefully dealt with this incompatibility by introducing
+* COLUMN-MAJOR matrix by default. Current file has carefully dealt with this incompatibility by introducing
 * matrix transpose or reordering. Users please simply regard the matrices in the wrappers are ROW-MAJOR.
 */
 

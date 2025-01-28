@@ -7,6 +7,21 @@
 #
 
 if (QLTEN_USE_GPU)
+    add_definitions(-DUSE_GPU=1)
+
+    # Enable CUDA language support
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)  # Modern CUDA Toolkit detection
+
+    include_directories(${CUDAToolkit_INCLUDE_DIRS})
+    message(STATUS "CUDA_INCLUDE_DIRS: '${CUDAToolkit_INCLUDE_DIRS}'")
+
+    # Set CUDA architectures
+    set(CMAKE_CUDA_ARCHITECTURES 70 80) # For V100 & A100, adjust if needed
+
+    # Compiler flags
+    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -lineinfo -Xcompiler=-fPIC")
+
     find_package(CUTENSOR REQUIRED)
     # Find all .cc files in tests/ directory
     file(GLOB_RECURSE TEST_SOURCES */*.cc)
@@ -14,11 +29,11 @@ if (QLTEN_USE_GPU)
     # Treat all .cc files in tests/ as CUDA files
     set_source_files_properties(${TEST_SOURCES} PROPERTIES LANGUAGE CUDA)
 else ()
-    if (QLTEN_USE_EXTERNAL_HPTT_LIB)
-        find_package(hptt REQUIRED)
-    else ()
+    if(QLTEN_COMPILE_HPTT_LIB)
         set(hptt_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/external/hptt/include")
         set(hptt_LIBRARY "${CMAKE_BINARY_DIR}/external/hptt/libhptt.a")
+    else()
+        find_package(hptt REQUIRED)
     endif ()
 endif ()
 
