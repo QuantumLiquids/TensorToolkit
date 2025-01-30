@@ -284,6 +284,8 @@ inline void print_matrix(const int &m, const int &n, const double *A, const int 
 }
 #endif
 
+#ifdef JACOBI_SVD
+
 // QLTEN_Double *mat will be overwritten
 inline cusolverStatus_t MatSVD(
     QLTEN_Double *mat,
@@ -454,6 +456,213 @@ inline cusolverStatus_t MatSVD(
   cudaFree(devInfo);
   return status;
 }
+#else
+
+inline cusolverStatus_t MatSVD(
+    QLTEN_Double *mat,
+    const size_t m, const size_t n,
+    QLTEN_Double *&u,
+    QLTEN_Double *&s,
+    QLTEN_Double *&vt
+) {
+  cusolverDnHandle_t handle = CusolverHandleManager::GetHandle();
+  cublasHandle_t cublasHandle = CublasHandleManager::GetHandle();
+
+  size_t k = std::min(m, n);
+  const QLTEN_Double alpha = 1.0;
+  const QLTEN_Double beta = 0.0;
+
+  cudaMalloc((void **)&s, k * sizeof(QLTEN_Double));
+
+  bool transpose = (m > n);
+  size_t gesvd_m = transpose ? m : n;
+  size_t gesvd_n = transpose ? n : m;
+
+
+   // Allocate device memory for the column-major input matrix
+    QLTEN_Double *d_A_colmajor;
+
+    // Transpose the input matrix to column-major if necessary
+    if (transpose) {
+        cudaMalloc((void **)&d_A_colmajor, gesvd_m * gesvd_n * sizeof(QLTEN_Double));
+        // Original matrix is m x n (row-major). Transpose to n x m (column-major)
+        cublasDgeam(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N,
+                    m, n,
+                    &alpha, mat, n,
+                    &beta, nullptr, m,
+                    d_A_colmajor, m);
+    } else {
+        // Directly use the input matrix as column-major (no transpose needed)
+    d_A_colmajor = mat;
+    }
+    // Allocate U, VT for gesvd (column-major)
+    QLTEN_Double *U_gesvd = nullptr;
+    QLTEN_Double *VT_gesvd = nullptr;
+    int ldu = gesvd_m;
+    int ldvt = k;
+    cudaMalloc((void **)&U_gesvd, gesvd_m * k * sizeof(QLTEN_Double));
+    cudaMalloc((void **)&VT_gesvd, k * gesvd_n * sizeof(QLTEN_Double));
+
+    // Workspace and devInfo
+    int lwork = 0;
+    cusolverDnDgesvd_bufferSize(handle, gesvd_m, gesvd_n, &lwork);
+    QLTEN_Double *d_work = nullptr;
+    cudaMalloc((void **)&d_work, lwork * sizeof(QLTEN_Double));
+    int *devInfo = nullptr;
+    cudaMalloc((void **)&devInfo, sizeof(int));
+
+
+    // Compute SVD
+    cusolverStatus_t status = cusolverDnDgesvd(
+        handle, 'S', 'S', gesvd_m, gesvd_n,
+        d_A_colmajor, gesvd_m, s,
+        U_gesvd, ldu,
+        VT_gesvd, ldvt,
+        d_work, lwork, nullptr, devInfo);
+
+    // Check for errors
+    int info;
+    cudaMemcpy(&info, devInfo, sizeof(int), cudaMemcpyDeviceToHost);
+    if (info != 0) {
+        std::cerr << "SVD computation error: " << info << std::endl;
+    }
+
+     // Adjust U and VT based on transpose flag
+    if (transpose) {
+        // SVD computed on A^T (n x m), results are U: n x k, VT: k x m
+        // For original A (m x n), u = VT^T (m x k), vt = U^T (k x n)
+        cudaMalloc((void **)&u, m * k * sizeof(QLTEN_Double));
+        cudaMalloc((void **)&vt, k * n * sizeof(QLTEN_Double));
+        cublasDgeam(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N,
+                    k, m, &alpha, U_gesvd, m,
+                    &beta, nullptr, k, u, k);
+        cublasDgeam(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N,
+                    n, k, &alpha, VT_gesvd, k,
+                    &beta, nullptr, n, vt, n);
+    } else {
+        // SVD computed on A (m x n), results are U: m x k, VT: k x n
+        // Transpose to row-major
+    u = VT_gesvd;
+    vt = U_gesvd;
+    }
+
+    // Cleanup
+    if(transpose) {
+      cudaFree(d_A_colmajor);
+      cudaFree(U_gesvd);
+      cudaFree(VT_gesvd);
+    }
+    cudaFree(d_work);
+    cudaFree(devInfo);
+
+    return status;
+}
+
+inline cusolverStatus_t MatSVD(
+    QLTEN_Complex *mat,
+    const size_t m, const size_t n,
+    QLTEN_Complex *&u,
+    QLTEN_Double *&s,
+    QLTEN_Complex *&vt
+) {
+    cusolverDnHandle_t handle = CusolverHandleManager::GetHandle();
+    cublasHandle_t cublasHandle = CublasHandleManager::GetHandle();
+
+    size_t k = std::min(m, n);
+    const cuDoubleComplex alpha = {1.0, 0.0};
+    const cuDoubleComplex beta = {0.0, 0.0};
+
+    // Allocate memory for singular values (real)
+    cudaMalloc((void **)&s, k * sizeof(QLTEN_Double));
+
+    bool transpose = (m > n);
+    size_t gesvd_m = transpose ? m : n;
+    size_t gesvd_n = transpose ? n : m;
+
+    cuDoubleComplex *d_A_colmajor;
+    if (transpose) {
+        cudaMalloc((void **)&d_A_colmajor, gesvd_m * gesvd_n * sizeof(QLTEN_Complex));
+        cublasZgeam(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N,
+                    m, n, // Transpose to m x n (column-major)
+                    &alpha,
+            reinterpret_cast<cuDoubleComplex *>(mat), n, // Original is row-major m x n (lda = n)
+                    &beta, nullptr, m,
+                    d_A_colmajor, m); // Leading dimension m for column-major m x n
+    } else {
+        d_A_colmajor = reinterpret_cast<cuDoubleComplex *>(mat);
+    }
+
+    // Allocate U, VT for gesvd (column-major)
+    cuDoubleComplex *U_gesvd = nullptr;
+    cuDoubleComplex *VT_gesvd = nullptr;
+    int ldu = gesvd_m;
+    int ldvt = k;
+    cudaMalloc((void **)&U_gesvd, gesvd_m * k * sizeof(QLTEN_Complex));
+    cudaMalloc((void **)&VT_gesvd, k * gesvd_n * sizeof(QLTEN_Complex));
+
+    // Workspace and devInfo
+    int lwork = 0;
+    cusolverDnZgesvd_bufferSize(handle, gesvd_m, gesvd_n, &lwork);
+    cuDoubleComplex *d_work = nullptr;
+    cudaMalloc((void **)&d_work, lwork * sizeof(QLTEN_Complex));
+    int *devInfo = nullptr;
+    cudaMalloc((void **)&devInfo, sizeof(int));
+
+    // Compute SVD
+    cusolverStatus_t status = cusolverDnZgesvd(
+        handle, 'S', 'S', gesvd_m, gesvd_n,
+        d_A_colmajor, gesvd_m, s,
+        U_gesvd, ldu,
+        VT_gesvd, ldvt,
+        d_work, lwork, nullptr, devInfo);
+
+    int info;
+    cudaMemcpy(&info, devInfo, sizeof(int), cudaMemcpyDeviceToHost);
+    if (info != 0) {
+        std::cerr << "SVD computation error: " << info << std::endl;
+    }
+
+    // Adjust U and VT based on transpose flag
+    if (transpose) {
+        // SVD was computed on A^T (column-major n x m), result is U (n x k), VT (k x m)
+        // Original A (row-major m x n) = (VT)^T * S * U^T
+        // So u = (VT)^T (m x k row-major), vt = (U)^T (k x n row-major)
+        cudaMalloc((void **)&u, m * k * sizeof(QLTEN_Complex));
+        cudaMalloc((void **)&vt, k * n * sizeof(QLTEN_Complex));
+        // Transpose U_gesvd (m x k column-major) to u (m x k row-major)
+        cublasZgeam(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N,
+                    k, m, // Output dimensions m x k
+                    &alpha, U_gesvd, m, // Input is k x m (lda=k)
+                    &beta, nullptr, k,
+                    reinterpret_cast<cuDoubleComplex *>(u), k);
+        // Transpose VT_gesvd (k x n column-major) to vt (k x n row-major)
+        cublasZgeam(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N,
+                    n, k, // Output dimensions k x n
+                    &alpha, VT_gesvd, k,
+                    &beta, nullptr, n,
+                    reinterpret_cast<cuDoubleComplex *>(vt), n);
+    } else {
+        u = reinterpret_cast<QLTEN_Complex *>(VT_gesvd);
+        vt = reinterpret_cast<QLTEN_Complex *>(U_gesvd);
+    }
+
+    // Cleanup
+    if (transpose) {
+        cudaFree(d_A_colmajor);
+        cudaFree(U_gesvd);
+        cudaFree(VT_gesvd);
+    }
+    cudaFree(d_work);
+    cudaFree(devInfo);
+
+    return status;
+}
+
+
+
+
+
+#endif
 
 inline void MatQR(
     QLTEN_Double *mat,
