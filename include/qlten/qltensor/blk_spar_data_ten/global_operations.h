@@ -390,7 +390,7 @@ void BlockSparseDataTensor<ElemT, QNT>::AddAndAssignIn(
     const BlockSparseDataTensor &rhs) {
   assert(ten_rank == rhs.ten_rank);
   if (IsScalar() && rhs.IsScalar()) {
-    *pactual_raw_data_ += *rhs.pactual_raw_data_;
+    ElemSet({}, ElemGet({}) + rhs.ElemGet({}));
     return;
   }
 
