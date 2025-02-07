@@ -109,7 +109,14 @@ inline void fZ2QN::Show(const size_t indent_level) const {
 }
 
 inline size_t fZ2QN::CalcHash_() const {
-  return znval_;
+  const size_t len = 1;
+  size_t hash_val = _HASH_XXPRIME_5;
+  size_t item_hash_val = znval_;
+  hash_val += item_hash_val * _HASH_XXPRIME_2;
+  hash_val = _HASH_XXROTATE(hash_val);
+  hash_val *= _HASH_XXPRIME_1;
+  hash_val += len ^ _HASH_XXPRIME_5;
+  return hash_val;
 }
 
 inline std::istream &operator>>(std::istream &is, fZ2QN &qn) {

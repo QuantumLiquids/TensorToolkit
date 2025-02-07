@@ -120,6 +120,11 @@ void TestTensorSerialization(
   EXPECT_EQ(ten_cp.GetActualDataSize(), tensor.GetActualDataSize());
 }
 
+TEST_F(TestMPITenData, PrintErrMessage) {
+  std::string err_msg = "Rank" + std::to_string(rank) + "Test printing info.\n";
+  hp_numeric::GatherAndPrintErrorMessages(err_msg, comm);
+}
+
 TEST_F(TestMPITenData, Serialization) {
   if (rank == kMPIMasterRank) {
     TestTensorSerialization(dten1);

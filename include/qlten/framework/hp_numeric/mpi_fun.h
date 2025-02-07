@@ -137,6 +137,31 @@ inline void MPI_Bcast(ElemT *data,
   }
 }
 
+///< all messages in different process have same length
+inline void GatherAndPrintErrorMessages(
+    const std::string &local_msg,
+    const MPI_Comm &comm
+) {
+  std::vector<char> global_msgs;
+  int rank, mpi_size;
+  MPI_Comm_rank(comm, &rank);
+  MPI_Comm_size(comm, &mpi_size);
+  if (rank == kMPIMasterRank) {
+    global_msgs.resize(local_msg.size() * mpi_size);
+  }
+
+  HANDLE_MPI_ERROR(::MPI_Gather(local_msg.data(), local_msg.size(), MPI_CHAR,
+                                global_msgs.data(), local_msg.size(), MPI_CHAR,
+                                kMPIMasterRank, comm));
+
+  if (rank == kMPIMasterRank) {
+//    for (int r = 0; r < mpi_size; ++r) {
+//      std::cerr << &global_msgs[r * local_msg.size()];
+//    }
+    std::cerr << global_msgs.data();
+  }
+}
+
 }//hp_numeric
 }//qlten
 

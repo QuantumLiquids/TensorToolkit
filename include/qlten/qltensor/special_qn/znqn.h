@@ -107,7 +107,14 @@ void ZnQN<n>::Show(const size_t indent_level) const {
 
 template<size_t n>
 size_t ZnQN<n>::CalcHash_() const {
-  return znval_;
+  const size_t len = 1;
+  size_t hash_val = _HASH_XXPRIME_5;
+  size_t item_hash_val = znval_;
+  hash_val += item_hash_val * _HASH_XXPRIME_2;
+  hash_val = _HASH_XXROTATE(hash_val);
+  hash_val *= _HASH_XXPRIME_1;
+  hash_val += len ^ _HASH_XXPRIME_5;
+  return hash_val;
 }
 
 template<size_t n>

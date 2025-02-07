@@ -7,6 +7,8 @@
 * Description: QuantumLiquids/tensor project. Unit tests for QNSector class.
 */
 
+// TODO: test more qnsct to check if hash collapse
+
 #include "gtest/gtest.h"
 #include "qlten/qltensor/qnsct.h"             // QNSector
 #include "qlten/qltensor/qn/qn.h"             // QN
@@ -59,9 +61,9 @@ struct TestQNSector : public testing::Test {
   QNSctT4 fqnsct2 = QNSctT4(
       fU1QN(2),
       dgnc_3
-      );
+  );
   QNSctT5 fqnsct3 = QNSctT5(
-      fU1U1QN(3,2),
+      fU1U1QN(3, 2),
       dgnc_4
   );
 };
