@@ -58,14 +58,21 @@ struct TestQNSector : public testing::Test {
       fZ2QN(1),
       dgnc_4
   );
+
   QNSctT4 fqnsct2 = QNSctT4(
       fU1QN(2),
       dgnc_3
   );
-  QNSctT5 fqnsct3 = QNSctT5(
+  std::vector<QNSctT4> fqnsct_u1_set;
+  QNSctT5 fqnsct_u1u1 = QNSctT5(
       fU1U1QN(3, 2),
       dgnc_4
   );
+  void SetUp() override {
+    for (int u1_val = -20; u1_val < 20; u1_val++) {
+      fqnsct_u1_set.push_back(QNSctT4(fU1QN(u1_val), RandUnsignedInt(1, 100)));
+    }
+  }
 };
 
 TEST_F(TestQNSector, BasicInfo) {
@@ -111,7 +118,7 @@ TEST_F(TestQNSector, BasicInfo) {
   EXPECT_TRUE(fqnsct1.IsFermionParityOdd());
   EXPECT_FALSE(fqnsct1.IsFermionParityEven());
   EXPECT_TRUE(fqnsct2.IsFermionParityEven());
-  EXPECT_TRUE(fqnsct3.IsFermionParityOdd());
+  EXPECT_TRUE(fqnsct_u1u1.IsFermionParityOdd());
 }
 
 TEST_F(TestQNSector, Hashable) {
@@ -147,6 +154,18 @@ TEST_F(TestQNSector, Showable) {
   std::cout << std::endl;
 }
 
+template<typename T>
+bool AllDifferent(std::vector<T> elems) {
+  size_t size = elems.size();
+  for (size_t i = 0; i < size; ++i) {
+    for (size_t j = i + 1; j < size; ++j) {
+      if (elems[i] == elems[j]) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
 TEST_F(TestQNSector, Equivalent) {
   EXPECT_TRUE(qnsct1_default == qnsct1_default);
   EXPECT_TRUE(qnsct1 == qnsct1);
@@ -157,6 +176,7 @@ TEST_F(TestQNSector, Equivalent) {
   EXPECT_TRUE(fqnsct0 == fqnsct0);
   EXPECT_TRUE(fqnsct1 == fqnsct1);
   EXPECT_TRUE(fqnsct0 != fqnsct1);
+  EXPECT_TRUE(AllDifferent(fqnsct_u1_set));
 }
 
 template<typename QNSctT>

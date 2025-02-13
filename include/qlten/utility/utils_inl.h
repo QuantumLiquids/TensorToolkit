@@ -385,8 +385,8 @@ void SubMatMemCpy(
     ElemT *mem_begin
 ) {
   size_t offset = row_offset * n + col_offset;
-  size_t sub_offset = 0;
 #ifndef USE_GPU
+  size_t sub_offset = 0;
   for (size_t row_idx = row_offset; row_idx < row_offset + sub_m; ++row_idx) {
     qlten::QLMemcpy(
         mem_begin + offset,

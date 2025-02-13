@@ -25,11 +25,28 @@
 namespace qlten {
 
 /**
-Symmetry-blocked sparse tensor.
-
-@tparam ElemT Type of the tensor element.
-@tparam QNT   Type of the quantum number.
-*/
+ * Symmetry-blocked sparse tensor.
+ *
+ * @tparam ElemT Type of the tensor element, QLTEN_Double or QLTEN_Complex
+ * @tparam QNT   Type of the quantum number used for symmetry blocking
+ *
+ * @warning **CUDA Lifetime Warning**: Objects of this class manage CUDA memory resources.
+ *          Declaring global/static instances may lead to undefined behavior due to destruction
+ *          order issues. The CUDA driver typically shuts down before global destructors run,
+ *          making cudaFree() calls in destructors unsafe. Prefer stack/heap allocation within
+ *          main()'s scope.
+ *
+ * @note **Safe/Unsafe Usage Pattern**:
+ * @code
+ * #define USE_GPU 1
+ * QLTensor<float, QNT> global_tensor(indexes);   // Unsafe: may be destroyed after CUDA shutdown
+ * int main() {
+ *     QLTensor<float, QNT> local_tensor(indexes);  // Safe: destroyed before CUDA shutdown
+ *     // ... use tensors ...
+ *     return 0; // Destructor of local_tensor runs here while CUDA is active
+ * }  // Destructor of global_tensor runs here while CUDA is not active
+ * @endcode
+ */
 template<typename ElemT, typename QNT>
 class QLTensor : public Showable, public Fermionicable<QNT> {
  public:
@@ -167,6 +184,9 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   double GetMaxAbs(void) const {
     return pblk_spar_data_ten_->GetMaxAbs();
   }
+
+  ElemT GetFirstNonZeroElement(void) const { return pblk_spar_data_ten_->GetFirstNonZeroElement(); }
+
   // Operators overload.
   bool operator==(const QLTensor &) const;
 
@@ -192,7 +212,7 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
 
   void MPI_Send(int, int, const MPI_Comm &) const;
   MPI_Status MPI_Recv(int, int, const MPI_Comm &);
-  void MPI_Bcast(const int, const MPI_Comm &) ;
+  void MPI_Bcast(const int, const MPI_Comm &);
 
   void StreamReadShellForMPI(std::istream &);
   void StreamWriteShellForMPI(std::ostream &) const;
@@ -209,11 +229,6 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   bool HasNan(void) const;
 
   size_t GetActualDataSize(void) const;
-
-  const ElemT *GetRawDataPtr(void) const;
-
-  // The following non-const function should be called carefully.
-  ElemT *GetRawDataPtr(void);
 
  private:
   /// The rank of the QLTensor.

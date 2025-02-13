@@ -751,6 +751,16 @@ double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
   );
   return std::abs(*max_abs_value_iter);
 }
+
+template<typename ElemT, typename QNT>
+ElemT BlockSparseDataTensor<ElemT, QNT>::GetFirstNonZeroElement(void) const {
+  for (size_t i = 0; i < actual_raw_data_size_; i++) {
+    if (pactual_raw_data_[i] != ElemT(0)) {
+      return pactual_raw_data_[i];
+    }
+  }
+  return ElemT(0);
+}
 #else //GPU code
 // CUDA Kernel for element-wise inverse (no tolerance)
 template<typename ElemT>
@@ -932,6 +942,20 @@ double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
       thrust::maximum<double>()          // Reduction operation (max)
   );
 }
+
+template<typename ElemT, typename QNT>
+ElemT BlockSparseDataTensor<ElemT, QNT>::GetFirstNonZeroElement(void) const {
+  for (size_t i = 0; i < actual_raw_data_size_; i++) {
+    ElemT single_data;
+    // cuda mem copy pactual_raw_data_[i]
+    cudaMemcpy(&single_data, pactual_raw_data_ + i, sizeof(ElemT), cudaMemcpyDeviceToHost);
+    if ( single_data!= ElemT(0)) {
+      return single_data;
+    }
+  }
+  return ElemT(0);
+}
+
 #endif //USE_GPU
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATIONS_H */

@@ -283,6 +283,8 @@ class BlockSparseDataTensor : public Streamable {
 
   double GetMaxAbs(void) const;
 
+  ElemT GetFirstNonZeroElement(void) const;
+
   // Operators overload
   bool operator==(const BlockSparseDataTensor &) const;
 

@@ -789,16 +789,6 @@ size_t QLTensor<ElemT, QNT>::GetActualDataSize(void) const {
   return pblk_spar_data_ten_->GetActualRawDataSize();
 }
 
-template<typename ElemT, typename QNT>
-const ElemT *QLTensor<ElemT, QNT>::GetRawDataPtr(void) const {
-  return pblk_spar_data_ten_->GetActualRawDataPtr();
-}
-
-template<typename ElemT, typename QNT>
-ElemT *QLTensor<ElemT, QNT>::GetRawDataPtr(void) {
-  return pblk_spar_data_ten_->GetActualRawDataPtr();
-}
-
 /**
 Calculate shape from tensor rank.
 */
