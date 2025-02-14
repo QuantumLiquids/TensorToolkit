@@ -30,8 +30,16 @@ using cuda::std::abs;
 using cuda::std::conj;
 using cuda::std::norm;
 using cuda::std::sqrt;
+
+#if (__CUDACC_VER_MAJOR__ < 12) || ((__CUDACC_VER_MAJOR__ == 12) && (__CUDACC_VER_MINOR__ <= 5))
+// Patch: Provide a custom operator<< in the same namespace as cuda::std::complex
+template<typename T>
+std::ostream& operator<<(std::ostream& os, const cuda::std::complex<T>& z) {
+    return os << "(" << z.real() << ", " << z.imag() << ")";
+}
 #endif
 
+#endif
 
 using CoorsT = std::vector<size_t>;
 using ShapeT = std::vector<size_t>;
