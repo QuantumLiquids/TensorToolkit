@@ -230,6 +230,15 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
 
   size_t GetActualDataSize(void) const;
 
+  void SetElemByQNSector(
+      const std::vector<QNT> &qn_sector,     // quantum number block {QN0, QN1, ...}
+      const std::vector<size_t> &blk_coors,  // block inner coordinates
+      const ElemT value                      // value to set
+  ) {
+    assert(!IsDefault());
+    pblk_spar_data_ten_->SetElemByQNSector(qn_sector, blk_coors, value);
+  }
+
  private:
   /// The rank of the QLTensor.
   size_t rank_ = 0;

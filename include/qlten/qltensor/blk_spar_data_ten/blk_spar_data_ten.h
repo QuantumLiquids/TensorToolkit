@@ -358,16 +358,24 @@ class BlockSparseDataTensor : public Streamable {
   MPI_Status RawDataMPIRecv(const MPI_Comm &, const int, const int);
   void RawDataMPIBcast(const MPI_Comm &, const int);
 
-#ifdef USE_GPU
-
-#endif
-
   /// Rank of the tensor.
   size_t ten_rank = 0;
   /// Block shape.
   ShapeT blk_shape;
   /// A pointer which point to the indexes of corresponding QLTensor.
   const IndexVec<QNT> *pqlten_indexes = nullptr;
+
+  /**
+   * Set element value by quantum number sector and coordinates inside the sector
+   * 
+   * @param qn_sector Vector of quantum numbers defining the sector
+   * @param blk_coors Coordinates inside the quantum number sector
+   * @param elem Value to be set
+   */
+  void SetElemByQNSector(
+      const std::vector<QNT> &qn_sector,
+      const std::vector<size_t> &blk_coors,
+      const ElemT elem);
 
  private:
   /// Ordered map from block index to data block for existed blocks.
@@ -919,6 +927,141 @@ bool BlockSparseDataTensor<ElemT, QNT>::operator==(
   return ArrayEq(pactual_raw_data_,
                  rhs.pactual_raw_data_,
                  actual_raw_data_size_);
+#endif
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::SetElemByQNSector(
+    const std::vector<QNT> &qn_sector,
+    const std::vector<size_t> &blk_coors,
+    const ElemT elem
+) {
+  // Check input
+  if (qn_sector.size() != ten_rank || blk_coors.size() != ten_rank) {
+    throw std::invalid_argument(
+        "Quantum number sector and block coordinates size must match tensor rank"
+    );
+  }
+
+  // special treatment for scalar tensor
+  if (IsScalar()) {
+    if (actual_raw_data_size_ == 0) {
+      raw_data_size_ = 1;
+      try {
+        Allocate();
+      } catch (const std::bad_alloc &e) {
+        throw std::runtime_error("Failed to allocate memory for scalar tensor");
+      }
+    }
+
+    if (pactual_raw_data_ == nullptr) {
+      throw std::runtime_error("Memory allocation failed for scalar tensor");
+    }
+
+#ifndef USE_GPU
+    *pactual_raw_data_ = elem;
+#else
+    auto err = cudaMemcpy(pactual_raw_data_,
+                         &elem,
+                         sizeof(ElemT),
+                         cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) {
+      throw std::runtime_error("CUDA memory copy failed for scalar tensor");
+    }
+#endif
+    return;
+  }
+
+  // verify quantum number index
+  if (pqlten_indexes == nullptr) {
+    throw std::runtime_error("Tensor indexes not initialized");
+  }
+
+  // find matching data block
+  for (auto &[blk_idx, data_blk] : blk_idx_data_blk_map_) {
+    bool qn_match = true;
+    for (size_t i = 0; i < ten_rank; ++i) {
+      if (data_blk.GetBlkQNInfo().qnscts[i] != qn_sector[i]) {
+        qn_match = false;
+        break;
+      }
+    }
+
+    if (qn_match) {
+      // verify block inner coordinates
+      const auto &shape = data_blk.shape;
+      for (size_t i = 0; i < ten_rank; ++i) {
+        if (blk_coors[i] >= shape[i]) {
+          throw std::out_of_range("Block coordinates out of range");
+        }
+      }
+
+      // calculate block inner offset and set element
+      size_t inblk_data_idx = data_blk.DataCoorsToInBlkDataIdx(blk_coors);
+      if (pactual_raw_data_ == nullptr) {
+        throw std::runtime_error("Raw data pointer is null");
+      }
+
+#ifndef USE_GPU
+      *(pactual_raw_data_ + data_blk.data_offset + inblk_data_idx) = elem;
+#else
+      auto err = cudaMemcpy(pactual_raw_data_ + data_blk.data_offset + inblk_data_idx,
+                           &elem,
+                           sizeof(ElemT),
+                           cudaMemcpyHostToDevice);
+      if (err != cudaSuccess) {
+        throw std::runtime_error("CUDA memory copy failed");
+      }
+#endif
+      return;
+    }
+  }
+
+  // create global coordinates for new block
+  CoorsT global_blk_coors(ten_rank);
+  for (size_t i = 0; i < ten_rank; ++i) {
+    const auto &idx = (*pqlten_indexes)[i];
+    bool found = false;
+    for (size_t j = 0; j < idx.GetQNSctNum(); ++j) {
+      if (idx.GetQNSct(j).GetQn() == qn_sector[i]) {
+        global_blk_coors[i] = j;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      throw std::invalid_argument(
+          "Quantum number not found in tensor index " + std::to_string(i)
+      );
+    }
+  }
+
+  // insert new block and set element
+  auto blk_idx_data_blk_it = DataBlkInsert(global_blk_coors);
+  if (pactual_raw_data_ == nullptr) {
+    throw std::runtime_error("Raw data pointer is null after block insertion");
+  }
+
+  // verify new block inner coordinates
+  const auto &shape = blk_idx_data_blk_it->second.shape;
+  for (size_t i = 0; i < ten_rank; ++i) {
+    if (blk_coors[i] >= shape[i]) {
+      throw std::out_of_range("Block coordinates out of range in new block");
+    }
+  }
+
+  size_t inblk_data_idx = blk_idx_data_blk_it->second.DataCoorsToInBlkDataIdx(blk_coors);
+
+#ifndef USE_GPU
+  *(pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx) = elem;
+#else
+  auto err = cudaMemcpy(pactual_raw_data_ + blk_idx_data_blk_it->second.data_offset + inblk_data_idx,
+                       &elem,
+                       sizeof(ElemT),
+                       cudaMemcpyHostToDevice);
+  if (err != cudaSuccess) {
+    throw std::runtime_error("CUDA memory copy failed for new block");
+  }
 #endif
 }
 } /* qlten */

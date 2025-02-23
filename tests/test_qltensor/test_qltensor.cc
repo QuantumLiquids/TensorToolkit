@@ -886,3 +886,126 @@ TEST_F(TestQLTensor, ElementWiseOperation) {
   RunTestQLTensorElementWiseOperationCase(zten_3d_s2, false);
 }
 
+template<typename ElemT, typename QNT>
+void RunTestQLTensorSetElemByQNSectorCase(
+    QLTensor<ElemT, QNT>& t,
+    const std::vector<QNT>& qn_sector,
+    const std::vector<size_t>& blk_coors,
+    const ElemT value
+) {
+  t.SetElemByQNSector(qn_sector, blk_coors, value);
+  
+  // Convert QN sector and block coordinates to global coordinates
+  std::vector<size_t> global_coors(t.Rank());
+  for (size_t i = 0; i < t.Rank(); ++i) {
+    const auto& idx = t.GetIndex(i);
+    size_t offset = 0;
+    for (size_t j = 0; j < idx.GetQNSctNum(); ++j) {
+      if (idx.GetQNSct(j).GetQn() == qn_sector[i]) {
+        global_coors[i] = offset + blk_coors[i];
+        break;
+      }
+      offset += idx.GetQNSct(j).dim();
+    }
+  }
+  
+  // Check if the element was set correctly
+  EXPECT_EQ(t.GetElem(global_coors), value);
+}
+
+TEST_F(TestQLTensor, TestSetElemByQNSector) {
+  // Test scalar tensor
+  dten_scalar.Random(U1QN());
+  auto scalar_val = drand();
+  RunTestQLTensorSetElemByQNSectorCase(dten_scalar, {}, {}, scalar_val);
+  
+  // Test 1D tensor
+  dten_1d_s.Random(qn0);
+  RunTestQLTensorSetElemByQNSectorCase(
+      dten_1d_s,
+      {qn0},
+      {1},
+      drand()
+  );
+  RunTestQLTensorSetElemByQNSectorCase(
+      dten_1d_s,
+      {qnp1},
+      {2},
+      drand()
+  );
+  
+  // Test 2D tensor
+  dten_2d_s.Random(qn0);
+  RunTestQLTensorSetElemByQNSectorCase(
+      dten_2d_s,
+      {qnm1, qnm1},
+      {1, 2},
+      drand()
+  );
+  RunTestQLTensorSetElemByQNSectorCase(
+      dten_2d_s,
+      {qn0, qnp1},
+      {2, 1},
+      drand()
+  );
+  
+  // Test 3D tensor
+  dten_3d_s.Random(qn0);
+  RunTestQLTensorSetElemByQNSectorCase(
+      dten_3d_s,
+      {qnm1, qn0, qnp1},
+      {1, 2, 3},
+      drand()
+  );
+  RunTestQLTensorSetElemByQNSectorCase(
+      dten_3d_s,
+      {qn0, qnp1, qn0},
+      {2, 1, 2},
+      drand()
+  );
+  
+  // Test complex tensors
+  zten_scalar.Random(U1QN());
+  auto scalar_val_z = zrand();
+  RunTestQLTensorSetElemByQNSectorCase(zten_scalar, {}, {}, scalar_val_z);
+  
+  zten_2d_s.Random(qn0);
+  RunTestQLTensorSetElemByQNSectorCase(
+      zten_2d_s,
+      {qnm1, qnm1},
+      {1, 2},
+      zrand()
+  );
+  RunTestQLTensorSetElemByQNSectorCase(
+      zten_2d_s,
+      {qn0, qnp1},
+      {2, 1},
+      zrand()
+  );
+  
+  // Test creating new blocks
+  DQLTensor new_block_ten({idx_in_s, idx_out_s});
+  auto new_val = drand();
+  RunTestQLTensorSetElemByQNSectorCase(
+      new_block_ten,
+      {qnm1, qnp1},
+      {1, 2},
+      new_val
+  );
+  
+  // Test error cases
+  EXPECT_THROW(
+      dten_2d_s.SetElemByQNSector({qnm1}, {1, 2}, drand()),
+      std::invalid_argument
+  );
+  EXPECT_THROW(
+      dten_2d_s.SetElemByQNSector({qnm1, qnm1}, {1}, drand()),
+      std::invalid_argument  
+  );
+
+  // Test normal case
+  auto val = drand();
+  dten_2d_s.SetElemByQNSector({qnm1, qnm1}, {1, 1}, val);
+  EXPECT_EQ(dten_2d_s.GetElem({1, 1}), val);
+}
+
