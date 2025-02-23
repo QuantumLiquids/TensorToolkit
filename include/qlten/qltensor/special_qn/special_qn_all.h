@@ -22,5 +22,6 @@
 #include "qlten/qltensor/special_qn/fz2qn.h"
 #include "qlten/qltensor/special_qn/fu1qn.h"
 #include "qlten/qltensor/special_qn/fu1u1qn.h"
+#include "qlten/qltensor/special_qn/fz2u1qn.h"    // fermion parity \prod spin
 
 #endif //QLTEN_QLTENSOR_SPECIAL_QN_SPECIAL_QN_ALL_H
