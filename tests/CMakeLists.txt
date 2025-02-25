@@ -161,6 +161,8 @@ macro(add_mpi_unittest
 endmacro()
 
 add_unittest(test_fu1qn "test_qltensor/test_special_qn/test_fu1qn.cc" "" "" "")
+add_unittest(test_fz2u1qn "test_qltensor/test_special_qn/test_fz2u1qn.cc" "" "" "")
+
 
 add_unittest(test_fermion_parity_exchange "test_utility/test_fermion_parity_exchange.cc" "" "" "")
 

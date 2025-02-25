@@ -981,7 +981,7 @@ void BlockSparseDataTensor<ElemT, QNT>::SetElemByQNSector(
   for (auto &[blk_idx, data_blk] : blk_idx_data_blk_map_) {
     bool qn_match = true;
     for (size_t i = 0; i < ten_rank; ++i) {
-      if (data_blk.GetBlkQNInfo().qnscts[i] != qn_sector[i]) {
+      if (data_blk.GetBlkQNInfo().qnscts[i].GetQn() != qn_sector[i]) {
         qn_match = false;
         break;
       }

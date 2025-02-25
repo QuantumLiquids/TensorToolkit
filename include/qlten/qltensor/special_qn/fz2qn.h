@@ -14,6 +14,8 @@
 #ifndef QLTEN_QLTENSOR_SPECIAL_QN_fZ2QN_H
 #define QLTEN_QLTENSOR_SPECIAL_QN_fZ2QN_H
 
+#include "qlten/framework/vec_hash.h"   //_HASH_XXPRIME_1...
+
 namespace qlten {
 namespace special_qn {
 

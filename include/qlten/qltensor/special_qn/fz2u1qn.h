@@ -9,6 +9,9 @@
 #ifndef QLTEN_QLTENSOR_SPECIAL_QN_fZ2U1QN_H
 #define QLTEN_QLTENSOR_SPECIAL_QN_fZ2U1QN_H
 
+#include "qlten/framework/vec_hash.h"         //_HASH_XXPRIME_1...
+#include "qlten/framework/bases/showable.h"   // Showable
+
 namespace qlten {
 
 namespace special_qn {
@@ -107,10 +110,20 @@ inline void fZ2U1QN::Show(const size_t indent_level) const {
             << u1_val_ << ") \n";
 }
 
+inline std::istream &operator>>(std::istream &is, fZ2U1QN &qn) {
+  qn.StreamRead(is);
+  return is;
+}
+
+inline std::ostream &operator<<(std::ostream &os, const fZ2U1QN &qn) {
+  qn.StreamWrite(os);
+  return os;
+}
+
+
 inline size_t fZ2U1QN::CalcHash_() const {
-  size_t h1 = std::hash<bool>()(znval_);
-  size_t h2 = std::hash<int>()(u1_val_);
-  return h1 + 0x9e3779b9 + _HASH_XXROTATE(h2);
+  size_t h = znval_ ^ (u1_val_ << 1);
+  return _HASH_XXPRIME_1 ^ _HASH_XXROTATE(h);
 }
 
 }
