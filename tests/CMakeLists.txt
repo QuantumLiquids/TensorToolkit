@@ -11,13 +11,16 @@ if (QLTEN_USE_GPU)
 
     # Enable CUDA language support
     enable_language(CUDA)
+    set(CUDAToolkit_ROOT /usr/local/cuda)
+    find_package(CUDA REQUIRED)
     find_package(CUDAToolkit REQUIRED)  # Modern CUDA Toolkit detection
+    find_library(CUBLAS_LIBRARY cublas HINTS ${CUDAToolkit_ROOT}/lib64)
 
     include_directories(${CUDAToolkit_INCLUDE_DIRS})
     message(STATUS "CUDA_INCLUDE_DIRS: '${CUDAToolkit_INCLUDE_DIRS}'")
 
     # Set CUDA architectures
-    set(CMAKE_CUDA_ARCHITECTURES 70 80) # For V100 & A100, adjust if needed
+    set(CMAKE_CUDA_ARCHITECTURES 70 80 86) # For V100 & A100, adjust if needed
 
     # Compiler flags
     set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -lineinfo -Xcompiler=-fPIC")
@@ -39,7 +42,7 @@ endif ()
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     set(BLA_VENDOR Intel10_64lp)   #FOR VENDOR CHOICE: https://cmake.org/cmake/help/latest/module/FindBLAS.html
-    set(BLAS_INCLUDE_DIR "$ENV{MKLROOT}/include")
+    set(BLAS_INCLUDE_DIR "$ENV{MKLROOT}")
 elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "arm64") # (e.g., Apple Silicon)
     add_definitions(-DUSE_OPENBLAS)
     set(BLA_VENDOR OpenBLAS)
@@ -48,6 +51,7 @@ elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "arm64") # (e.g., Apple Silicon)
     set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${OpenBLAS_ROOT} ${Lapack_ROOT}) # For find
     set(BLAS_INCLUDE_DIR "${OpenBLAS_ROOT}/include")
 endif ()
+message(STATUS "${BLAS_INCLUDE_DIR}")
 
 FIND_PACKAGE(BLAS REQUIRED)
 FIND_PACKAGE(LAPACK REQUIRED)
@@ -91,6 +95,8 @@ if (QLTEN_USE_GPU)
         )
         target_link_libraries(${TEST_NAME}
                 PRIVATE CUDA::cublas_static
+		PRIVATE CUDA::cublasLt
+		PRIVATE CUDA::cublasLt_static
                 PRIVATE CUDA::cusolver_static
                 PRIVATE ${CUTENSOR_LIBRARY}
                 PRIVATE GTest::GTest GTest::Main
@@ -217,13 +223,20 @@ add_unittest(test_ten_svd
         "test_tensor_manipulation/test_ten_svd.cc"
         "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
-if (NOT QLTEN_USE_GPU) # temporary remove because it is not used in DMRG
-    # EVD
+if (QLTEN_USE_GPU)
+#test EVD
+    # GPU-specific code
+    add_unittest(test_sym_mat_evd
+            "test_tensor_manipulation/test_sym_mat_evd.cc"
+            "${CUDA_INCLUDE_DIRS}" "" "${CUDA_LIBRARIES}"
+    )
+else()
+    # CPU-specific code
     add_unittest(test_sym_mat_evd
             "test_tensor_manipulation/test_sym_mat_evd.cc"
             "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
     )
-endif ()
+endif()
 # Test tensor QR.
 add_unittest(test_ten_qr
         "test_tensor_manipulation/test_ten_qr.cc"
