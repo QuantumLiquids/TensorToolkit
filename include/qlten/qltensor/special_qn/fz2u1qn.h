@@ -96,10 +96,11 @@ inline void fZ2U1QN::StreamRead(std::istream &is) {
   is >> znval_;
   is >> u1_val_;
   is >> hash_;
+  assert(hash_ == CalcHash_());
 }
 
 inline void fZ2U1QN::StreamWrite(std::ostream &os) const {
-  os << znval_ << " " << u1_val_ << " " << hash_;
+  os << znval_ << " " << u1_val_ << " " << hash_ << "\n";
 }
 
 inline void fZ2U1QN::Show(const size_t indent_level) const {
@@ -119,7 +120,6 @@ inline std::ostream &operator<<(std::ostream &os, const fZ2U1QN &qn) {
   qn.StreamWrite(os);
   return os;
 }
-
 
 inline size_t fZ2U1QN::CalcHash_() const {
   size_t h = znval_ ^ (u1_val_ << 1);
