@@ -746,7 +746,7 @@ inline cusolverStatus_t SymMatEVD(
   HANDLE_CUDA_ERROR(cudaMalloc(&eigenvalues, n * sizeof(QLTEN_Double)));
   HANDLE_CUDA_ERROR(cudaMalloc(&d_mat, n * n * sizeof(cuDoubleComplex)));
 
-  // Direct copy input matrix (no initial transpose needed)
+  // Direct copy input matrix (no initial transpose)
   HANDLE_CUDA_ERROR(cudaMemcpy(d_mat, mat, n * n * sizeof(cuDoubleComplex), 
                              cudaMemcpyDeviceToDevice));
 
@@ -773,15 +773,15 @@ inline cusolverStatus_t SymMatEVD(
     return CUSOLVER_STATUS_INTERNAL_ERROR;
   }
 
-  // Conjugate transpose eigenvectors (CUBLAS_OP_C) for Hermitian correctness
+  // Conjugate transpose eigenvectors
   const cuDoubleComplex alpha = {1.0, 0.0};
   const cuDoubleComplex beta = {0.0, 0.0};
   HANDLE_CUBLAS_ERROR(cublasZgeam(
-      cublasHandle, CUBLAS_OP_C, CUBLAS_OP_N,  // Changed to conjugate transpose
+      cublasHandle, CUBLAS_OP_C, CUBLAS_OP_N,
       n, n, &alpha, d_mat, n, &beta, nullptr, n,
       reinterpret_cast<cuDoubleComplex*>(u), n));
 
-  // Set diagonal matrix (device-to-device copy)
+  // Set diagonal matrix
   HANDLE_CUBLAS_ERROR(cublasDcopy(cublasHandle, n, eigenvalues, 1, d, n+1));
 
   // Cleanup
