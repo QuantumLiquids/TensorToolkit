@@ -145,6 +145,8 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   // Inplace operations.
   void Random(const QNT &);
 
+  void Fill(const QNT &, const ElemT &);
+
   void Transpose(const std::vector<size_t> &);
 
   void FuseIndex(const size_t, const size_t);
@@ -167,14 +169,21 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
 
   void ElementWiseInv(double tolerance);
 
+  void ElementWiseMultiply(const QLTensor &);
+
   void DiagMatInv(void);
 
   void DiagMatInv(double tolerance);
 
   void ElementWiseSqrt(void);
 
+  void ElementWiseSquare(void);
+
   void ElementWiseSign(void);
 
+  /// @brief bound the tensor element to the bound
+  /// bound of real number is sign * bound,
+  /// bound of complex number is the same angle of complex number but the magnitude is bound
   void ElementWiseBoundTo(double bound);
 
   template<typename RandGenerator>

@@ -190,6 +190,8 @@ class BlockSparseDataTensor : public Streamable {
 
   void Random(void);
 
+  void Fill(const ElemT &);
+
   void Transpose(const std::vector<size_t> &);
 
   void FuseFirstTwoIndex(
@@ -267,11 +269,16 @@ class BlockSparseDataTensor : public Streamable {
 
   void CopyFromReal(const BlockSparseDataTensor<QLTEN_Double, QNT> &);
 
+  ///< ElementWiseInv with tolerance = 0
   void ElementWiseInv(void);
 
   void ElementWiseInv(double tolerance);
 
+  void ElementWiseMultiply(const BlockSparseDataTensor &);
+
   void ElementWiseSqrt(void);
+
+  void ElementWiseSquare(void);
 
   void ElementWiseSign(void);
 
@@ -443,6 +450,10 @@ class BlockSparseDataTensor : public Streamable {
   void RawDataDuplicateFromReal_(const QLTEN_Double *, const size_t);
 
   void RawDataRand_(void);
+
+  void RawDataFill_(const ElemT &);
+
+  void RawDataElementWiseMultiply_(const size_t, const ElemT *, const size_t);
 
   void RawDataTranspose_(const std::vector<RawDataTransposeTask> &);
 

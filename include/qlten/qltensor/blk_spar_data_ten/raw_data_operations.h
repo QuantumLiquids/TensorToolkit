@@ -182,6 +182,32 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataRand_(void) {
 }
 
 /**
+Fill all the actual raw data with given value.
+*/
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::RawDataFill_(const ElemT &value) {
+#ifndef USE_GPU
+  // CPU implementation
+  for (size_t i = 0; i < actual_raw_data_size_; ++i) {
+    pactual_raw_data_[i] = value;
+  }
+#else
+  // GPU implementation
+  dim3 blockDim(1024);
+  dim3 gridDim((actual_raw_data_size_ + blockDim.x - 1) / blockDim.x);
+
+  // Launch CUDA kernel to fill data with given value
+  FillKernel<<<gridDim, blockDim>>>(pactual_raw_data_, actual_raw_data_size_, value);
+  cudaDeviceSynchronize();  // Synchronize for error checking
+
+  auto cuda_err = cudaGetLastError();
+  if (cuda_err != cudaSuccess) {
+    std::cerr << "CUDA kernel error: " << cuda_err << std::endl;
+  }
+#endif
+}
+
+/**
 Tensor transpose for the 1D raw data array.
 */
 template<typename ElemT, typename QNT>
@@ -656,6 +682,42 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSqrt(void) {
     *(pactual_raw_data_ + i) = std::sqrt(*(pactual_raw_data_ + i));
   }
 }
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSquare(void) {
+  int ompth = hp_numeric::tensor_manipulation_num_threads;
+#pragma omp parallel for default(none) \
+                shared(pactual_raw_data_, actual_raw_data_size_)\
+                num_threads(ompth)\
+                schedule(static)
+  for (size_t i = 0; i < actual_raw_data_size_; i++) {
+    *(pactual_raw_data_ + i) = *(pactual_raw_data_ + i) * *(pactual_raw_data_ + i);
+  }
+}
+
+/**
+Element-wise multiplication of raw data with another tensor's raw data.
+This function multiplies elements from the current tensor with elements from rhs_data.
+
+@param data_offset Starting offset in the current tensor's raw data.
+@param rhs_data Pointer to the right-hand side tensor's raw data.
+@param size Number of elements to multiply.
+*/
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::RawDataElementWiseMultiply_(
+    const size_t data_offset,
+    const ElemT *rhs_data,
+    const size_t size
+) {
+  int ompth = hp_numeric::tensor_manipulation_num_threads;
+#pragma omp parallel for default(none) \
+                shared(pactual_raw_data_, rhs_data, data_offset, size)\
+                num_threads(ompth)\
+                schedule(static)
+  for (size_t i = 0; i < size; i++) {
+    pactual_raw_data_[data_offset + i] *= rhs_data[i];
+  }
+}
 #endif
 
 #ifndef  USE_GPU
@@ -728,7 +790,11 @@ inline QLTEN_Double BoundNumber(QLTEN_Double number, double bound) {
 }
 
 inline QLTEN_Complex BoundNumber(QLTEN_Complex number, double bound) {
-  return number * bound / std::abs(number);
+  double abs_val = std::abs(number);
+  if (abs_val > bound) {
+    return number * bound / abs_val;
+  }
+  return number;
 }
 
 template<typename ElemT, typename QNT>
@@ -736,7 +802,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
   for (size_t i = 0; i < actual_raw_data_size_; i++) {
     ElemT *elem = pactual_raw_data_ + i;
     if (std::abs(*elem) > bound) {
-      *elem *= BoundNumber(*elem, bound);
+      *elem = BoundNumber(*elem, bound);
     }
   }
 }
@@ -816,6 +882,15 @@ inline void ElementWiseSqrtKernel(ElemT *data, size_t size) {
   }
 }
 
+template<typename ElemT>
+__global__ 
+inline void ElementWiseSquareKernel(ElemT *data, size_t size) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = data[idx] * data[idx];
+  }
+}
+
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSqrt() {
   const int threadsPerBlock = 256;
@@ -823,6 +898,38 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSqrt() {
 
   // Launch kernel
   ElementWiseSqrtKernel<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_);
+
+  // Synchronize device
+  cudaDeviceSynchronize();
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSquare() {
+  const int threadsPerBlock = 256;
+  const int blocks = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
+
+  // Launch kernel
+  ElementWiseSquareKernel<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_);
+
+  // Synchronize device
+  cudaDeviceSynchronize();
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::RawDataElementWiseMultiply_(
+    const size_t data_offset,
+    const ElemT *rhs_data,
+    const size_t size
+) {
+  const int threadsPerBlock = 256;
+  const int blocks = (size + threadsPerBlock - 1) / threadsPerBlock;
+
+  // Launch kernel
+  ElementWiseMultiplyKernel<<<blocks, threadsPerBlock>>>(
+      pactual_raw_data_ + data_offset, 
+      rhs_data, 
+      size
+  );
 
   // Synchronize device
   cudaDeviceSynchronize();
@@ -870,7 +977,10 @@ __global__
 inline void ElementWiseBoundKernel(cuda::std::complex<double> *data, size_t size, double bound) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
-    data[idx] = data[idx] * bound / cuda::std::abs(data[idx]);
+    double abs_val = cuda::std::abs(data[idx]);
+    if (abs_val > bound) {
+      data[idx] = data[idx] * bound / abs_val;
+    }
   }
 }
 

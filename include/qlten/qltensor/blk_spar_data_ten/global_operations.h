@@ -67,6 +67,46 @@ void BlockSparseDataTensor<ElemT, QNT>::Random(void) {
 }
 
 /**
+Fill all elements with given value.
+*/
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::Fill(const ElemT &value) {
+  if (IsScalar()) { raw_data_size_ = 1; }
+  if (raw_data_size_ > actual_raw_data_size_) {
+    RawDataAlloc_(raw_data_size_);
+  }
+  RawDataFill_(value);
+}
+
+/**
+Element-wise multiplication with another BlockSparseDataTensor.
+The two tensors may have different blocks.
+
+@param rhs Another BlockSparseDataTensor to multiply with.
+*/
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseMultiply(const BlockSparseDataTensor &rhs) {
+  // For each block in the current tensor, perform element-wise multiplication
+  for (auto &[blk_idx, data_blk] : blk_idx_data_blk_map_) {
+    auto rhs_it = rhs.blk_idx_data_blk_map_.find(blk_idx);
+    if (rhs_it == rhs.blk_idx_data_blk_map_.end()) {
+      // If the block doesn't exist in rhs, treat it as all zeros
+      // Zero out the current block
+      RawDataSetZeros_(data_blk.data_offset, data_blk.size);
+    } else {
+      const auto &rhs_data_blk = rhs_it->second;
+
+      // Perform element-wise multiplication for this block
+      RawDataElementWiseMultiply_(
+          data_blk.data_offset,
+          rhs.pactual_raw_data_ + rhs_data_blk.data_offset,
+          data_blk.size
+      );
+    }
+  }
+}
+
+/**
 Transpose the block sparse data tensor.
 
 @param transed_idxes_order Transposed order of indexes.
@@ -1050,7 +1090,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CollectiveLinearCombine(
   }
   RawDataCopy_(source_pointers, dest_pointers, copy_size);
 }
-// #ifndef USE_GPU
+
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::SymMatEVDRawDataDecomposition(
     BlockSparseDataTensor<ElemT, QNT> &u,
@@ -1070,6 +1110,6 @@ void BlockSparseDataTensor<ElemT, QNT>::SymMatEVDRawDataDecomposition(
                           pu_start + task.data_offset);
   }
 }
-// #endif
+
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_GLOBAL_OPERATIONS_H */

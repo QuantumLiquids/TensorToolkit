@@ -134,7 +134,7 @@ class TensorSVDExecutor : public Executor {
 Initialize a tensor SVD executor.
 
 @param pt A pointer to to-be SVD decomposed tensor \f$ T \f$. The rank of \f$ T
-       \f$ should be larger then 1.
+       \f$ should be larger than 1.
 @param ldims Number of indexes on the left hand side of the decomposition.
 @param lqndiv Quantum number divergence of the result \f$ U \f$ tensor.
 @param trunc_err The target truncation error.
@@ -208,9 +208,9 @@ Function version for tensor SVD.
 @param trunc_err The target truncation error.
 @param Dmin The target minimal kept dimensions for the truncated SVD decomposition.
 @param Dmax The target maximal kept dimensions for the truncated SVD decomposition.
-@param pu A pointer to result \f$ U \f$ tensor.
-@param ps A pointer to result \f$ S \f$ tensor.
-@param pvt A pointer to result \f$ V^{\dagger} \f$ tensor.
+@param pu A pointer to the result \f$ U \f$ tensor. The last index of \f$ U \f$ is a newly generated index with direction 'OUT'.
+@param ps A pointer to the result \f$ S \f$ tensor. \f$ S \f$ is a matrix. The first index has direction 'IN', and the second index has direction 'OUT'.
+@param pvt A pointer to the result \f$ V^{\dagger} \f$ tensor. The first index of \f$ V^{\dagger} \f$ is a newly generated index with direction 'IN'.
 @param pactual_trunc_err A pointer to actual truncation error after the truncation.
 @param pD A pointer to actual kept dimensions after the truncation.
 */

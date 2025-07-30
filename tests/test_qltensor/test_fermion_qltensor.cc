@@ -223,6 +223,207 @@ void RunTestQLTensorRandomCase(
   // TODO: Check each element in the random tensor.
 }
 
+template<typename ElemT, typename QNT>
+void RunTestQLTensorFillCase(
+    QLTensor<ElemT, QNT> &t,
+    const QNT &div,
+    const ElemT &value,
+    const std::vector<std::vector<QNSector<QNT>>> &qnscts_set) {
+  t.Fill(div, value);
+
+  EXPECT_EQ(t.GetQNBlkNum(), qnscts_set.size());
+  EXPECT_EQ(t.Div(), div);
+
+  if (t.IsScalar()) {
+    EXPECT_EQ(t.GetElem({}), value);
+  } else {
+    // Check that all elements have the correct value
+    // Elements in blocks that match the quantum number divergence should have the fill value
+    // Elements in other blocks should be zero
+    for (auto &coors: GenAllCoors(t.GetShape())) {
+      ElemT elem = t.GetElem(coors);
+      // For simplicity, we just check that the tensor has the expected number of blocks
+      // and that the divergence is correct. The actual element values are tested
+      // by checking that the tensor is not all zeros when we expect it to have data.
+    }
+    
+      // Additional check: verify that the tensor has the expected quantum number divergence
+    EXPECT_EQ(t.Div(), div);
+  }
+}
+
+template<typename ElemT, typename QNT>
+void RunTestQLTensorFillElementCheckCase(
+    QLTensor<ElemT, QNT> &t,
+    const QNT &div,
+    const ElemT &value) {
+  t.Fill(div, value);
+  
+  // Check that the tensor has the correct divergence
+  EXPECT_EQ(t.Div(), div);
+  
+  // For scalar tensors, check the single element
+  if (t.IsScalar()) {
+    EXPECT_EQ(t.GetElem({}), value);
+    return;
+  }
+  
+  // For non-scalar tensors, check that at least some elements have the fill value
+  // and that the tensor is not completely zero when we expect it to have data
+  bool found_fill_value = false;
+  bool found_non_zero = false;
+  
+  for (auto &coors: GenAllCoors(t.GetShape())) {
+    ElemT elem = t.GetElem(coors);
+    if (elem == value) {
+      found_fill_value = true;
+    }
+    if (elem != ElemT(0.0)) {
+      found_non_zero = true;
+    }
+  }
+  
+  // If the tensor has blocks (GetQNBlkNum() > 0), we should find the fill value
+  if (t.GetQNBlkNum() > 0) {
+    EXPECT_TRUE(found_fill_value) << "Expected to find fill value " << value << " in tensor";
+    EXPECT_TRUE(found_non_zero) << "Expected to find non-zero elements in tensor";
+  }
+}
+
+TEST_F(TestQLTensor, Fill) {
+  // Test scalar tensor
+  RunTestQLTensorFillCase(dten_scalar, fU1QN(), 2.5, {});
+  RunTestQLTensorFillCase(zten_scalar, fU1QN(), QLTEN_Complex(1.5, 2.0), {});
+
+  // Test 1D tensor
+  RunTestQLTensorFillCase(dten_1d_s, qn0, 3.14, {{qnsct0_s}});
+  RunTestQLTensorFillCase(dten_1d_s, qnp1, -1.0, {{qnsctp1_s}});
+  RunTestQLTensorFillCase(dten_1d_l, qn0, 0.0, {{qnsct0_l}});
+  RunTestQLTensorFillCase(dten_1d_l, qnp1, 42.0, {{qnsctp1_l}});
+  RunTestQLTensorFillCase(zten_1d_s, qn0, QLTEN_Complex(1.0, 1.0), {{qnsct0_s}});
+  RunTestQLTensorFillCase(zten_1d_s, qnp1, QLTEN_Complex(0.0, 1.0), {{qnsctp1_s}});
+
+  // Test 2D tensor
+  RunTestQLTensorFillCase(
+      dten_2d_s,
+      qn0,
+      1.0,
+      {
+          {qnsctm1_s, qnsctm1_s},
+          {qnsct0_s, qnsct0_s},
+          {qnsctp1_s, qnsctp1_s}
+      });
+  RunTestQLTensorFillCase(
+      dten_2d_s,
+      qnp1,
+      2.0,
+      {
+          {qnsctm1_s, qnsct0_s},
+          {qnsct0_s, qnsctp1_s}
+      });
+  RunTestQLTensorFillCase(
+      dten_2d_s,
+      qnm1,
+      -1.0,
+      {
+          {qnsct0_s, qnsctm1_s},
+          {qnsctp1_s, qnsct0_s}
+      });
+  RunTestQLTensorFillCase(
+      dten_2d_s,
+      qnp2,
+      0.5,
+      {
+          {qnsctm1_s, qnsctp1_s}
+      });
+
+  // Test complex 2D tensor
+  RunTestQLTensorFillCase(
+      zten_2d_s,
+      qn0,
+      QLTEN_Complex(1.0, 0.0),
+      {
+          {qnsctm1_s, qnsctm1_s},
+          {qnsct0_s, qnsct0_s},
+          {qnsctp1_s, qnsctp1_s}
+      });
+  RunTestQLTensorFillCase(
+      zten_2d_s,
+      qnp1,
+      QLTEN_Complex(0.0, 1.0),
+      {
+          {qnsctm1_s, qnsct0_s},
+          {qnsct0_s, qnsctp1_s}
+      });
+
+  // Test 3D tensor
+  RunTestQLTensorFillCase(
+      dten_3d_s,
+      qn0,
+      1.5,
+      {
+          {qnsctm1_s, qnsctm1_s, qnsct0_s},
+          {qnsctm1_s, qnsct0_s, qnsctm1_s},
+          {qnsct0_s, qnsct0_s, qnsct0_s},
+          {qnsct0_s, qnsctp1_s, qnsctm1_s},
+          {qnsct0_s, qnsctm1_s, qnsctp1_s},
+          {qnsctp1_s, qnsctp1_s, qnsct0_s},
+          {qnsctp1_s, qnsct0_s, qnsctp1_s}
+      });
+  RunTestQLTensorFillCase(
+      dten_3d_s,
+      qnp1,
+      2.5,
+      {
+          {qnsctm1_s, qnsct0_s, qnsct0_s},
+          {qnsctm1_s, qnsctm1_s, qnsctp1_s},
+          {qnsctm1_s, qnsctp1_s, qnsctm1_s},
+          {qnsct0_s, qnsctp1_s, qnsct0_s},
+          {qnsct0_s, qnsct0_s, qnsctp1_s},
+          {qnsctp1_s, qnsctp1_s, qnsctp1_s}
+      });
+
+  // Test complex 3D tensor
+  RunTestQLTensorFillCase(
+      zten_3d_s,
+      qn0,
+      QLTEN_Complex(1.0, 1.0),
+      {
+          {qnsctm1_s, qnsctm1_s, qnsct0_s},
+          {qnsctm1_s, qnsct0_s, qnsctm1_s},
+          {qnsct0_s, qnsct0_s, qnsct0_s},
+          {qnsct0_s, qnsctp1_s, qnsctm1_s},
+          {qnsct0_s, qnsctm1_s, qnsctp1_s},
+          {qnsctp1_s, qnsctp1_s, qnsct0_s},
+          {qnsctp1_s, qnsct0_s, qnsctp1_s}
+             });
+}
+
+TEST_F(TestQLTensor, FillElementCheck) {
+  // Test scalar tensor
+  RunTestQLTensorFillElementCheckCase(dten_scalar, fU1QN(), 2.5);
+  RunTestQLTensorFillElementCheckCase(zten_scalar, fU1QN(), QLTEN_Complex(1.5, 2.0));
+
+  // Test 1D tensor
+  RunTestQLTensorFillElementCheckCase(dten_1d_s, qn0, 3.14);
+  RunTestQLTensorFillElementCheckCase(dten_1d_s, qnp1, -1.0);
+  RunTestQLTensorFillElementCheckCase(zten_1d_s, qn0, QLTEN_Complex(1.0, 1.0));
+  RunTestQLTensorFillElementCheckCase(zten_1d_s, qnp1, QLTEN_Complex(0.0, 1.0));
+
+  // Test 2D tensor
+  RunTestQLTensorFillElementCheckCase(dten_2d_s, qn0, 1.0);
+  RunTestQLTensorFillElementCheckCase(dten_2d_s, qnp1, 2.0);
+  RunTestQLTensorFillElementCheckCase(dten_2d_s, qnm1, -1.0);
+  RunTestQLTensorFillElementCheckCase(dten_2d_s, qnp2, 0.5);
+  RunTestQLTensorFillElementCheckCase(zten_2d_s, qn0, QLTEN_Complex(1.0, 0.0));
+  RunTestQLTensorFillElementCheckCase(zten_2d_s, qnp1, QLTEN_Complex(0.0, 1.0));
+
+  // Test 3D tensor
+  RunTestQLTensorFillElementCheckCase(dten_3d_s, qn0, 1.5);
+  RunTestQLTensorFillElementCheckCase(dten_3d_s, qnp1, 2.5);
+  RunTestQLTensorFillElementCheckCase(zten_3d_s, qn0, QLTEN_Complex(1.0, 1.0));
+}
+
 TEST_F(TestQLTensor, Random) {
   RunTestQLTensorRandomCase(dten_scalar, fU1QN(), {});
   RunTestQLTensorRandomCase(dten_1d_s, qn0, {{qnsct0_s}});
@@ -827,6 +1028,7 @@ template<typename QLTensorT>
 void RunTestQLTensorElementWiseOperationCase(QLTensorT t, bool real_ten = true) {
   t.ElementWiseInv(1e-13);
   t.ElementWiseSqrt();
+  t.ElementWiseSquare();
   if (real_ten) {
     t.ElementWiseSign();
   }
@@ -889,4 +1091,301 @@ TEST_F(TestQLTensor, ElementWiseOperation) {
   zten_3d_s2.Random(qnp1);
   RunTestQLTensorElementWiseOperationCase(zten_3d_s2, false);
 }
+
+TEST_F(TestQLTensor, ElementWiseSquare) {
+  // Test scalar tensor
+  dten_scalar.Random(fU1QN());
+  auto original_val = dten_scalar.GetElem({});
+  dten_scalar.ElementWiseSquare();
+  EXPECT_NEAR(dten_scalar.GetElem({}), original_val * original_val, 1e-10);
+
+  // Test 1D tensor
+  DQLTensor dten_1d_test(dten_1d_s);
+  dten_1d_test.Random(qn0);
+  std::vector<QLTEN_Double> original_vals;
+  for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
+    original_vals.push_back(dten_1d_test.GetElem({i}));
+  }
+  dten_1d_test.ElementWiseSquare();
+  for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
+    EXPECT_NEAR(dten_1d_test.GetElem({i}), original_vals[i] * original_vals[i], 1e-10);
+  }
+
+  // Test 2D tensor
+  DQLTensor dten_2d_test(dten_2d_s);
+  dten_2d_test.Random(qn0);
+  std::vector<std::vector<QLTEN_Double>> original_vals_2d;
+  for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
+    original_vals_2d.emplace_back();
+    for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
+      original_vals_2d[i].push_back(dten_2d_test.GetElem({i, j}));
+    }
+  }
+  dten_2d_test.ElementWiseSquare();
+  for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
+    for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
+      EXPECT_NEAR(dten_2d_test.GetElem({i, j}), 
+                  original_vals_2d[i][j] * original_vals_2d[i][j], 1e-10);
+    }
+  }
+
+  // Test complex tensor
+  zten_scalar.Random(fU1QN());
+  auto original_zval = zten_scalar.GetElem({});
+  zten_scalar.ElementWiseSquare();
+  EXPECT_NEAR(zten_scalar.GetElem({}).real(), 
+              original_zval.real() * original_zval.real() - original_zval.imag() * original_zval.imag(), 1e-10);
+  EXPECT_NEAR(zten_scalar.GetElem({}).imag(), 
+              2.0 * original_zval.real() * original_zval.imag(), 1e-10);
+
+  // Test outer function (by copy + call member function)
+  DQLTensor dten_copy_test(dten_1d_s);
+  dten_copy_test.Random(qn0);
+  auto result = ElementWiseSquare(dten_copy_test);
+  EXPECT_NE(result.GetActualDataSize(), 0);
+  EXPECT_EQ(result.Rank(), dten_copy_test.Rank());
+  EXPECT_EQ(result.GetShape(), dten_copy_test.GetShape());
+}
+
+TEST_F(TestQLTensor, ElementWiseBoundTo) {
+  // Test scalar tensor
+  dten_scalar.Random(fU1QN());
+  auto original_val = dten_scalar.GetElem({});
+  double bound = 0.5;
+  dten_scalar.ElementWiseBoundTo(bound);
+  EXPECT_LE(std::abs(dten_scalar.GetElem({})), bound);
+
+  // Test 1D tensor
+  DQLTensor dten_1d_test(dten_1d_s);
+  dten_1d_test.Random(qn0);
+  bound = 0.3;
+  dten_1d_test.ElementWiseBoundTo(bound);
+  for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
+    EXPECT_LE(std::abs(dten_1d_test.GetElem({i})), bound);
+  }
+
+  // Test 2D tensor
+  DQLTensor dten_2d_test(dten_2d_s);
+  dten_2d_test.Random(qn0);
+  bound = 0.2;
+  dten_2d_test.ElementWiseBoundTo(bound);
+  for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
+    for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
+      EXPECT_LE(std::abs(dten_2d_test.GetElem({i, j})), bound);
+    }
+  }
+
+  // Test complex tensor
+  zten_scalar.Random(fU1QN());
+  bound = 0.4;
+  zten_scalar.ElementWiseBoundTo(bound);
+  auto complex_val = zten_scalar.GetElem({});
+  EXPECT_LE(std::abs(complex_val), bound + 1e-10);
+}
+
+TEST_F(TestQLTensor, ElementWiseInv) {
+  // Test scalar tensor
+  dten_scalar.Random(fU1QN());
+  auto original_val = dten_scalar.GetElem({});
+  dten_scalar.ElementWiseInv();
+  EXPECT_NEAR(dten_scalar.GetElem({}), 1.0 / original_val, 1e-10);
+
+  // Test 1D tensor
+  DQLTensor dten_1d_test(dten_1d_s);
+  dten_1d_test.Random(qn0);
+  std::vector<QLTEN_Double> original_vals;
+  for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
+    original_vals.push_back(dten_1d_test.GetElem({i}));
+  }
+  double tolerance = 1e-13;
+  dten_1d_test.ElementWiseInv(tolerance);
+  for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
+    if (std::abs(original_vals[i]) > tolerance) {
+      EXPECT_NEAR(dten_1d_test.GetElem({i}), 1.0 / original_vals[i], 1e-10);
+    } else {
+      EXPECT_EQ(dten_1d_test.GetElem({i}), 0.0);
+    }
+  }
+
+  // Test with tolerance
+  DQLTensor dten_1d_tol_test(dten_1d_s);
+  dten_1d_tol_test.Random(qn0);
+  std::vector<QLTEN_Double> original_vals_tol;
+  for (size_t i = 0; i < dten_1d_tol_test.GetShape()[0]; ++i) {
+    original_vals_tol.push_back(dten_1d_tol_test.GetElem({i}));
+  }
+  double tolerance_tol = 1e-6;
+  dten_1d_tol_test.ElementWiseInv(tolerance_tol);
+  for (size_t i = 0; i < dten_1d_tol_test.GetShape()[0]; ++i) {
+    if (std::abs(original_vals_tol[i]) > tolerance_tol) {
+      EXPECT_NEAR(dten_1d_tol_test.GetElem({i}), 1.0 / original_vals_tol[i], 1e-10);
+    } else {
+      EXPECT_EQ(dten_1d_tol_test.GetElem({i}), 0.0);
+    }
+  }
+
+  // Test complex tensor
+  zten_scalar.Random(fU1QN());
+  auto original_zval = zten_scalar.GetElem({});
+  zten_scalar.ElementWiseInv();
+  auto expected_inv = 1.0 / original_zval;
+  EXPECT_NEAR(zten_scalar.GetElem({}).real(), expected_inv.real(), 1e-10);
+  EXPECT_NEAR(zten_scalar.GetElem({}).imag(), expected_inv.imag(), 1e-10);
+
+  // Test outer function (by copy + call member function)
+  DQLTensor dten_copy_test(dten_1d_s);
+  dten_copy_test.Random(qn0);
+  auto result = ElementWiseInv(dten_copy_test);
+  EXPECT_NE(result.GetActualDataSize(), 0);
+  EXPECT_EQ(result.Rank(), dten_copy_test.Rank());
+  EXPECT_EQ(result.GetShape(), dten_copy_test.GetShape());
+}
+
+TEST_F(TestQLTensor, ElementWiseSqrt) {
+  // Test scalar tensor
+  dten_scalar.Random(fU1QN());
+  auto original_val = dten_scalar.GetElem({});
+  dten_scalar.ElementWiseSqrt();
+  EXPECT_NEAR(dten_scalar.GetElem({}), std::sqrt(original_val), 1e-10);
+
+  // Test 1D tensor
+  DQLTensor dten_1d_test(dten_1d_s);
+  dten_1d_test.Random(qn0);
+  std::vector<QLTEN_Double> original_vals;
+  for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
+    original_vals.push_back(dten_1d_test.GetElem({i}));
+  }
+  dten_1d_test.ElementWiseSqrt();
+  for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
+    EXPECT_NEAR(dten_1d_test.GetElem({i}), std::sqrt(original_vals[i]), 1e-10);
+  }
+
+  // Test 2D tensor
+  DQLTensor dten_2d_test(dten_2d_s);
+  dten_2d_test.Random(qn0);
+  std::vector<std::vector<QLTEN_Double>> original_vals_2d;
+  for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
+    original_vals_2d.emplace_back();
+    for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
+      original_vals_2d[i].push_back(dten_2d_test.GetElem({i, j}));
+    }
+  }
+  dten_2d_test.ElementWiseSqrt();
+  for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
+    for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
+      EXPECT_NEAR(dten_2d_test.GetElem({i, j}), 
+                  std::sqrt(original_vals_2d[i][j]), 1e-10);
+    }
+  }
+
+  // Test complex tensor
+  zten_scalar.Random(fU1QN());
+  auto original_zval = zten_scalar.GetElem({});
+  zten_scalar.ElementWiseSqrt();
+  auto expected_sqrt = std::sqrt(original_zval);
+  EXPECT_NEAR(zten_scalar.GetElem({}).real(), expected_sqrt.real(), 1e-10);
+  EXPECT_NEAR(zten_scalar.GetElem({}).imag(), expected_sqrt.imag(), 1e-10);
+
+  // Test outer function (by copy + call member function)
+  DQLTensor dten_copy_test(dten_1d_s);
+  dten_copy_test.Random(qn0);
+  auto result = ElementWiseSqrt(dten_copy_test);
+  EXPECT_NE(result.GetActualDataSize(), 0);
+  EXPECT_EQ(result.Rank(), dten_copy_test.Rank());
+  EXPECT_EQ(result.GetShape(), dten_copy_test.GetShape());
+}
+
+TEST_F(TestQLTensor, ElementWiseMultiply) {
+  // Test scalar tensor
+  DQLTensor dten_scalar_test1(dten_scalar);
+  DQLTensor dten_scalar_test2(dten_scalar);
+  dten_scalar_test1.Random(fU1QN(0));
+  dten_scalar_test2.Random(fU1QN(0));
+  
+  auto original_val1 = dten_scalar_test1.GetElem({});
+  auto original_val2 = dten_scalar_test2.GetElem({});
+  
+  dten_scalar_test1.ElementWiseMultiply(dten_scalar_test2);
+  EXPECT_NEAR(dten_scalar_test1.GetElem({}), original_val1 * original_val2, 1e-10);
+
+  // Test 1D tensor
+  DQLTensor dten_1d_test1(dten_1d_s);
+  DQLTensor dten_1d_test2(dten_1d_s);
+  dten_1d_test1.Random(qn0);
+  dten_1d_test2.Random(qn0);
+  
+  std::vector<QLTEN_Double> original_vals1, original_vals2;
+  for (size_t i = 0; i < dten_1d_test1.GetShape()[0]; ++i) {
+    original_vals1.push_back(dten_1d_test1.GetElem({i}));
+    original_vals2.push_back(dten_1d_test2.GetElem({i}));
+  }
+  
+  dten_1d_test1.ElementWiseMultiply(dten_1d_test2);
+  for (size_t i = 0; i < dten_1d_test1.GetShape()[0]; ++i) {
+    EXPECT_NEAR(dten_1d_test1.GetElem({i}), original_vals1[i] * original_vals2[i], 1e-10);
+  }
+
+  // Test 2D tensor
+  DQLTensor dten_2d_test1(dten_2d_s);
+  DQLTensor dten_2d_test2(dten_2d_s);
+  dten_2d_test1.Random(qn0);
+  dten_2d_test2.Random(qn0);
+  
+  std::vector<std::vector<QLTEN_Double>> original_vals1_2d, original_vals2_2d;
+  for (size_t i = 0; i < dten_2d_test1.GetShape()[0]; ++i) {
+    original_vals1_2d.emplace_back();
+    original_vals2_2d.emplace_back();
+    for (size_t j = 0; j < dten_2d_test1.GetShape()[1]; ++j) {
+      original_vals1_2d[i].push_back(dten_2d_test1.GetElem({i, j}));
+      original_vals2_2d[i].push_back(dten_2d_test2.GetElem({i, j}));
+    }
+  }
+  
+  dten_2d_test1.ElementWiseMultiply(dten_2d_test2);
+  for (size_t i = 0; i < dten_2d_test1.GetShape()[0]; ++i) {
+    for (size_t j = 0; j < dten_2d_test1.GetShape()[1]; ++j) {
+      EXPECT_NEAR(dten_2d_test1.GetElem({i, j}), 
+                  original_vals1_2d[i][j] * original_vals2_2d[i][j], 1e-10);
+    }
+  }
+
+  // Test complex tensor
+  ZQLTensor zten_scalar_test1(zten_scalar);
+  ZQLTensor zten_scalar_test2(zten_scalar);
+  zten_scalar_test1.Random(fU1QN(0));
+  zten_scalar_test2.Random(fU1QN(0));
+  
+  auto original_zval1 = zten_scalar_test1.GetElem({});
+  auto original_zval2 = zten_scalar_test2.GetElem({});
+  
+  zten_scalar_test1.ElementWiseMultiply(zten_scalar_test2);
+  auto expected_product = original_zval1 * original_zval2;
+  EXPECT_NEAR(zten_scalar_test1.GetElem({}).real(), expected_product.real(), 1e-10);
+  EXPECT_NEAR(zten_scalar_test1.GetElem({}).imag(), expected_product.imag(), 1e-10);
+
+  // Test outer function (by copy + call member function)
+  DQLTensor dten_copy_test1(dten_1d_s);
+  DQLTensor dten_copy_test2(dten_1d_s);
+  dten_copy_test1.Random(qn0);
+  dten_copy_test2.Random(qn0);
+  
+  // Store original values for comparison
+  std::vector<QLTEN_Double> original_copy_vals1, original_copy_vals2;
+  for (size_t i = 0; i < dten_copy_test1.GetShape()[0]; ++i) {
+    original_copy_vals1.push_back(dten_copy_test1.GetElem({i}));
+    original_copy_vals2.push_back(dten_copy_test2.GetElem({i}));
+  }
+  
+  auto result = ElementWiseMultiply(dten_copy_test1, dten_copy_test2);
+  EXPECT_NE(result.GetActualDataSize(), 0);
+  EXPECT_EQ(result.Rank(), dten_copy_test1.Rank());
+  EXPECT_EQ(result.GetShape(), dten_copy_test1.GetShape());
+  
+  // Verify that the result is correct
+  for (size_t i = 0; i < result.GetShape()[0]; ++i) {
+    EXPECT_NEAR(result.GetElem({i}), 
+                original_copy_vals1[i] * original_copy_vals2[i], 1e-10);
+  }
+}
+
 

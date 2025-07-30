@@ -394,6 +394,44 @@ void QLTensor<ElemT, QNT>::Random(const QNT &div) {
 }
 
 /**
+Fill tensor elements with given value and quantum number divergence.
+Original data of this tensor will be destroyed.
+
+@param div Target quantum number divergence.
+@param value Value to fill all allowed elements with.
+*/
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::Fill(const QNT &div, const ElemT &value) {
+  assert(!IsDefault());
+  if (IsScalar()) { assert(div == QNT()); }
+  pblk_spar_data_ten_->Clear();
+  if (IsScalar()) {
+    pblk_spar_data_ten_->Fill(value);
+    return;
+  }
+  if (pblk_spar_data_ten_->blk_shape.size() == 2) {
+    ShapeT shape = pblk_spar_data_ten_->blk_shape;
+    std::vector<CoorsT> blk_coors_s;
+    blk_coors_s.reserve(shape[0]);
+    for (size_t i = 0; i < shape[0]; i++) {
+      for (size_t j = 0; j < shape[1]; j++) {
+        if (CalcDiv(indexes_, {i, j}) == div) {
+          blk_coors_s.push_back({i, j});
+        }
+      }
+    }
+    pblk_spar_data_ten_->DataBlksInsert(blk_coors_s, false, false);     // NO allocate memory on this stage.
+  } else {
+    for (auto &blk_coors : GenAllCoors(pblk_spar_data_ten_->blk_shape)) {
+      if (CalcDiv(indexes_, blk_coors) == div) {
+        pblk_spar_data_ten_->DataBlkInsert(blk_coors, false);     // NO allocate memory on this stage.
+      }
+    }
+  }
+  pblk_spar_data_ten_->Fill(value);
+}
+
+/**
 Transpose the tensor using a new indexes order.
 
 @param transed_idxes_order Transposed order of indexes.
@@ -578,6 +616,49 @@ QLTensor<ElemT, QNT> ElementWiseSqrt(const QLTensor<ElemT, QNT> &tensor) {
   QLTensor<ElemT, QNT> res(tensor);
   res.ElementWiseSqrt();
   return res;
+}
+
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> ElementWiseSquare(const QLTensor<ElemT, QNT> &tensor) {
+  QLTensor<ElemT, QNT> res(tensor);
+  res.ElementWiseSquare();
+  return res;
+}
+
+/**
+Element-wise multiplication of two tensors.
+The two tensors must have exactly the same indices.
+
+@param lhs Left-hand side QLTensor.
+@param rhs Right-hand side QLTensor.
+
+@return A new QLTensor containing the element-wise product.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> ElementWiseMultiply(const QLTensor<ElemT, QNT> &lhs, const QLTensor<ElemT, QNT> &rhs) {
+  QLTensor<ElemT, QNT> res(lhs);
+  res.ElementWiseMultiply(rhs);
+  return res;
+}
+
+/**
+Element-wise multiplication of two tensors.
+The two tensors must have exactly the same indices.
+
+@param rhs Another QLTensor to multiply with.
+*/
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseMultiply(const QLTensor &rhs) {
+  assert(!(IsDefault() || rhs.IsDefault()));
+  assert(indexes_ == rhs.indexes_);
+  
+  if (IsScalar()) {
+    auto result = GetElem({}) * rhs.GetElem({});
+    SetElem({}, result);
+    return; 
+  }
+  assert(Div() == rhs.Div());
+  pblk_spar_data_ten_->ElementWiseMultiply(*rhs.pblk_spar_data_ten_);
 }
 
 template<typename ElemT, typename QNT>
@@ -982,6 +1063,11 @@ void QLTensor<ElemT, QNT>::ElementWiseSqrt(void) {
 }
 
 template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseSquare(void) {
+  pblk_spar_data_ten_->ElementWiseSquare();
+}
+
+template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::ElementWiseSign() {
   pblk_spar_data_ten_->ElementWiseSign();
 }
@@ -1017,8 +1103,13 @@ void QLTensor<ElemT, QNT>::ElementWiseRandSign(std::uniform_real_distribution<do
 }
 #endif //not USE_GPU
 
-// generate Identity tensor for bosonic tensors
-// or fermionic parity operator for fermionic tensors
+/**
+ * Generate Identity tensor for bosonic tensors
+ * or Generate fermion parity operator for fermionic tensors
+ *
+ * @param index0 : first indices of the operator.
+ * @return operator with the first index `index0`.
+ */
 template<typename ElemT, typename QNT>
 QLTensor<ElemT, QNT> Eye(const Index<QNT> &index0) {
   QLTensor<ElemT, QNT> eye({index0, InverseIndex(index0)});

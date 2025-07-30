@@ -151,6 +151,11 @@ Function version for tensor contraction.
 @param pb Pointer to input tensor \f$ B \f$.
 @param axes_set To-be contracted tensor axes indexes. For example, {{0, 1}, {3, 2}}.
 @param pc Pointer to result tensor \f$ C \f$.
+
+@note For fermionic tensors, the indices with direction IN corresponds to the |ket>,
+ while OUT corresponds to the <bra|, which defines
+ when last index of pa with index direction OUT, is contracted on the first
+ index of pb with index direction IN, gives no additional sign for odd qn sectors.
 */
 template<typename TenElemT, typename QNT>
 void Contract(

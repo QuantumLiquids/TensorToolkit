@@ -296,6 +296,38 @@ inline void RandomKernel(QLTEN_Complex *data, size_t size) {
     data[idx].imag(curand_uniform(&state));
   }
 }
+
+__global__
+inline void FillKernel(QLTEN_Double *data, size_t size, QLTEN_Double value) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = value;
+  }
+}
+
+__global__
+inline void FillKernel(QLTEN_Complex *data, size_t size, QLTEN_Complex value) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = value;
+  }
+}
+
+__global__
+inline void ElementWiseMultiplyKernel(QLTEN_Double *data, const QLTEN_Double *rhs_data, size_t size) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] *= rhs_data[idx];
+  }
+}
+
+__global__
+inline void ElementWiseMultiplyKernel(QLTEN_Complex *data, const QLTEN_Complex *rhs_data, size_t size) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] *= rhs_data[idx];
+  }
+}
 #endif
 
 template<typename ElemType>
