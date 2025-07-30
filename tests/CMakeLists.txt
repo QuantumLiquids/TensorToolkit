@@ -1,8 +1,8 @@
 #  SPDX-License-Identifier: LGPL-3.0-only
-# 
+#
 #  Author: Hao-Xin Wang <wanghaoxin1996@gmail.com>
 #  Creation Date: 2024-Jan-28
-#  
+#
 #  Description: QuantumLiquids/tensor project. CMake file to control unittest.
 #
 
@@ -219,13 +219,11 @@ add_unittest(test_ten_svd
         "test_tensor_manipulation/test_ten_svd.cc"
         "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
 )
-if (NOT QLTEN_USE_GPU) # temporary remove because it is not used in DMRG
-    # EVD
-    add_unittest(test_sym_mat_evd
-            "test_tensor_manipulation/test_sym_mat_evd.cc"
-            "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
-    )
-endif ()
+# EVD
+add_unittest(test_sym_mat_evd
+        "test_tensor_manipulation/test_sym_mat_evd.cc"
+        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+)
 # Test tensor QR.
 add_unittest(test_ten_qr
         "test_tensor_manipulation/test_ten_qr.cc"

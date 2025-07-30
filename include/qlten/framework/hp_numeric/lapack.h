@@ -270,7 +270,7 @@ inline void MatQR(
   // roughly estimate for complex number
 #endif
 }
-#else // define USE GPU
+#else // define USE_GPU
 
 #ifndef  NDEBUG
 //row-major matrix A, m: rows, n: cols; lda: leading-dimension, usually be n
@@ -659,8 +659,139 @@ inline cusolverStatus_t MatSVD(
 }
 
 
+inline cusolverStatus_t SymMatEVD(
+  const QLTEN_Double *mat, 
+  const size_t n,
+  QLTEN_Double *d,
+  QLTEN_Double *u  
+) {
+  cusolverDnHandle_t handle = CusolverHandleManager::GetHandle();
+  cublasHandle_t cublasHandle = CublasHandleManager::GetHandle();
+  
+  // Device memory allocations
+  int *devInfo = nullptr;
+  QLTEN_Double *eigenvalues = nullptr;
+  QLTEN_Double *d_mat = nullptr;
+  QLTEN_Double *d_work = nullptr;
+  
+  HANDLE_CUDA_ERROR(cudaMalloc(&devInfo, sizeof(int)));
+  HANDLE_CUDA_ERROR(cudaMalloc(&eigenvalues, n * sizeof(QLTEN_Double)));
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_mat, n * n * sizeof(QLTEN_Double)));
 
+  // Copy input matrix directly (no transpose needed for symmetric matrix)
+  HANDLE_CUDA_ERROR(cudaMemcpy(d_mat, mat, n * n * sizeof(QLTEN_Double), cudaMemcpyDeviceToDevice));
 
+  // Query and allocate workspace
+  int lwork = 0;
+  HANDLE_CUSOLVER_ERROR(cusolverDnDsyevd_bufferSize(
+      handle, CUSOLVER_EIG_MODE_VECTOR, 
+      CUBLAS_FILL_MODE_LOWER, n, 
+      d_mat, n, eigenvalues, &lwork
+  ));
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_work, lwork * sizeof(QLTEN_Double)));
+
+  // Compute eigenvalues/vectors using lower fill mode
+  auto status = cusolverDnDsyevd(
+      handle, CUSOLVER_EIG_MODE_VECTOR, 
+      CUBLAS_FILL_MODE_LOWER, n, d_mat, n, 
+      eigenvalues, d_work, lwork, devInfo
+  );
+  HANDLE_CUSOLVER_ERROR(status);
+
+  // Check convergence
+  int info;
+  HANDLE_CUDA_ERROR(cudaMemcpy(&info, devInfo, sizeof(int), cudaMemcpyDeviceToHost));
+  if (info != 0) {
+    cudaFree(d_mat); cudaFree(d_work); cudaFree(devInfo); cudaFree(eigenvalues);
+    return CUSOLVER_STATUS_INTERNAL_ERROR;
+  }
+
+  // Transpose eigenvectors to row-major (columns to rows)
+  const QLTEN_Double alpha = 1.0;
+  const QLTEN_Double beta = 0.0;
+  HANDLE_CUBLAS_ERROR(cublasDgeam(
+      cublasHandle, CUBLAS_OP_T, CUBLAS_OP_N, 
+      n, n, &alpha, d_mat, n, &beta, nullptr, n, 
+      u, n
+  ));
+
+  // Set diagonal matrix (device-to-device copy)
+  HANDLE_CUBLAS_ERROR(cublasDcopy(cublasHandle, n, eigenvalues, 1, d, n + 1));
+
+  // Cleanup
+  cudaFree(d_mat);
+  cudaFree(d_work);
+  cudaFree(devInfo);
+  cudaFree(eigenvalues);
+
+  return status;
+}
+
+inline cusolverStatus_t SymMatEVD(
+  const QLTEN_Complex *mat,
+  const size_t n,
+  QLTEN_Double *d,
+  QLTEN_Complex *u
+) {
+  cusolverDnHandle_t handle = CusolverHandleManager::GetHandle();
+  cublasHandle_t cublasHandle = CublasHandleManager::GetHandle();
+  
+  // Device memory allocations
+  int *devInfo = nullptr;
+  QLTEN_Double *eigenvalues = nullptr;
+  cuDoubleComplex *d_mat = nullptr;
+  cuDoubleComplex *d_work = nullptr;
+  
+  HANDLE_CUDA_ERROR(cudaMalloc(&devInfo, sizeof(int)));
+  HANDLE_CUDA_ERROR(cudaMalloc(&eigenvalues, n * sizeof(QLTEN_Double)));
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_mat, n * n * sizeof(cuDoubleComplex)));
+
+  // Direct copy input matrix (no initial transpose)
+  HANDLE_CUDA_ERROR(cudaMemcpy(d_mat, mat, n * n * sizeof(cuDoubleComplex), 
+                             cudaMemcpyDeviceToDevice));
+
+  // Query and allocate workspace
+  int lwork = 0;
+  HANDLE_CUSOLVER_ERROR(cusolverDnZheevd_bufferSize(
+      handle, CUSOLVER_EIG_MODE_VECTOR,
+      CUBLAS_FILL_MODE_LOWER, n,  // Use lower triangle for column-major interpretation
+      d_mat, n, eigenvalues, &lwork));
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_work, lwork * sizeof(cuDoubleComplex)));
+
+  // Compute eigenvalues/vectors
+  auto status = cusolverDnZheevd(
+      handle, CUSOLVER_EIG_MODE_VECTOR,
+      CUBLAS_FILL_MODE_LOWER, n,
+      d_mat, n, eigenvalues, d_work, lwork, devInfo);
+  HANDLE_CUSOLVER_ERROR(status);
+
+  // Check convergence
+  int info;
+  HANDLE_CUDA_ERROR(cudaMemcpy(&info, devInfo, sizeof(int), cudaMemcpyDeviceToHost));
+  if (info != 0) {
+    cudaFree(d_mat); cudaFree(d_work); cudaFree(devInfo); cudaFree(eigenvalues);
+    return CUSOLVER_STATUS_INTERNAL_ERROR;
+  }
+
+  // Conjugate transpose eigenvectors
+  const cuDoubleComplex alpha = {1.0, 0.0};
+  const cuDoubleComplex beta = {0.0, 0.0};
+  HANDLE_CUBLAS_ERROR(cublasZgeam(
+      cublasHandle, CUBLAS_OP_C, CUBLAS_OP_N,
+      n, n, &alpha, d_mat, n, &beta, nullptr, n,
+      reinterpret_cast<cuDoubleComplex*>(u), n));
+
+  // Set diagonal matrix
+  HANDLE_CUBLAS_ERROR(cublasDcopy(cublasHandle, n, eigenvalues, 1, d, n+1));
+
+  // Cleanup
+  cudaFree(d_mat);
+  cudaFree(d_work);
+  cudaFree(devInfo);
+  cudaFree(eigenvalues);
+
+  return status;
+}
 
 #endif
 

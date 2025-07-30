@@ -1050,7 +1050,7 @@ void BlockSparseDataTensor<ElemT, QNT>::CollectiveLinearCombine(
   }
   RawDataCopy_(source_pointers, dest_pointers, copy_size);
 }
-#ifndef USE_GPU
+// #ifndef USE_GPU
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::SymMatEVDRawDataDecomposition(
     BlockSparseDataTensor<ElemT, QNT> &u,
@@ -1070,6 +1070,6 @@ void BlockSparseDataTensor<ElemT, QNT>::SymMatEVDRawDataDecomposition(
                           pu_start + task.data_offset);
   }
 }
-#endif
+// #endif
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_GLOBAL_OPERATIONS_H */
