@@ -142,21 +142,44 @@ void TensorContractionExecutor<TenElemT, QNT>::Execute(void) {
 }
 
 /**
-Function version for tensor contraction.
-
-@tparam TenElemT The type of tensor elements.
-@tparam QNT The quantum number type of the tensors.
-
-@param pa Pointer to input tensor \f$ A \f$.
-@param pb Pointer to input tensor \f$ B \f$.
-@param axes_set To-be contracted tensor axes indexes. For example, {{0, 1}, {3, 2}}.
-@param pc Pointer to result tensor \f$ C \f$.
-
-@note For fermionic tensors, the indices with direction IN corresponds to the |ket>,
- while OUT corresponds to the <bra|, which defines
- when last index of pa with index direction OUT, is contracted on the first
- index of pb with index direction IN, gives no additional sign for odd qn sectors.
-*/
+ * @brief Function version for tensor contraction.
+ *
+ * Contracts two symmetry-blocked tensors along the given pairs of axes and
+ * writes the result into an initially-empty result tensor.
+ *
+ * **Index order of the result:** the indices of C are formed by first taking
+ *       the remaining (non-contracted) indices of A in their saved order, then
+ *       appending the remaining (non-contracted) indices of B in their saved
+ *       order. This matches the construction in TenCtrctInitResTen().
+ * 
+ * @tparam TenElemT The tensor element type.
+ * @tparam QNT The quantum number type of the tensors.
+ *
+ * @param pa Pointer to input tensor \f$ A \f$.
+ * @param pb Pointer to input tensor \f$ B \f$.
+ * @param axes_set Pairs of axes to contract, in the form {{a0, a1, ...}, {b0, b1, ...}}.
+ *                 Each \f$ a_i \f$ is an axis of \f$ A \f$ and \f$ b_i \f$ is the matching axis of \f$ B \f$.
+ *                 Example: {{0, 1}, {3, 2}}.
+ * @param pc Pointer to result tensor \f$ C \f$ (must be default/empty on entry).
+ *
+ * @pre Indices match pairwise: index A[a_i] == InverseIndex(B[b_i]).
+ * @pre `pc->IsDefault()`.
+ * @warning Asserts will fire on mismatched indices or a non-default result tensor.
+ *
+ * @note Fermionic convention: IN corresponds to |ket> and OUT to <bra|. Contracting
+ *       the last OUT index of A with the first IN index of B yields no extra sign
+ *       for odd-fermion sectors (sign bookkeeping is handled internally).
+ *
+ * @note Other contraction functions in the project may have totally different index ordering conventions.
+ *
+ * @par Example
+ * @code
+ * using Ten = qlten::QLTensor<QLTEN_Double, U1QN>;
+ * Ten A(...), B(...), C;                    // C is default (empty)
+ * std::vector<std::vector<size_t>> axes = {{0, 2}, {1, 3}}; // A(0,2) with B(1,3)
+ * qlten::Contract(&A, &B, axes, &C);
+ * @endcode
+ */
 template<typename TenElemT, typename QNT>
 void Contract(
     const QLTensor<TenElemT, QNT> *pa,
@@ -184,6 +207,14 @@ void Contract(
   Contract(&cplx_a, pb, axes_set, pc);
 }
 
+/**
+ * @brief Mixed-precision contraction (complex result).
+ * @tparam QNT Quantum number type.
+ * @param pa Real-valued tensor A.
+ * @param pb Complex-valued tensor B.
+ * @param axes_set Contraction axes as in the primary overload.
+ * @param pc Complex-valued result tensor (default on entry).
+ */
 template<typename QNT>
 void Contract(
     const QLTensor<QLTEN_Complex, QNT> *pa,

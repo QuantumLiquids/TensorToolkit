@@ -36,6 +36,8 @@ debug/
 build/
 release/
 build_doc/
+docs/build/
+cmake-build-*/
 
 # CLion
 .idea

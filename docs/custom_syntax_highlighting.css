@@ -1,0 +1,155 @@
+/* Custom Syntax Highlighting for Doxygen HTML Output */
+/* This file enhances code block appearance and syntax highlighting */
+
+/* Enhanced code block styling */
+.fragment {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 16px;
+    margin: 16px 0;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Liberation Mono', monospace;
+    font-size: 14px;
+    line-height: 1.45;
+    overflow-x: auto;
+}
+
+/* C++ syntax highlighting colors */
+.fragment .keyword {
+    color: #d73a49;
+    font-weight: bold;
+}
+
+.fragment .keywordtype {
+    color: #6f42c1;
+    font-weight: bold;
+}
+
+.fragment .keywordflow {
+    color: #d73a49;
+    font-weight: bold;
+}
+
+.fragment .stringliteral {
+    color: #032f62;
+}
+
+.fragment .comment {
+    color: #6a737d;
+    font-style: italic;
+}
+
+.fragment .preprocessor {
+    color: #e36209;
+    font-weight: bold;
+}
+
+.fragment .number {
+    color: #005cc5;
+}
+
+.fragment .operator {
+    color: #d73a49;
+}
+
+.fragment .function {
+    color: #6f42c1;
+}
+
+.fragment .class {
+    color: #6f42c1;
+    font-weight: bold;
+}
+
+.fragment .namespace {
+    color: #6f42c1;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .fragment {
+        background-color: #2d3748;
+        border-color: #4a5568;
+        color: #e2e8f0;
+    }
+    
+    .fragment .keyword,
+    .fragment .keywordtype,
+    .fragment .keywordflow {
+        color: #f56565;
+    }
+    
+    .fragment .stringliteral {
+        color: #68d391;
+    }
+    
+    .fragment .comment {
+        color: #a0aec0;
+    }
+    
+    .fragment .preprocessor {
+        color: #ed8936;
+    }
+    
+    .fragment .number {
+        color: #63b3ed;
+    }
+    
+    .fragment .operator {
+        color: #f56565;
+    }
+    
+    .fragment .function,
+    .fragment .class,
+    .fragment .namespace {
+        color: #b794f4;
+    }
+}
+
+/* Inline code styling */
+code {
+    background-color: #f1f3f4;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Liberation Mono', monospace;
+    font-size: 0.9em;
+}
+
+/* Dark mode for inline code */
+@media (prefers-color-scheme: dark) {
+    code {
+        background-color: #4a5568;
+        color: #e2e8f0;
+    }
+}
+
+/* Enhanced table styling for better readability */
+table.doxtable {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 16px 0;
+}
+
+table.doxtable th,
+table.doxtable td {
+    border: 1px solid #e9ecef;
+    padding: 8px 12px;
+    text-align: left;
+}
+
+table.doxtable th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+/* Dark mode for tables */
+@media (prefers-color-scheme: dark) {
+    table.doxtable th,
+    table.doxtable td {
+        border-color: #4a5568;
+    }
+    
+    table.doxtable th {
+        background-color: #2d3748;
+    }
+}

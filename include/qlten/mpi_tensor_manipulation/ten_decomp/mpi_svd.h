@@ -82,24 +82,32 @@ void MPITensorSVDExecutor<TenElemT, QNT>::Execute(void) {
 }
 
 /**
-Function version for tensor SVD.
-
-@tparam TenElemT The element type of the tensors.
-@tparam QNT The quantum number type of the tensors.
-
-@param pt A pointer to to-be SVD decomposed tensor \f$ T \f$. The rank of \f$ T
-       \f$ should be larger then 1.
-@param ldims Number of indexes on the left hand side of the decomposition.
-@param lqndiv Quantum number divergence of the result \f$ U \f$ tensor.
-@param trunc_err The target truncation error.
-@param Dmin The target minimal kept dimensions for the truncated SVD decomposition.
-@param Dmax The target maximal kept dimensions for the truncated SVD decomposition.
-@param pu A pointer to result \f$ U \f$ tensor.
-@param ps A pointer to result \f$ S \f$ tensor.
-@param pvt A pointer to result \f$ V^{\dagger} \f$ tensor.
-@param pactual_trunc_err A pointer to actual truncation error after the truncation.
-@param pD A pointer to actual kept dimensions after the truncation.
-*/
+ * @brief Distributed (MPI) tensor SVD — master-side entry.
+ *
+ * Performs the same factorization as SVD but distributes blockwise SVD to
+ * worker ranks. This entry point is called on the master rank; other ranks
+ * should call MPISVDSlave<TenElemT>(comm) to participate.
+ *
+ * @tparam TenElemT Element type of the tensors.
+ * @tparam QNT Quantum number type of the tensors.
+ *
+ * @param pt Pointer to tensor \f$ T \f$ (rank >= 2).
+ * @param ldims Number of left indices.
+ * @param lqndiv Quantum-number divergence assigned to U.
+ * @param trunc_err Target truncation error.
+ * @param Dmin Minimal kept dimension.
+ * @param Dmax Maximal kept dimension.
+ * @param pu Output U tensor (default on entry).
+ * @param ps Output S matrix (default on entry).
+ * @param pvt Output V^\dagger tensor (default on entry).
+ * @param pactual_trunc_err Output achieved truncation error.
+ * @param pD Output kept dimension.
+ * @param comm MPI communicator.
+ *
+ * @note Collectively participates with ranks in `comm`. Ensure slaves run
+ *       MPISVDSlave<TenElemT>(comm) concurrently.
+ * @ref qlten::SVD
+ */
 template<typename TenElemT, typename QNT>
 void MPISVDMaster(
     const QLTensor<TenElemT, QNT> *pt,
@@ -124,8 +132,12 @@ void MPISVDMaster(
 }
 
 /**
- * 
- * @note claim the type TenElemT when call this function
+ * @brief Distributed (MPI) SVD — worker-side entry.
+ *
+ * @tparam TenElemT Element type; must match master's type.
+ * @param comm MPI communicator used by the master.
+ *
+ * @note Call concurrently on non-master ranks while master calls MPISVDMaster.
  */
 template<typename TenElemT>
 inline void MPISVDSlave(

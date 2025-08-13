@@ -35,6 +35,21 @@ inline int tensor_transpose_num_threads = kTensorOperationDefaultNumThreads;
 #ifndef PLAIN_TRANSPOSE
 
 template<typename ElemT>
+/**
+ * @brief High-performance tensor transpose (CPU, HPTT backend).
+ *
+ * Permutes dimensions of a dense tensor buffer `original_data` into `transed_data`.
+ * Shapes and permutation must be consistent: `transed_shape[i] == original_shape[transed_order[i]]`.
+ *
+ * @tparam ElemT Element type (e.g., QLTEN_Double, QLTEN_Complex).
+ * @param transed_order Permutation of 0..ten_rank-1.
+ * @param ten_rank Tensor rank.
+ * @param original_data Input buffer.
+ * @param original_shape Input shape.
+ * @param transed_data Output buffer (size equals product(transed_shape)).
+ * @param transed_shape Output shape.
+ * @param alpha Scale factor; for fermionic tensors sign may be propagated via alpha.
+ */
 void TensorTranspose(
     const std::vector<size_t> &transed_order,
     const size_t ten_rank,
@@ -62,6 +77,17 @@ void TensorTranspose(
 }
 
 template<typename ElemT>
+/**
+ * @brief High-performance tensor transpose (CPU, HPTT backend; int shape variant).
+ * @tparam ElemT Element type.
+ * @param transed_order Permutation of 0..ten_rank-1.
+ * @param ten_rank Tensor rank.
+ * @param original_data Input buffer.
+ * @param original_shape Input shape (size_t).
+ * @param transed_data Output buffer.
+ * @param transed_shape Output shape (int).
+ * @param alpha Scale factor as above.
+ */
 void TensorTranspose(
     const std::vector<int> &transed_order,
     const size_t ten_rank,
@@ -86,6 +112,18 @@ void TensorTranspose(
 
 #else
 template<typename ElemT, typename IntType>
+/**
+ * @brief Plain-reference CPU transpose (no HPTT), for portability and testing.
+ * @tparam ElemT Element type.
+ * @tparam IntType Integer type for shapes/permutation (size_t or int).
+ * @param transed_order Permutation of 0..ten_rank-1.
+ * @param ten_rank Tensor rank.
+ * @param original_data Input buffer.
+ * @param original_shape Input shape.
+ * @param transed_data Output buffer.
+ * @param transed_shape Output shape.
+ * @param scale Multiplicative factor applied during copy.
+ */
 void TensorTranspose(
     const std::vector<IntType> &transed_order,
     const size_t ten_rank,
@@ -165,6 +203,22 @@ template<>
 inline QLTEN_Complex TypedAlpha<QLTEN_Complex>(double alpha) { return {alpha, 0}; }
 
 template<typename ElemT, typename IntType>
+/**
+ * @brief GPU transpose based on cuTENSOR permutation API.
+ *
+ * Allocates descriptors for input/output tensors, creates a permutation plan,
+ * and executes the operation on the default CUDA stream.
+ *
+ * @tparam ElemT Element type (QLTEN_Double or QLTEN_Complex).
+ * @tparam IntType Integer type for shapes/permutation indices.
+ * @param transed_order Permutation mapping output dims to input dims.
+ * @param ten_rank Tensor rank.
+ * @param original_data Device pointer to input buffer.
+ * @param original_shape Input shape (host).
+ * @param transed_data Device pointer to output buffer.
+ * @param transed_shape Output shape (host).
+ * @param alpha Scale factor; converted to typed alpha internally.
+ */
 void TensorTranspose(
     const std::vector<IntType> &transed_order,
     const size_t ten_rank,

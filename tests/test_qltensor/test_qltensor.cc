@@ -8,6 +8,8 @@
 
 #include <fstream>    // ifstream, ofstream
 #include "gtest/gtest.h"
+#include <type_traits>
+#include <complex>
 
 //#define PLAIN_TRANSPOSE 1
 
@@ -670,6 +672,68 @@ TEST_F(TestQLTensor, TestNormalize) {
 }
 
 template<typename QLTensorT>
+void RunTestQLTensorQuasi2NormCase(const QLTensorT &t) {
+  // For bosonic tensors, Quasi2Norm should be the same as Get2Norm
+  auto quasi_norm = t.GetQuasi2Norm();
+  auto norm = t.Get2Norm();
+  EXPECT_NEAR(quasi_norm, norm, kEpsilon);
+  
+  // Verify that Quasi2Norm is the square root of sum of element squares
+  double expected_norm = 0.0;
+  for (auto &coors : GenAllCoors(t.GetShape())) {
+    expected_norm += qlten::norm(t.GetElem(coors));
+  }
+  expected_norm = qlten::sqrt(expected_norm);
+  EXPECT_NEAR(quasi_norm, expected_norm, kEpsilon);
+}
+
+TEST_F(TestQLTensor, TestQuasi2Norm) {
+  // Test scalar tensors
+  dten_scalar.Random(U1QN());
+  auto dscalar = dten_scalar.GetElem({});
+  auto dquasi_norm = dten_scalar.GetQuasi2Norm();
+  EXPECT_DOUBLE_EQ(dquasi_norm, qlten::abs(dscalar));
+
+  zten_scalar.Random(U1QN());
+  auto zscalar = zten_scalar.GetElem({});
+  auto zquasi_norm = zten_scalar.GetQuasi2Norm();
+  EXPECT_DOUBLE_EQ(zquasi_norm, qlten::abs(zscalar));
+
+  // Test 1D tensors
+  dten_1d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(dten_1d_s);
+  dten_1d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(dten_1d_s);
+
+  zten_1d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(zten_1d_s);
+  zten_1d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(zten_1d_s);
+
+  // Test 2D tensors
+  dten_2d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(dten_2d_s);
+  dten_2d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(dten_2d_s);
+
+  zten_2d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(zten_2d_s);
+  zten_2d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(zten_2d_s);
+
+  // Test 3D tensors
+  dten_3d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(dten_3d_s);
+  dten_3d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(dten_3d_s);
+
+  zten_3d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(zten_3d_s);
+  zten_3d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(zten_3d_s);
+}
+
+template<typename QLTensorT>
 void RunTestQLTensorSumCase(const QLTensorT &lhs, const QLTensorT &rhs) {
   auto sum1 = lhs + rhs;
   QLTensorT sum2(lhs);
@@ -833,9 +897,77 @@ void RunTestQLTensorElementWiseOperationCase(QLTensorT t, bool real_ten = true) 
   std::uniform_real_distribution<double> u_double(0, 1);
   std::random_device rd;
   std::mt19937 gen(rd());
-  t.ElementWiseRandSign(u_double, gen);
+  t.ElementWiseRandomizeMagnitudePreservePhase(u_double, gen);
 #endif
 }
+
+#ifndef USE_GPU
+template<typename ElemT, typename QNT>
+void CheckRandomizeMagnitudePreservePhase(QLTensor<ElemT, QNT> t) {
+  QLTensor<ElemT, QNT> before(t);
+  double max_abs = 0.0;
+  const auto &shape = before.GetShape();
+  std::vector<size_t> coor(shape.size(), 0);
+  auto advance = [&](std::vector<size_t> &c) -> bool {
+    for (int k = int(c.size()) - 1; k >= 0; --k) {
+      if (++c[static_cast<size_t>(k)] < shape[static_cast<size_t>(k)]) return true;
+      c[static_cast<size_t>(k)] = 0;
+    }
+    return false;
+  };
+  if (shape.empty()) {
+    max_abs = std::abs(before.GetElem({}));
+  } else {
+    do {
+      max_abs = std::max(max_abs, (double)std::abs(before.GetElem(coor)));
+    } while (advance(coor));
+  }
+  const double tol = 1e-3 * max_abs;
+
+  std::uniform_real_distribution<double> u_double(0, 1);
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  t.ElementWiseRandomizeMagnitudePreservePhase(u_double, gen);
+
+  std::fill(coor.begin(), coor.end(), 0);
+  auto check_scalar = [&](const ElemT &oldv, const ElemT &newv) {
+    constexpr double eps = 1e-12;
+    if constexpr (std::is_same_v<ElemT, QLTEN_Double>) {
+      double a = oldv;
+      double b = newv;
+      if (std::abs(a) > tol) {
+        EXPECT_EQ(std::signbit(a), std::signbit(b));
+        EXPECT_GE(std::abs(b), 0.0);
+        EXPECT_LE(std::abs(b), 1.0);
+      } else {
+        EXPECT_NEAR(b, a, eps);
+      }
+    } else {
+      std::complex<double> a = oldv;
+      std::complex<double> b = newv;
+      double amag = std::abs(a);
+      if (amag > tol) {
+        auto prod = b * std::conj(a);
+        EXPECT_NEAR(prod.imag(), 0.0, 1e-10);
+        EXPECT_GE(prod.real(), -1e-12);
+        EXPECT_GE(std::abs(b), 0.0);
+        EXPECT_LE(std::abs(b), 1.0);
+      } else {
+        EXPECT_NEAR(b.real(), a.real(), eps);
+        EXPECT_NEAR(b.imag(), a.imag(), eps);
+      }
+    }
+  };
+
+  if (shape.empty()) {
+    check_scalar(before.GetElem({}), t.GetElem({}));
+  } else {
+    do {
+      check_scalar(before.GetElem(coor), t.GetElem(coor));
+    } while (advance(coor));
+  }
+}
+#endif
 
 TEST_F(TestQLTensor, ElementWiseOperation) {
   dten_scalar.Random(U1QN());
@@ -886,6 +1018,19 @@ TEST_F(TestQLTensor, ElementWiseOperation) {
   zten_3d_s2.Random(qnp1);
   RunTestQLTensorElementWiseOperationCase(zten_3d_s2, false);
 }
+
+#ifndef USE_GPU
+TEST_F(TestQLTensor, ElementWiseRandomizeMagnitudePreservePhaseBehavior) {
+  // Real tensors
+  DQLTensor d1(dten_1d_s); d1.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Double, U1QN>(d1);
+  DQLTensor d2(dten_2d_s); d2.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Double, U1QN>(d2);
+  DQLTensor d3(dten_3d_s); d3.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Double, U1QN>(d3);
+  // Complex tensors
+  ZQLTensor z1(zten_1d_s); z1.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Complex, U1QN>(z1);
+  ZQLTensor z2(zten_2d_s); z2.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Complex, U1QN>(z2);
+  ZQLTensor z3(zten_3d_s); z3.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Complex, U1QN>(z3);
+}
+#endif
 
 TEST_F(TestQLTensor, ElementWiseSquare) {
   // Test scalar tensor

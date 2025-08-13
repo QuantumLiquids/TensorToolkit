@@ -16,31 +16,33 @@
 #include <cutensor.h>
 #include <cuda_runtime.h>
 
-/** A Singleton Class to manage the cublasHandle_t lifecycle
+/**
+ * @brief Singleton manager for cublasHandle_t lifetime.
  *
- * usage:
- * cublasHandle_t handle = CublasHandleManager::getHandle();
- *
+ * Usage:
+ * @code
+ * auto &handle = qlten::hp_numeric::CublasHandleManager::GetHandle();
+ * @endcode
  */
 
 namespace qlten {
 namespace hp_numeric {
 class CublasHandleManager {
  public:
-  // Get the singleton instance of the manager
+  /** @brief Get process-wide cuBLAS handle. */
   static cublasHandle_t &GetHandle() {
     static CublasHandleManager instance;  // Ensures handle is initialized once
     return instance.handle;
   }
 
-  // Delete copy constructor and assignment operator to prevent copying
+  // Non-copyable
   CublasHandleManager(const CublasHandleManager &) = delete;
   CublasHandleManager &operator=(const CublasHandleManager &) = delete;
 
  private:
   cublasHandle_t handle;
 
-  // Private constructor to initialize the handle
+  // Initialize the handle
   CublasHandleManager() {
     if (cublasCreate(&handle) != CUBLAS_STATUS_SUCCESS) {
       std::cerr << "Failed to create cuBLAS handle!" << std::endl;
@@ -48,7 +50,7 @@ class CublasHandleManager {
     }
   }
 
-  // Destructor to clean up the handle
+  // Destroy the handle
   ~CublasHandleManager() {
     if (cublasDestroy(handle) != CUBLAS_STATUS_SUCCESS) {
       std::cerr << "Failed to destroy cuBLAS handle!" << std::endl;
@@ -56,22 +58,23 @@ class CublasHandleManager {
   }
 };
 
+/** @brief Singleton manager for cusolverDnHandle_t lifetime. */
 class CusolverHandleManager {
  public:
-  // Get the singleton instance of the manager
+  /** @brief Get process-wide cuSOLVER handle. */
   static cusolverDnHandle_t &GetHandle() {
     static CusolverHandleManager instance;  // Ensures handle is initialized once
     return instance.handle;
   }
 
-  // Delete copy constructor and assignment operator to prevent copying
+  // Non-copyable
   CusolverHandleManager(const CusolverHandleManager &) = delete;
   CusolverHandleManager &operator=(const CusolverHandleManager &) = delete;
 
  private:
   cusolverDnHandle_t handle;
 
-  // Private constructor to initialize the handle
+  // Initialize the handle
   CusolverHandleManager() {
     if (cusolverDnCreate(&handle) != CUSOLVER_STATUS_SUCCESS) {
       std::cerr << "Failed to create cuSOLVER handle!" << std::endl;
@@ -79,7 +82,7 @@ class CusolverHandleManager {
     }
   }
 
-  // Destructor to clean up the handle
+  // Destroy the handle
   ~CusolverHandleManager() {
     if (cusolverDnDestroy(handle) != CUSOLVER_STATUS_SUCCESS) {
       std::cerr << "Failed to destroy cuSOLVER handle!" << std::endl;
@@ -87,22 +90,23 @@ class CusolverHandleManager {
   }
 };
 
+/** @brief Singleton manager for cutensorHandle_t lifetime. */
 class CutensorHandleManager {
  public:
-  // Get the singleton instance of the manager
+  /** @brief Get process-wide cuTENSOR handle. */
   static cutensorHandle_t &GetHandle() {
     static CutensorHandleManager instance;  // Ensures handle is initialized once
     return instance.handle;
   }
 
-  // Delete copy constructor and assignment operator to prevent copying
+  // Non-copyable
   CutensorHandleManager(const CutensorHandleManager &) = delete;
   CutensorHandleManager &operator=(const CutensorHandleManager &) = delete;
 
  private:
   cutensorHandle_t handle;
 
-  // Private constructor to initialize the handle
+  // Initialize the handle
   CutensorHandleManager() {
     if (cutensorCreate(&handle) != CUTENSOR_STATUS_SUCCESS) {
       std::cerr << "Failed to create cuTENSOR handle!" << std::endl;
@@ -110,7 +114,7 @@ class CutensorHandleManager {
     }
   }
 
-  // Destructor to clean up the handle
+  // Destroy the handle
   ~CutensorHandleManager() {
     if (cutensorDestroy(handle) != CUTENSOR_STATUS_SUCCESS) {
       std::cerr << "Failed to destroy cuTENSOR handle!" << std::endl;
@@ -119,7 +123,7 @@ class CutensorHandleManager {
 };
 }//hp_numeric
 
-// Handles cuTENSOR errors
+/** @brief Handle cuTENSOR errors, printing a message and aborting on failure. */
 inline void HandleCutensorError(cutensorStatus_t status, int line) {
   if (status != CUTENSOR_STATUS_SUCCESS) {
     std::cerr << "Error at line " << line << ": "
@@ -128,6 +132,7 @@ inline void HandleCutensorError(cutensorStatus_t status, int line) {
   }
 }
 
+/** @brief Convert cuSOLVER status to human-readable string. */
 inline const char *cusolverGetErrorString(cusolverStatus_t status) {
   switch (status) {
     case CUSOLVER_STATUS_SUCCESS: return "CUSOLVER_STATUS_SUCCESS";
@@ -145,6 +150,7 @@ inline const char *cusolverGetErrorString(cusolverStatus_t status) {
   }
 }
 
+/** @brief Handle cuSOLVER errors, printing a message and aborting on failure. */
 inline void HandleCuSolverError(cusolverStatus_t status, int line) {
   if (status != CUSOLVER_STATUS_SUCCESS) {
     std::cerr << "Error at line " << line << ": "
@@ -153,6 +159,7 @@ inline void HandleCuSolverError(cusolverStatus_t status, int line) {
   }
 }
 
+/** @brief Convert cuBLAS status to human-readable string. */
 template<typename T>
 const char *cublasGetErrorString(T status) {
   switch (status) {
@@ -170,6 +177,7 @@ const char *cublasGetErrorString(T status) {
   }
 }
 
+/** @brief Handle cuBLAS errors, printing a message and aborting on failure. */
 inline void HandleCuBlasError(cublasStatus_t status, int line) {
   if (status != CUBLAS_STATUS_SUCCESS) {
     std::cerr << "cuBLAS Error at line " << line << ": "

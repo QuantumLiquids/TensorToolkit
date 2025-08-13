@@ -38,25 +38,27 @@ To build test cases or develop programs like *TRG*, *DMRG* or *TDVP* based on Te
 ---
 ## Installation
 
-To install TensorToolkit and its dependencies:
+### 1) Get the source
 
-1. Clone the repository:
-    ```bash
-    git clone https://github.com/QuantumLiquids/TensorToolkit.git
-    cd TensorToolkit
-    ```
+```bash
+git clone https://github.com/QuantumLiquids/TensorToolkit.git
+cd TensorToolkit
+```
 
-2. Build using CMake:
-    ```bash
-    mkdir build && cd build
-    cmake .. -DCMAKE_CXX_COMPILER=g++/icpc/clang \
-             -DCMAKE_INSTALL_PREFIX=/path/to/install/location
-    make -j4 && make install
-    ```
+### 2) Build and install (CPU)
 
-This will build **HPTT** and install both **HPTT** and **TensorToolkit** into the specified directory.
+TensorToolkit is header-only. For CPU transpose, we depend on HPTT. The default build uses the bundled `external/hptt` and installs it along with headers.
 
-### Building Tests
+```bash
+mkdir build && cd build
+cmake .. -DCMAKE_CXX_COMPILER=g++ \
+         -DCMAKE_INSTALL_PREFIX=/path/to/install/location
+make -j4 && make install
+```
+
+This installs TensorToolkit headers and HPTT into the given prefix. If you prefer an external HPTT, point CMake to it (see `external/hptt` docs) and set the relevant CMake options accordingly.
+
+### 3) Build tests
 
 To build and run the unit tests:
 
@@ -74,6 +76,31 @@ To build and run the unit tests:
     ```bash
     ctest
     ```
+
+### 4) Build documentation
+
+Install Doxygen and Graphviz (macOS):
+
+```bash
+brew install doxygen graphviz
+```
+
+Generate HTML docs:
+
+```bash
+cd docs
+doxygen Doxyfile
+open build/html/index.html
+```
+
+The high-level user guides are under `docs/tutorials/` and appear in the generated HTML as "Tutorials".
+
+The documentation includes:
+- **User Tutorials**: Progressive learning path from installation to advanced features
+- **Developer Guide**: Architecture, design, and contribution guidelines  
+- **API Reference**: Complete class and function documentation
+
+All documentation is generated in `docs/build/html/` and can be viewed by opening `index.html`.
 
 ---
 ## Author
@@ -100,6 +127,7 @@ We would like to express our gratitude to the following individuals for their co
 - Zhen-Cheng Gu, my postdoc advisor, one of the pioneers in the field of tensor network.
 
 Their expertise and support have been invaluable in the development of TensorToolit.
+
 ---
 ## License
 

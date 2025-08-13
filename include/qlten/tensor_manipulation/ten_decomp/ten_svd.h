@@ -196,24 +196,40 @@ void TensorSVDExecutor<TenElemT, QNT>::Execute(void) {
 }
 
 /**
-Function version for tensor SVD.
-
-@tparam TenElemT The element type of the tensors.
-@tparam QNT The quantum number type of the tensors.
-
-@param pt A pointer to to-be SVD decomposed tensor \f$ T \f$. The rank of \f$ T
-       \f$ should be larger then 1.
-@param ldims Number of indexes on the left hand side of the decomposition.
-@param lqndiv Quantum number divergence of the result \f$ U \f$ tensor.
-@param trunc_err The target truncation error.
-@param Dmin The target minimal kept dimensions for the truncated SVD decomposition.
-@param Dmax The target maximal kept dimensions for the truncated SVD decomposition.
-@param pu A pointer to the result \f$ U \f$ tensor. The last index of \f$ U \f$ is a newly generated index with direction 'OUT'.
-@param ps A pointer to the result \f$ S \f$ tensor. \f$ S \f$ is a matrix. The first index has direction 'IN', and the second index has direction 'OUT'.
-@param pvt A pointer to the result \f$ V^{\dagger} \f$ tensor. The first index of \f$ V^{\dagger} \f$ is a newly generated index with direction 'IN'.
-@param pactual_trunc_err A pointer to actual truncation error after the truncation.
-@param pD A pointer to actual kept dimensions after the truncation.
-*/
+ * @brief Function version for tensor SVD with truncation.
+ *
+ * Factorizes a tensor T into U, S, V^\dagger given a bipartition after `ldims`
+ * indices. Quantum-number conservation structure is respected within each block; truncation
+ * keeps leading singular values until the target error is met or bounds [Dmin, Dmax]
+ * are reached.
+ *
+ * @tparam TenElemT Element type of tensors.
+ * @tparam QNT Quantum number type of tensors.
+ *
+ * @param pt Pointer to tensor \f$ T \f$ (rank >= 2).
+ * @param ldims Number of left indices in the bipartition.
+ * @param lqndiv Quantum-number divergence assigned to U.
+ * @param trunc_err Target truncation error. We use the squared-norm convention:
+ *        \f$\epsilon = 1 - \sum_{i\le D} s_i^2 / \sum_j s_j^2\f$ (no outer square root).
+ * @param Dmin Minimal kept dimension.
+ * @param Dmax Maximal kept dimension.
+ * @param pu Output \f$ U \f$ tensor; appends a new OUT index of kept dimension.
+ * @param ps Output diagonal \f$ S \f$ matrix; first index IN, second index OUT.
+ * @param pvt Output \f$ V^{\dagger} \f$ tensor; prepends a new IN index of kept dimension.
+ * @param pactual_trunc_err Output actual truncation error achieved.
+ * @param pD Output kept dimension.
+ *
+ * @pre `pu`, `ps`, `pvt` are default (empty) on entry.
+ * @note Blockwise SVD is performed and then assembled respecting symmetry sectors.
+ *
+ * @par Example
+ * @code
+ * using qlten::special_qn::U1QN;
+ * QLTensor<QLTEN_Double, U1QN> T(...), U, S, Vt; double err; size_t D;
+ * // Call: SVD(T, ldims=2, lqndiv=U1QN(0), trunc_err=1e-8, Dmin=1, Dmax=512)
+ * SVD(&T, 2, U1QN(0), 1e-8, 1, 512, &U, &S, &Vt, &err, &D);
+ * @endcode
+ */
 template<typename TenElemT, typename QNT>
 void SVD(
     const QLTensor<TenElemT, QNT> *pt,

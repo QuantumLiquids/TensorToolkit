@@ -875,6 +875,72 @@ TEST_F(TestQLTensor, TestNormalize) {
 }
 
 template<typename QLTensorT>
+void RunTestQLTensorQuasi2NormCase(const QLTensorT &t) {
+  // For fermionic tensors, Quasi2Norm should be different from Get2Norm
+  // Quasi2Norm always uses RawDataNorm_() regardless of fermionic nature
+  auto quasi_norm = t.GetQuasi2Norm();
+  auto norm = t.Get2Norm();
+  
+  // Verify that Quasi2Norm is the square root of sum of element squares
+  double expected_norm = 0.0;
+  for (auto &coors : GenAllCoors(t.GetShape())) {
+    expected_norm += qlten::norm(t.GetElem(coors));
+  }
+  expected_norm = qlten::sqrt(expected_norm);
+  EXPECT_NEAR(quasi_norm, expected_norm, kEpsilon);
+  
+  // For fermionic tensors, Quasi2Norm should be the same as the expected norm
+  // but may differ from Get2Norm due to fermionic sign factors
+  EXPECT_NEAR(quasi_norm, expected_norm, kEpsilon);
+}
+
+TEST_F(TestQLTensor, TestQuasi2Norm) {
+  // Test scalar tensors
+  dten_scalar.Random(fU1QN());
+  auto dscalar = dten_scalar.GetElem({});
+  auto dquasi_norm = dten_scalar.GetQuasi2Norm();
+  EXPECT_DOUBLE_EQ(dquasi_norm, qlten::abs(dscalar));
+
+  zten_scalar.Random(fU1QN());
+  auto zscalar = zten_scalar.GetElem({});
+  auto zquasi_norm = zten_scalar.GetQuasi2Norm();
+  EXPECT_DOUBLE_EQ(zquasi_norm, qlten::abs(zscalar));
+
+  // Test 1D tensors
+  dten_1d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(dten_1d_s);
+  dten_1d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(dten_1d_s);
+
+  zten_1d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(zten_1d_s);
+  zten_1d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(zten_1d_s);
+
+  // Test 2D tensors
+  dten_2d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(dten_2d_s);
+  dten_2d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(dten_2d_s);
+
+  zten_2d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(zten_2d_s);
+  zten_2d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(zten_2d_s);
+
+  // Test 3D tensors
+  dten_3d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(dten_3d_s);
+  dten_3d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(dten_3d_s);
+
+  zten_3d_s.Random(qn0);
+  RunTestQLTensorQuasi2NormCase(zten_3d_s);
+  zten_3d_s.Random(qnp1);
+  RunTestQLTensorQuasi2NormCase(zten_3d_s);
+}
+
+template<typename QLTensorT>
 void RunTestQLTensorSumCase(const QLTensorT &lhs, const QLTensorT &rhs) {
   auto sum1 = lhs + rhs;
   QLTensorT sum2(lhs);
@@ -1038,7 +1104,7 @@ void RunTestQLTensorElementWiseOperationCase(QLTensorT t, bool real_ten = true) 
   std::uniform_real_distribution<double> u_double(0, 1);
   std::random_device rd;
   std::mt19937 gen(rd());
-  t.ElementWiseRandSign(u_double, gen);
+  t.ElementWiseRandomizeMagnitudePreservePhase(u_double, gen);
 #endif
 }
 

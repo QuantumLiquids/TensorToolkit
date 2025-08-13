@@ -285,7 +285,7 @@ class BlockSparseDataTensor : public Streamable {
   void ElementWiseBoundTo(double bound);
 
   template<typename RandGenerator>
-  void ElementWiseRandSign(std::uniform_real_distribution<double> &dist,
+  void ElementWiseRandomizeMagnitudePreservePhase(std::uniform_real_distribution<double> &dist,
                            RandGenerator &g);
 
   double GetMaxAbs(void) const;

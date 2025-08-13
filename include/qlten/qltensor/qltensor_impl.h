@@ -1097,9 +1097,9 @@ void QLTensor<ElemT, QNT>::DiagMatInv(double tolerance) {
 
 template<typename ElemT, typename QNT>
 template<typename RandGenerator>
-void QLTensor<ElemT, QNT>::ElementWiseRandSign(std::uniform_real_distribution<double> &dist,
+void QLTensor<ElemT, QNT>::ElementWiseRandomizeMagnitudePreservePhase(std::uniform_real_distribution<double> &dist,
                                                RandGenerator &g) {
-  pblk_spar_data_ten_->ElementWiseRandSign(dist, g);
+  pblk_spar_data_ten_->ElementWiseRandomizeMagnitudePreservePhase(dist, g);
 }
 #endif //not USE_GPU
 

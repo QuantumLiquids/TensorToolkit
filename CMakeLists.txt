@@ -21,6 +21,7 @@ set(CMAKE_CXX_STANDARD 17)
 option(QLTEN_USE_GPU "Use GPU" OFF)
 option(QLTEN_COMPILE_HPTT_LIB "Compile hptt library; Invalid if Use GPU" ON)
 option(QLTEN_BUILD_UNITTEST "Build unittests for TensorKit." OFF)
+option(QLTEN_BUILD_EXAMPLES "Build examples." OFF)
 
 option(QLTEN_TIMING_MODE "Enable Timing mode." ON)
 option(QLTEN_MPI_TIMING_MODE "Enable MPI timing mode." ON)
@@ -71,4 +72,9 @@ if (QLTEN_BUILD_UNITTEST)
     enable_testing()
     find_package(GTest REQUIRED)
     add_subdirectory(tests tests)
+endif ()
+
+# Examples
+if (QLTEN_BUILD_EXAMPLES)
+    add_subdirectory(examples examples)
 endif ()
