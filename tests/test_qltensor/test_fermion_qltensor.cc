@@ -1098,7 +1098,7 @@ void RunTestQLTensorElementWiseOperationCase(QLTensorT t, bool real_ten = true) 
   if (real_ten) {
     t.ElementWiseSign();
   }
-  t.ElementWiseBoundTo(0.05);
+  t.ElementWiseClipTo(0.05);
 
 #ifndef  USE_GPU
   std::uniform_real_distribution<double> u_double(0, 1);
@@ -1213,40 +1213,57 @@ TEST_F(TestQLTensor, ElementWiseSquare) {
   EXPECT_EQ(result.GetShape(), dten_copy_test.GetShape());
 }
 
-TEST_F(TestQLTensor, ElementWiseBoundTo) {
+TEST_F(TestQLTensor, ElementWiseClipTo) {
   // Test scalar tensor
   dten_scalar.Random(fU1QN());
   auto original_val = dten_scalar.GetElem({});
-  double bound = 0.5;
-  dten_scalar.ElementWiseBoundTo(bound);
-  EXPECT_LE(std::abs(dten_scalar.GetElem({})), bound);
+  double limit = 0.5;
+  dten_scalar.ElementWiseClipTo(limit);
+  EXPECT_LE(std::abs(dten_scalar.GetElem({})), limit);
 
   // Test 1D tensor
   DQLTensor dten_1d_test(dten_1d_s);
   dten_1d_test.Random(qn0);
-  bound = 0.3;
-  dten_1d_test.ElementWiseBoundTo(bound);
+  limit = 0.3;
+  dten_1d_test.ElementWiseClipTo(limit);
   for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
-    EXPECT_LE(std::abs(dten_1d_test.GetElem({i})), bound);
+    EXPECT_LE(std::abs(dten_1d_test.GetElem({i})), limit);
   }
 
   // Test 2D tensor
   DQLTensor dten_2d_test(dten_2d_s);
   dten_2d_test.Random(qn0);
-  bound = 0.2;
-  dten_2d_test.ElementWiseBoundTo(bound);
+  limit = 0.2;
+  dten_2d_test.ElementWiseClipTo(limit);
   for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
     for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
-      EXPECT_LE(std::abs(dten_2d_test.GetElem({i, j})), bound);
+      EXPECT_LE(std::abs(dten_2d_test.GetElem({i, j})), limit);
     }
   }
 
-  // Test complex tensor
+  // Test complex tensor - verify phase preservation
   zten_scalar.Random(fU1QN());
-  bound = 0.4;
-  zten_scalar.ElementWiseBoundTo(bound);
-  auto complex_val = zten_scalar.GetElem({});
-  EXPECT_LE(std::abs(complex_val), bound + 1e-10);
+  auto original_complex = zten_scalar.GetElem({});
+  double original_phase = std::arg(original_complex);
+  limit = 0.4;
+  zten_scalar.ElementWiseClipTo(limit);
+  auto clipped_complex = zten_scalar.GetElem({});
+  // Magnitude should be clipped
+  EXPECT_LE(std::abs(clipped_complex), limit + 1e-10);
+  // Phase should be preserved (for non-zero original values)
+  if (std::abs(original_complex) > 1e-10) {
+    double clipped_phase = std::arg(clipped_complex);
+    EXPECT_NEAR(original_phase, clipped_phase, 1e-10);
+  }
+}
+
+// Backward compatibility test
+TEST_F(TestQLTensor, ElementWiseBoundTo_BackwardCompatibility) {
+  // Simple test to ensure the deprecated API still works
+  dten_scalar.Random(fU1QN());
+  double bound = 0.3;
+  dten_scalar.ElementWiseBoundTo(bound);  // Should work via deprecated API
+  EXPECT_LE(std::abs(dten_scalar.GetElem({})), bound);
 }
 
 TEST_F(TestQLTensor, ElementWiseInv) {

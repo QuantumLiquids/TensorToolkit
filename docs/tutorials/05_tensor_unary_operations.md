@@ -69,7 +69,7 @@ A.ElementWiseInv(1e-12);      // with tolerance for near-zeros
 A.ElementWiseSqrt();
 A.ElementWiseSquare();
 A.ElementWiseSign();          // real: {-1,0,1}; complex: preserve phase, unit magnitude
-A.ElementWiseBoundTo(1.0);    // clamp magnitude to bound (phase preserved for complex)
+A.ElementWiseClipTo(1.0);     // clip magnitude to limit (phase preserved for complex)
 
 // Randomize magnitudes in-place but keep original signs/phases
 std::mt19937 rng(123);

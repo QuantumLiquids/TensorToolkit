@@ -13,6 +13,7 @@ Welcome to the TensorToolkit developer documentation. This section is for develo
 - **[System Architecture](../architecture.html)** - High-level system design and components
 - **[Data Structures](../data_structures.html)** - Core data structure implementations
 - **[Backend System](../backends.html)** - CPU/GPU backend abstraction layer
+- **[Fermion Design](./fermion_design.md)** - Z2 graded tensor network math and implementation
 
 ### Testing & Quality
 - **[Testing Framework](../testing.html)** - How to run tests and write new ones

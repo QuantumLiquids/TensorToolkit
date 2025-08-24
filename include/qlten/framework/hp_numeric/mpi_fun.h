@@ -20,8 +20,11 @@
 namespace qlten {
 /// High performance numerical functions.
 // MPI master's rank
+[[deprecated("Use qlten::hp_numeric::kMPIMasterRank instead")]]
 const size_t kMPIMasterRank = 0;
 namespace hp_numeric {
+// MPI master's rank - preferred location
+const size_t kMPIMasterRank = 0;
 const size_t kMPIMaxChunkSize = ((size_t) 1 << 31) - 1;  // byte
 
 // Function to handle MPI errors

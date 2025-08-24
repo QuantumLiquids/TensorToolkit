@@ -18,7 +18,7 @@
 namespace qlten {
 
 /**
- * T = U * D * U^\dagger
+ * \f$ T = U \cdot D \cdot U^{\dagger} \f$
  * T, U and D are stored in pt_, pu_ and pd_, respectively
  * The indices of results U and D are same with those of T.
  */

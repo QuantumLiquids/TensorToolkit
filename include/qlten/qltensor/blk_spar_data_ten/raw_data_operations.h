@@ -721,13 +721,17 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataElementWiseMultiply_(
 #endif
 
 #ifndef  USE_GPU
+// sign(0) = 0
 inline double sign(double val) {
-  return double(int(0 < val) - int(val < 0));
+  return double(int(0 < val) - int(val < 0));  // Consistent with GPU version: {-1, 0, 1}
 }
 
-// used in PEPS variational update
+// used in PEPS variational update  
 inline std::complex<double> sign(std::complex<double> val) {
-  return std::complex<double>(sign(val.real()), sign(val.imag()));
+  return std::complex<double>(
+    double(int(0 < val.real()) - int(val.real() < 0)),  // Consistent with real version
+    double(int(0 < val.imag()) - int(val.imag() < 0))   // Consistent with real version
+  );
 }
 
 template<typename ElemT, typename QNT>
@@ -779,24 +783,25 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseRandomizeMagnitudePreservePha
   }
 }
 
-inline QLTEN_Double BoundNumber(QLTEN_Double number, double bound) {
-  return sign(number) * bound;
+inline QLTEN_Double ClipValue(QLTEN_Double number, double limit) {
+  return std::copysign(limit, number);
 }
 
-inline QLTEN_Complex BoundNumber(QLTEN_Complex number, double bound) {
-  double abs_val = std::abs(number);
-  if (abs_val > bound) {
-    return number * bound / abs_val;
+inline QLTEN_Complex ClipValue(QLTEN_Complex number, double limit) {
+  double magnitude = std::abs(number);
+  if (magnitude > limit) {
+    double phase = std::arg(number);  // Get phase angle
+    return std::polar(limit, phase);  // Reconstruct with clipped magnitude
   }
   return number;
 }
 
 template<typename ElemT, typename QNT>
-void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseClipTo(double limit) {
   for (size_t i = 0; i < actual_raw_data_size_; i++) {
     ElemT *elem = pactual_raw_data_ + i;
-    if (std::abs(*elem) > bound) {
-      *elem = BoundNumber(*elem, bound);
+    if (std::abs(*elem) > limit) {
+      *elem = ClipValue(*elem, limit);
     }
   }
 }
@@ -959,32 +964,32 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSign() {
 }
 
 __global__
-inline void ElementWiseBoundKernel(double *data, size_t size, double bound) {
+inline void ElementWiseClipKernel(double *data, size_t size, double limit) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
-    double sign = (int(0 < data[idx]) - int(data[idx] < 0));
-    data[idx] = sign * bound;
+    data[idx] = ::copysign(limit, data[idx]);  // Use global namespace for CUDA
   }
 }
 
 __global__
-inline void ElementWiseBoundKernel(cuda::std::complex<double> *data, size_t size, double bound) {
+inline void ElementWiseClipKernel(cuda::std::complex<double> *data, size_t size, double limit) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
-    double abs_val = cuda::std::abs(data[idx]);
-    if (abs_val > bound) {
-      data[idx] = data[idx] * bound / abs_val;
+    double magnitude = cuda::std::abs(data[idx]);
+    if (magnitude > limit) {
+      double phase = cuda::std::arg(data[idx]);  // Get phase angle
+      data[idx] = cuda::std::polar(limit, phase);  // Reconstruct with clipped magnitude
     }
   }
 }
 
 template<typename ElemT, typename QNT>
-void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseClipTo(double limit) {
   const int threadsPerBlock = 256;
   const int blocks = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
 
   // Launch kernel
-  ElementWiseBoundKernel<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_, bound);
+  ElementWiseClipKernel<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_, limit);
 
   // Synchronize device
   cudaDeviceSynchronize();

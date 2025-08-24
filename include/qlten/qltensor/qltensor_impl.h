@@ -651,11 +651,11 @@ template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::ElementWiseMultiply(const QLTensor &rhs) {
   assert(!(IsDefault() || rhs.IsDefault()));
   assert(indexes_ == rhs.indexes_);
-  
+
   if (IsScalar()) {
     auto result = GetElem({}) * rhs.GetElem({});
     SetElem({}, result);
-    return; 
+    return;
   }
   assert(Div() == rhs.Div());
   pblk_spar_data_ten_->ElementWiseMultiply(*rhs.pblk_spar_data_ten_);
@@ -919,9 +919,7 @@ std::pair<CoorsT, CoorsT> QLTensor<ElemT, QNT>::CoorsToBlkCoorsDataCoors_(
 inline int TensorDataTag(const int tag) {
   return 11 * tag + 1;
 }
-/**
- * Note use this function rather world.send() directly
- */
+
 template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::MPI_Send(int dest, int tag, const MPI_Comm &comm) const {
   const bool is_default = this->IsDefault();
@@ -1073,8 +1071,13 @@ void QLTensor<ElemT, QNT>::ElementWiseSign() {
 }
 
 template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseClipTo(double limit) {
+  pblk_spar_data_ten_->ElementWiseClipTo(limit);
+}
+
+template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
-  pblk_spar_data_ten_->ElementWiseBoundTo(bound);
+  pblk_spar_data_ten_->ElementWiseClipTo(bound);
 }
 
 #ifndef USE_GPU

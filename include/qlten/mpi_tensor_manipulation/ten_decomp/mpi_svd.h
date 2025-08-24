@@ -99,7 +99,7 @@ void MPITensorSVDExecutor<TenElemT, QNT>::Execute(void) {
  * @param Dmax Maximal kept dimension.
  * @param pu Output U tensor (default on entry).
  * @param ps Output S matrix (default on entry).
- * @param pvt Output V^\dagger tensor (default on entry).
+ * @param pvt Output \f$ V^{\dagger} \f$ tensor (default on entry).
  * @param pactual_trunc_err Output achieved truncation error.
  * @param pD Output kept dimension.
  * @param comm MPI communicator.

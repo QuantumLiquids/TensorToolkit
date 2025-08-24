@@ -1,14 +1,9 @@
 <?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
 <tagfile doxygen_version="1.14.0">
   <compound kind="file">
-    <name>index.md</name>
-    <path>developer/</path>
-    <filename>developer_2index_8md.html</filename>
-  </compound>
-  <compound kind="file">
-    <name>index.md</name>
-    <path>tutorials/</path>
-    <filename>tutorials_2index_8md.html</filename>
+    <name>test_coverage_report.md</name>
+    <path>dev/</path>
+    <filename>test__coverage__report_8md.html</filename>
   </compound>
   <compound kind="file">
     <name>DISTRIBUTION.md</name>
@@ -79,6 +74,21 @@
     <name>12_gpu_setup.md</name>
     <path>tutorials/</path>
     <filename>12__gpu__setup_8md.html</filename>
+  </compound>
+  <compound kind="file">
+    <name>index.md</name>
+    <path>dev/</path>
+    <filename>dev_2index_8md.html</filename>
+  </compound>
+  <compound kind="file">
+    <name>index.md</name>
+    <path>tutorials/</path>
+    <filename>tutorials_2index_8md.html</filename>
+  </compound>
+  <compound kind="file">
+    <name>10_mpi_基础.md</name>
+    <path>tutorials_cn/</path>
+    <filename>10__mpi___xE5_x9F_xBA_xE7_xA1_x80_8md.html</filename>
   </compound>
   <compound kind="file">
     <name>executor.h</name>
@@ -7434,6 +7444,13 @@
     </member>
     <member kind="variable">
       <type>const size_t</type>
+      <name>kMPIMasterRank</name>
+      <anchorfile>namespaceqlten_1_1hp__numeric.html</anchorfile>
+      <anchor>ad086f5808cbec4ffdf306ee5766eace0</anchor>
+      <arglist></arglist>
+    </member>
+    <member kind="variable">
+      <type>const size_t</type>
       <name>kMPIMaxChunkSize</name>
       <anchorfile>namespaceqlten_1_1hp__numeric.html</anchorfile>
       <anchor>a9f10a207fc7f0d76bdb94a19f0f360b0</anchor>
@@ -7666,9 +7683,14 @@
     </member>
   </compound>
   <compound kind="page">
-    <name>md_developer_2index</name>
+    <name>md_dev_2index</name>
     <title>Developer Documentation</title>
-    <filename>md_developer_2index.html</filename>
+    <filename>md_dev_2index.html</filename>
+  </compound>
+  <compound kind="page">
+    <name>md_dev_2test__coverage__report</name>
+    <title>TensorToolkit 测试覆盖率评估报告</title>
+    <filename>md_dev_2test__coverage__report.html</filename>
   </compound>
   <compound kind="page">
     <name>md__d_i_s_t_r_i_b_u_t_i_o_n</name>
@@ -7717,7 +7739,7 @@
   </compound>
   <compound kind="page">
     <name>md_tutorials_209__ising__trg__example</name>
-    <title>Complete Ising TRG Example</title>
+    <title>Z2 Ising TRG</title>
     <filename>md_tutorials_209__ising__trg__example.html</filename>
   </compound>
   <compound kind="page">
@@ -7739,6 +7761,11 @@
     <name>md_tutorials_2index</name>
     <title>TensorToolkit Tutorials</title>
     <filename>md_tutorials_2index.html</filename>
+  </compound>
+  <compound kind="page">
+    <name>md_tutorials__cn_210__mpi___xE5_x9F_xBA_xE7_xA1_x80</name>
+    <title>张量 MPI 操作基础</title>
+    <filename>md_tutorials__cn_210__mpi___x_e5_x9_f_x_b_a_x_e7_x_a1_x80.html</filename>
   </compound>
   <compound kind="page">
     <name>index</name>

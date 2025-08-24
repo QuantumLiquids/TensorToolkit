@@ -25,6 +25,9 @@ Welcome to the TensorToolkit learning path! These tutorials are designed to take
 11. **[MPI Advanced](11_mpi_advanced.html)** - Distributed SVD and advanced parallel operations
 12. **[GPU Acceleration](12_gpu_setup.html)** - CUDA backend setup and usage
 
+### 📐 Mathematical Foundations (Optional)
+13. **[Z2-Graded Tensor Network](13_z2_graded_tensor_network.md)** - Mathematical foundations for fermionic TNs
+
 ## 📋 Prerequisites
 
 - **C++17** or later compiler

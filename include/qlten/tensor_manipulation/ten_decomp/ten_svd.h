@@ -198,7 +198,7 @@ void TensorSVDExecutor<TenElemT, QNT>::Execute(void) {
 /**
  * @brief Function version for tensor SVD with truncation.
  *
- * Factorizes a tensor T into U, S, V^\dagger given a bipartition after `ldims`
+ * Factorizes a tensor T into U, S, \f$ V^{\dagger} \f$ given a bipartition after `ldims`
  * indices. Quantum-number conservation structure is respected within each block; truncation
  * keeps leading singular values until the target error is met or bounds [Dmin, Dmax]
  * are reached.

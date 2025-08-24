@@ -43,9 +43,9 @@
 - **[GPU API](api/gpu.html)** - CUDA acceleration functions
 
 ### Development
-- **[Developer Guide](developer/index.html)** - Architecture, design principles, and contribution guidelines
-- **[Testing Guide](developer/testing.html)** - How to run tests and contribute code
-- **[Performance Guide](developer/performance.html)** - Optimization and benchmarking
+- **[Developer Guide](dev/index.html)** - Architecture, design principles, and contribution guidelines
+- **[Testing Guide](dev/testing.html)** - How to run tests and contribute code
+- **[Performance Guide](dev/performance.html)** - Optimization and benchmarking
 
 ## 🎯 Key Features
 

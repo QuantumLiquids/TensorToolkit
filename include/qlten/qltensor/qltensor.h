@@ -258,11 +258,11 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   /** @brief 2-norm of the tensor.
    *
    * Definitions :
-   * - Bosonic tensors: \( \|A\|_2 = \sqrt{\sum_i |a_i|^2} \).
+   * - Bosonic tensors: \f$ \|A\|_2 = \sqrt{\sum_i |a_i|^2} \f$.
    * - Fermionic tensors (Z2-graded, let E/O denote even/odd fermionic parity blocks):
-   *   \[
+   *   \f[
    *   \|A\|_{2,\mathrm{graded}} = \sqrt{\sum_{i\in E} |a_i|^2\; - \; \sum_{i\in O} |a_i|^2}.
-   *   \]
+   *   \f]
    *   This graded norm can be ill-defined if the odd contribution exceeds the even one,
    *   in which case the quantity under the square root becomes negative.
    *
@@ -274,7 +274,7 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
 
   /** @brief Quasi 2-norm of the tensor.
    * For both bosonic and fermionic tensors,
-   * \( \|A\|_{2,\mathrm{quasi}} = \sqrt{\sum_i |a_i|^2} \).
+   * \f$ \|A\|_{2,\mathrm{quasi}} = \sqrt{\sum_i |a_i|^2} \f$.
    * This is always non-negative and coincides with the standard Euclidean norm.
    */
   QLTEN_Double GetQuasi2Norm(void) const;
@@ -288,7 +288,7 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
    */
   QLTEN_Double Normalize(void);
 
-  /** @brief Rescale the tensor so that \(\sum_i |a_i|^2 = 1\) (uses quasi 2-norm) */
+  /** @brief Rescale the tensor so that \f$\sum_i |a_i|^2 = 1\f$ (uses quasi 2-norm) */
   QLTEN_Double QuasiNormalize(void);
 
   /**
@@ -324,15 +324,33 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   /** @brief In-place element-wise square. */
   void ElementWiseSquare(void);
 
-  /** @brief In-place element-wise sign.
-   * For real elements: sign(x) in {-1, 0, 1}.
-   * For complex elements: preserves the complex phase, maps magnitude to 1 (0 if x==0).
+  /** @brief In-place element-wise sign extraction.
+   * For real elements: returns -1, 0, or 1 based on sign.
+   * For complex elements: returns (±1 or 0, ±1 or 0) based on signs of real and imaginary parts separately.
+   * 
+   * Note: This does NOT preserve complex phase. For phase preservation, use other methods.
    */
   void ElementWiseSign(void);
 
-  /// @brief bound the tensor element to the bound
-  /// bound of real number is sign * bound,
-  /// bound of complex number is the same angle of complex number but the magnitude is bound
+  /** @brief Clip tensor elements to specified limit (magnitude bound).
+   * 
+   * For real numbers: clips to ±limit while preserving sign
+   * For complex numbers: clips magnitude to limit while preserving phase
+   * 
+   * @param limit The magnitude limit to clip to
+   */
+  void ElementWiseClipTo(double limit);
+
+  /** @brief Clip tensor elements to specified limit (magnitude bound).
+   * 
+   * @deprecated Use ElementWiseClipTo instead for clearer semantics
+   * 
+   * For real numbers: clips to ±limit while preserving sign
+   * For complex numbers: clips magnitude to limit while preserving phase
+   * 
+   * @param bound The magnitude limit to clip to
+   */
+  [[deprecated("Use ElementWiseClipTo instead")]]
   void ElementWiseBoundTo(double bound);
 
   template<typename RandGenerator>
