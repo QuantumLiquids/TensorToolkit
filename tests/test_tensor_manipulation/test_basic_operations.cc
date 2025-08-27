@@ -124,7 +124,7 @@ void RunTestRealTensorToComplexCase(
     QLTensor<QLTEN_Double, QNT> &t,
     const QNT & div,
     unsigned int rand_seed) {
-  srand(rand_seed);
+  qlten::SetRandomSeed(rand_seed);
   t.Random(div);
   auto zten = ToComplex(t);
   for (auto &coors : GenAllCoors(t.GetShape())) {

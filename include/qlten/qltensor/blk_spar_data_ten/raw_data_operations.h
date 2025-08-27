@@ -171,7 +171,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataRand_(void) {
   dim3 gridDim((actual_raw_data_size_ + blockDim.x - 1) / blockDim.x);
 
   // Launch CUDA kernel to populate random data
-  RandomKernel<<<gridDim, blockDim>>>(pactual_raw_data_, actual_raw_data_size_);
+  RandomKernel<<<gridDim, blockDim>>>(pactual_raw_data_, actual_raw_data_size_, qlten::GetRandomSeed());
   cudaDeviceSynchronize();  // Synchronize for error checking
 
   auto cuda_err = cudaGetLastError();
@@ -778,8 +778,10 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseRandomizeMagnitudePreservePha
                                           [](const ElemT &a, const ElemT &b) {
                                             return std::abs(a) < std::abs(b);
                                           });
+  // Match tests' tolerance policy exactly
+  const double tolerance = std::abs(*max_ele) * 1.0e-3; // ! bad thing, magic number
   for (size_t i = 0; i < actual_raw_data_size_; i++) {
-    RandMagnitudePreservePhase(pactual_raw_data_ + i, dist, g, std::abs(*max_ele) * 1e-3);
+    RandMagnitudePreservePhase(pactual_raw_data_ + i, dist, g, tolerance);
   }
 }
 

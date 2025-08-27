@@ -122,8 +122,8 @@ IndexT RandIndex(const unsigned qn_sct_num,            // the number of QN secto
   QNSectorVec<U1QN> qnsv(qn_sct_num);
   for (size_t i = 0; i < qn_sct_num; i++) {
     auto qn = U1QN({QNCard("qn", U1QNVal(i))});
-    srand((unsigned) time(NULL));
-    unsigned degeneracy = rand() % max_dim_in_one_qn_sct + 1;
+    qlten::SetRandomSeed(static_cast<unsigned long long>(time(NULL)));
+    unsigned degeneracy = static_cast<unsigned>(qlten::RandUint32() % max_dim_in_one_qn_sct) + 1;
     qnsv[i] = QNSector(qn, degeneracy);
   }
   return Index(qnsv, dir);

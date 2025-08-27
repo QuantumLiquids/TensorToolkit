@@ -10,6 +10,7 @@
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_decomp/ten_qr.h"    // QR
 #include "qlten/tensor_manipulation/ten_ctrct.h"            // Contract
+#include "../testing_utility.h"                            // kEpsilon
 
 using namespace qlten;
 using U1QN = QN<U1QNVal>;
@@ -27,8 +28,8 @@ void CheckIsIdTen(const TenT &t) {
   EXPECT_EQ(shape[0], shape[1]);
   for (size_t i = 0; i < shape[0]; ++i) {
     QLTEN_Complex elem = t.GetElem({i, i});
-    EXPECT_NEAR(elem.real(), 1.0, 1E-14);
-    EXPECT_NEAR(elem.imag(), 0.0, 1E-14);
+    EXPECT_NEAR(elem.real(), 1.0, kEpsilon);
+    EXPECT_NEAR(elem.imag(), 0.0, kEpsilon);
   }
 }
 
@@ -38,8 +39,8 @@ void CheckTwoTenClose(const TenT &t1, const TenT &t2) {
   for (auto &coors : GenAllCoors(t1.GetShape())) {
     QLTEN_Complex elem1 = t1.GetElem(coors);
     QLTEN_Complex elem2 = t2.GetElem(coors);
-    EXPECT_NEAR(elem1.real(), elem2.real(), 1E-14);
-    EXPECT_NEAR(elem1.imag(), elem2.imag(), 1E-14);
+    EXPECT_NEAR(elem1.real(), elem2.real(), kEpsilon);
+    EXPECT_NEAR(elem1.imag(), elem2.imag(), kEpsilon);
   }
 }
 
@@ -76,7 +77,7 @@ void RunTestQrCase(
     const QNT *random_div = nullptr
 ) {
   if (random_div != nullptr) {
-    srand(0);
+    qlten::SetRandomSeed(0);
     t.Random(*random_div);
   }
   QLTensor<TenElemT, QNT> q, r;

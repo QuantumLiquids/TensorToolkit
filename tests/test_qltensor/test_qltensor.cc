@@ -214,14 +214,14 @@ void RunTestQLTensorRandomCase(
     const QNT &div,
     const std::vector<std::vector<QNSector<QNT>>> &qnscts_set) {
   std::vector<std::vector<QNSector<QNT>>> had_qnscts_set;
-  srand(0);
+  qlten::SetRandomSeed(0);
   t.Random(div);
 
   EXPECT_EQ(t.GetQNBlkNum(), qnscts_set.size());
   EXPECT_EQ(t.Div(), div);
 #ifndef  USE_GPU
   if (t.IsScalar()) {
-    srand(0);
+    qlten::SetRandomSeed(0);
     EXPECT_EQ(t.GetElem({}), RandT<ElemT>());
   }
 #endif

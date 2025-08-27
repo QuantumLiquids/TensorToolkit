@@ -27,6 +27,7 @@
 #include "qlten/framework/value_t.h"    // CoorsT, ShapeT
 #include "qlten/framework/consts.h"
 #include "qlten/framework/mem_ops.h"    // Memcpy
+#include "qlten/utility/random.h"
 #ifdef Release
 #define NDEBUG
 #endif
@@ -261,7 +262,7 @@ inline bool ArrayEq(const QLTEN_Complex *d_array1, const QLTEN_Complex *d_array2
 //// Random
 
 inline QLTEN_Double drand(void) {
-  return QLTEN_Double(rand()) / RAND_MAX;
+  return static_cast<QLTEN_Double>(qlten::Uniform01());
 }
 
 inline QLTEN_Complex zrand(void) {
@@ -277,21 +278,21 @@ inline void Rand(QLTEN_Complex &z) {
 }
 #ifdef USE_GPU
 __global__
-inline void RandomKernel(QLTEN_Double *data, size_t size) {
+inline void RandomKernel(QLTEN_Double *data, size_t size, unsigned long long seed) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     curandState state;
-    curand_init(1234, idx, 0, &state);  // Seed, sequence number, offset
+    curand_init(seed, idx, 0, &state);  // Seed, sequence number, offset
     data[idx] = curand_uniform(&state);  // Generate [0, 1] uniform random numbers
   }
 }
 
 __global__
-inline void RandomKernel(QLTEN_Complex *data, size_t size) {
+inline void RandomKernel(QLTEN_Complex *data, size_t size, unsigned long long seed) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     curandState state;
-    curand_init(1234, idx, 0, &state);  // Seed, sequence number, offset
+    curand_init(seed, idx, 0, &state);  // Seed, sequence number, offset
     data[idx].real(curand_uniform(&state));
     data[idx].imag(curand_uniform(&state));
   }

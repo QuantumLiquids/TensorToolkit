@@ -71,6 +71,16 @@ mat.Fill(special_qn::U1QN::Zero(), 1.5);
 scalar.Fill(special_qn::U1QN::Zero(), 2.0);
 ```
 
+#### Random seed control
+
+```cpp
+// Set global seed once (affects C++ <random>-based helpers and GPU cuRAND)
+qlten::SetRandomSeed(1234);
+
+// Query current seed
+auto seed = qlten::GetRandomSeed();
+```
+
 ### Element-wise initialization: operator()
 
 You can also setting elements by coordinates directly. Blocks are created on demand.

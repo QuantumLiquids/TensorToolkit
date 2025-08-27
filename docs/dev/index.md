@@ -14,6 +14,7 @@ Welcome to the TensorToolkit developer documentation. This section is for develo
 - **[Data Structures](../data_structures.html)** - Core data structure implementations
 - **[Backend System](../backends.html)** - CPU/GPU backend abstraction layer
 - **[Fermion Design](./fermion_design.md)** - Z2 graded tensor network math and implementation
+- **[Global Random Seed Scope](./random_seed_scope.md)** - Where `SetRandomSeed` applies and how to extend
 
 ### Testing & Quality
 - **[Testing Framework](../testing.html)** - How to run tests and write new ones
