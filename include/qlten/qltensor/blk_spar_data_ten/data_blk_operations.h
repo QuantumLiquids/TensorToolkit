@@ -849,7 +849,7 @@ void DataBlkDecompSVDSlave(const MPI_Comm &comm) {
    * Recv package: (idx, m, n, mat)
    * Send package: (idx, m, n, u, s, v)
    */
-  MPI_Send(&idx, 1, MPI_INT, kMPIMasterRank, 0, comm); // The signal I'm available
+  MPI_Send(&idx, 1, MPI_INT, hp_numeric::kMPIMasterRank, 0, comm); // The signal I'm available
 
 #ifdef QLTEN_MPI_TIMING_MODE
   Timer slave_total_work_timer("worker " + std::to_string(consumer_rank) + " total work");
@@ -860,18 +860,18 @@ void DataBlkDecompSVDSlave(const MPI_Comm &comm) {
   do {
     // Wait for a job
     MPI_Status status;
-    MPI_Recv(&idx, 1, MPI_INT, kMPIMasterRank, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+    MPI_Recv(&idx, 1, MPI_INT, hp_numeric::kMPIMasterRank, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
     if (status.MPI_TAG == 0) {
       terminated = true;
     } else {
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Restart();
 #endif
-      hp_numeric::MPI_Recv(m, kMPIMasterRank, idx + 7, comm);
-      hp_numeric::MPI_Recv(n, kMPIMasterRank, idx + 8, comm);
+      hp_numeric::MPI_Recv(m, hp_numeric::kMPIMasterRank, idx + 7, comm);
+      hp_numeric::MPI_Recv(n, hp_numeric::kMPIMasterRank, idx + 8, comm);
       size_t data_size = m * n;
       ElemT *mat = (ElemT *) qlten::QLMalloc(data_size * sizeof(ElemT));
-      hp_numeric::MPI_Recv(mat, data_size, kMPIMasterRank, idx + 9, comm);
+      hp_numeric::MPI_Recv(mat, data_size, hp_numeric::kMPIMasterRank, idx + 9, comm);
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Suspend();
 #endif
@@ -885,12 +885,12 @@ void DataBlkDecompSVDSlave(const MPI_Comm &comm) {
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Restart();
 #endif
-      MPI_Send(&idx, 1, MPI_INT, kMPIMasterRank, idx + 13, comm); // The tag should be positive
-      hp_numeric::MPI_Send(m, kMPIMasterRank, idx + 14, comm);
-      hp_numeric::MPI_Send(n, kMPIMasterRank, idx + 15, comm);
-      hp_numeric::MPI_Send(u, ld * m, kMPIMasterRank, idx + 16, comm);
-      hp_numeric::MPI_Send(s, ld, kMPIMasterRank, idx + 17, comm);
-      hp_numeric::MPI_Send(vt, ld * n, kMPIMasterRank, idx + 18, comm);
+      MPI_Send(&idx, 1, MPI_INT, hp_numeric::kMPIMasterRank, idx + 13, comm); // The tag should be positive
+      hp_numeric::MPI_Send(m, hp_numeric::kMPIMasterRank, idx + 14, comm);
+      hp_numeric::MPI_Send(n, hp_numeric::kMPIMasterRank, idx + 15, comm);
+      hp_numeric::MPI_Send(u, ld * m, hp_numeric::kMPIMasterRank, idx + 16, comm);
+      hp_numeric::MPI_Send(s, ld, hp_numeric::kMPIMasterRank, idx + 17, comm);
+      hp_numeric::MPI_Send(vt, ld * n, hp_numeric::kMPIMasterRank, idx + 18, comm);
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Suspend();
 #endif
