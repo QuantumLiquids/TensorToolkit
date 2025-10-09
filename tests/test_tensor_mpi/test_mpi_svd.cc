@@ -59,10 +59,10 @@ struct TestMPISvd : public testing::Test {
     ::testing::TestEventListeners &listeners =
         ::testing::UnitTest::GetInstance()->listeners();
     MPI_Comm_rank(comm, &rank);
-    if (rank != kMPIMasterRank) {
+    if (rank != hp_numeric::kMPIMasterRank) {
       delete listeners.Release(listeners.default_result_printer());
     }
-    if (rank == kMPIMasterRank) {
+    if (rank == hp_numeric::kMPIMasterRank) {
       auto index1_in = RandIndex(20, 30, qlten::IN);
       auto index2_in = RandIndex(4, 5, qlten::IN);
       auto index1_out = RandIndex(4, 5, qlten::OUT);
@@ -91,7 +91,7 @@ void RunTestSvdCase(
   using DTensor = QLTensor<QLTEN_Double, QNT>;
   int rank;
   MPI_Comm_rank(comm, &rank);
-  if (rank == kMPIMasterRank) {
+  if (rank == hp_numeric::kMPIMasterRank) {
     Tensor u, vt, u2, vt2;
     DTensor s, s2;
     double actual_trunc_err, actual_trunc_err2;
@@ -124,14 +124,14 @@ void RunTestSvdCase(
 
 TEST_F(TestMPISvd, SVD_RandState) {
   size_t dmax = 1;
-  if (rank == kMPIMasterRank) {
+  if (rank == hp_numeric::kMPIMasterRank) {
     dmax = dstate.GetIndexes()[0].dim();
   }
   RunTestSvdCase(dstate, 2, qn0, 1e-8, 1, dmax, comm);
   RunTestSvdCase(zstate, 2, qn0, 1e-8, 1, dmax, comm);
 #ifdef ACTUALCOMBAT
   DQLTensor2 state_load;
-  if (world.rank() == kMPIMasterRank) {
+  if (world.rank() == hp_numeric::kMPIMasterRank) {
     std::string file = "state_load.qlten";
     if (access(file.c_str(), 4) != 0) {
       std::cout << "The progress doesn't access to read the file " << file << "!" << std::endl;
@@ -148,7 +148,7 @@ TEST_F(TestMPISvd, SVD_RandState) {
     cout << "state_load.qlten:";
     state_load.ConciseShow();
   }
-  if (world.rank() == kMPIMasterRank) {
+  if (world.rank() == hp_numeric::kMPIMasterRank) {
     dmax = state_load.GetIndexes()[0].dim();
   }
   RunTestSvdCase(state_load, 2, U1U1QN(0, 0), 1e-8, 1, dmax, world);

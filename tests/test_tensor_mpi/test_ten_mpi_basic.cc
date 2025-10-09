@@ -87,7 +87,7 @@ struct TestMPITenData : public testing::Test {
     ::testing::TestEventListeners &listeners =
         ::testing::UnitTest::GetInstance()->listeners();
     MPI_Comm_rank(comm, &rank);
-    if (rank != kMPIMasterRank) {
+    if (rank != hp_numeric::kMPIMasterRank) {
       delete listeners.Release(listeners.default_result_printer());
     } else {
       auto index1_in = RandIndex(50, 400, qlten::IN);
@@ -126,7 +126,7 @@ TEST_F(TestMPITenData, PrintErrMessage) {
 }
 
 TEST_F(TestMPITenData, Serialization) {
-  if (rank == kMPIMasterRank) {
+  if (rank == hp_numeric::kMPIMasterRank) {
     TestTensorSerialization(dten1);
     TestTensorSerialization(dten2);
     TestTensorSerialization(zten1);
@@ -144,7 +144,7 @@ void TestTensorCommunication(
   const size_t assist_proc = 1;
   int rank;
   MPI_Comm_rank(comm, &rank);
-  if (rank == kMPIMasterRank) {
+  if (rank == hp_numeric::kMPIMasterRank) {
     Tensor recv_bsdt_ten;
     Timer mpi_ten_passing_timer("mpi_ten_send_recv");
     tensor.MPI_Send(assist_proc, 35, comm);
@@ -153,17 +153,17 @@ void TestTensorCommunication(
     bsdt.MPI_Recv(comm, assist_proc, 3);
     mpi_ten_passing_timer.PrintElapsed();
     EXPECT_EQ(tensor, recv_bsdt_ten);
-    tensor.MPI_Bcast(kMPIMasterRank, comm);
+    tensor.MPI_Bcast(hp_numeric::kMPIMasterRank, comm);
   } else if (rank == assist_proc) {
     Tensor recv_ten, recv_bcast_ten;
     recv_ten.MPI_Recv(MPI_ANY_SOURCE, MPI_ANY_TAG, comm);
     auto &bsdt = recv_ten.GetBlkSparDataTen();
-    bsdt.MPI_Send(comm, kMPIMasterRank, 3);
-    recv_bcast_ten.MPI_Bcast(kMPIMasterRank, comm);
+    bsdt.MPI_Send(comm, hp_numeric::kMPIMasterRank, 3);
+    recv_bcast_ten.MPI_Bcast(hp_numeric::kMPIMasterRank, comm);
     EXPECT_EQ(recv_ten, recv_bcast_ten);
   } else {
     Tensor recv_bcast_ten;
-    recv_bcast_ten.MPI_Bcast(kMPIMasterRank, comm);
+    recv_bcast_ten.MPI_Bcast(hp_numeric::kMPIMasterRank, comm);
   }
   return;
 }
