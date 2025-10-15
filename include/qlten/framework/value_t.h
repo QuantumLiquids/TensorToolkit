@@ -24,12 +24,20 @@ using std::abs;
 using std::conj;
 using std::norm;
 using std::sqrt;
+#if __cplusplus >= 201703L
+inline double arg(const QLTEN_Complex &z) { return std::arg(z); }
+inline QLTEN_Complex polar(QLTEN_Double rho, QLTEN_Double theta) { return std::polar(rho, theta); }
+#endif
 #else
 using QLTEN_Complex = cuda::std::complex<QLTEN_Double>;
 using cuda::std::abs;
 using cuda::std::conj;
 using cuda::std::norm;
 using cuda::std::sqrt;
+
+// Provide arg/polar wrappers in qlten namespace for cuda::std::complex
+inline double arg(const QLTEN_Complex &z) { return cuda::std::arg(z); }
+inline QLTEN_Complex polar(QLTEN_Double rho, QLTEN_Double theta) { return cuda::std::polar(rho, theta); }
 
 #if (__CUDACC_VER_MAJOR__ < 12) || ((__CUDACC_VER_MAJOR__ == 12) && (__CUDACC_VER_MINOR__ <= 5))
 // Patch: Provide a custom operator<< in the same namespace as cuda::std::complex
