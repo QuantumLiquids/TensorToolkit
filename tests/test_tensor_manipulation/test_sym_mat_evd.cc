@@ -96,8 +96,9 @@ TEST_F(TestSvd, 2DCase) {
   zten_2d_s.Random(qn0);
   for (size_t i = 0; i < zten_2d_s.GetShape()[0]; i++) {
     for (size_t j = 0; j < zten_2d_s.GetShape()[1]; j++) {
-      if (zten_2d_s.GetElem({i, j}) == std::complex<double>(0.0)
-          && zten_2d_s.GetElem({j, i}) == std::complex<double>(0.0)) {
+      auto a = zten_2d_s.GetElem({i, j});
+      auto b = zten_2d_s.GetElem({j, i});
+      if (qlten::abs(a) == 0.0 && qlten::abs(b) == 0.0) {
         continue;
       }
       if (i == j) {

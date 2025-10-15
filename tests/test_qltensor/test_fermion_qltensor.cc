@@ -1244,15 +1244,15 @@ TEST_F(TestQLTensor, ElementWiseClipTo) {
   // Test complex tensor - verify phase preservation
   zten_scalar.Random(fU1QN());
   auto original_complex = zten_scalar.GetElem({});
-  double original_phase = std::arg(original_complex);
+  double original_phase = qlten::arg(original_complex);
   limit = 0.4;
   zten_scalar.ElementWiseClipTo(limit);
   auto clipped_complex = zten_scalar.GetElem({});
   // Magnitude should be clipped
-  EXPECT_LE(std::abs(clipped_complex), limit + 1e-10);
+  EXPECT_LE(qlten::abs(clipped_complex), limit + 1e-10);
   // Phase should be preserved (for non-zero original values)
-  if (std::abs(original_complex) > 1e-10) {
-    double clipped_phase = std::arg(clipped_complex);
+  if (qlten::abs(original_complex) > 1e-10) {
+    double clipped_phase = qlten::arg(clipped_complex);
     EXPECT_NEAR(original_phase, clipped_phase, 1e-10);
   }
 }
@@ -1365,7 +1365,7 @@ TEST_F(TestQLTensor, ElementWiseSqrt) {
   zten_scalar.Random(fU1QN());
   auto original_zval = zten_scalar.GetElem({});
   zten_scalar.ElementWiseSqrt();
-  auto expected_sqrt = std::sqrt(original_zval);
+  auto expected_sqrt = qlten::sqrt(original_zval);
   EXPECT_NEAR(zten_scalar.GetElem({}).real(), expected_sqrt.real(), 1e-10);
   EXPECT_NEAR(zten_scalar.GetElem({}).imag(), expected_sqrt.imag(), 1e-10);
 
