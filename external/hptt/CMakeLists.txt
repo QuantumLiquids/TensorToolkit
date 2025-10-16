@@ -13,6 +13,10 @@ endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
   set(HPTT_CXX_FLAGS ${HPTT_CXX_FLAGS} -qopenmp -xhost)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
+  # Intel oneAPI icx/icpx (Clang-based)
+  # Use OpenMP with Clang-style flag; avoid forcing -march=native by default
+  set(HPTT_CXX_FLAGS ${HPTT_CXX_FLAGS} -fopenmp)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   if(ENABLE_IBM)
     set(HPTT_CXX_FLAGS ${HPTT_CXX_FLAGS} -fopenmp)

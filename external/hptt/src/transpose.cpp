@@ -704,11 +704,11 @@ void transpose_int_constStride1( const floatType* __restrict__ A, floatType* __r
       } else {
          if( useStreamingStores)
             if( conjA )
-#pragma vector nontemporal
+               HPTT_PRAGMA_VECTOR_NONTEMPORAL
                for(int32_t i = plan->start; i < end; i+= inc)
                   B[i] = alpha * conj(A[i]);
             else
-#pragma vector nontemporal
+               HPTT_PRAGMA_VECTOR_NONTEMPORAL
                for(int32_t i = plan->start; i < end; i+= inc)
                   B[i] = alpha * A[i];
          else
@@ -880,8 +880,8 @@ static void axpy_1D( const floatType* __restrict__ A, floatType* __restrict__ B,
       )
    } else {
       if( useStreamingStores)
-#pragma vector nontemporal
          HPTT_DUPLICATE(spawnThreads,
+            HPTT_PRAGMA_VECTOR_NONTEMPORAL
             for(int32_t i = myStart; i < myEnd; i++)
                if( conjA )
                   B[i] = alpha * conj(A[i]);
@@ -918,7 +918,7 @@ static void axpy_2D( const floatType* __restrict__ A, const int lda,
       if( useStreamingStores)
          HPTT_DUPLICATE(spawnThreads,
             for(int32_t j = myStart; j < myEnd; j++)
-_Pragma("vector nontemporal")
+            HPTT_PRAGMA_VECTOR_NONTEMPORAL
             for(int32_t i = 0; i < n0; i++)
                if( conjA )
                   B[i + j * ldb] = alpha * conj(A[i + j * lda]);

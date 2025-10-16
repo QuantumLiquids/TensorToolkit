@@ -49,3 +49,17 @@ else           { __VA_ARGS__ }
 #define HPTT_DUPLICATE_2(condition, ...) { __VA_ARGS__ } 
 
 #endif
+
+// Portable wrapper for vector nontemporal pragma; safe no-op on compilers that don't support it.
+#if defined(__INTEL_COMPILER) || defined(__ICC)
+#  define HPTT_PRAGMA_VECTOR_NONTEMPORAL _Pragma("vector nontemporal")
+#elif defined(__INTEL_LLVM_COMPILER) || defined(__clang__)
+   // IntelLLVM (icx/icpx) and Clang accept _Pragma("clang loop vectorize(enable)") but not 'vector nontemporal'.
+   // Use a benign vectorization enable as a placeholder.
+#  define HPTT_PRAGMA_VECTOR_NONTEMPORAL _Pragma("clang loop vectorize(enable)")
+#elif defined(__GNUC__)
+   // GCC: leave as no-op; GCC doesn't have an exact equivalent here.
+#  define HPTT_PRAGMA_VECTOR_NONTEMPORAL
+#else
+#  define HPTT_PRAGMA_VECTOR_NONTEMPORAL
+#endif
