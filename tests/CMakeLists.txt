@@ -37,20 +37,11 @@ else ()
     endif ()
 endif ()
 
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-    set(BLA_VENDOR Intel10_64lp)   #FOR VENDOR CHOICE: https://cmake.org/cmake/help/latest/module/FindBLAS.html
-    set(BLAS_INCLUDE_DIR "$ENV{MKLROOT}/include")
-elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "arm64") # (e.g., Apple Silicon)
-    add_definitions(-DUSE_OPENBLAS)
-    set(BLA_VENDOR OpenBLAS)
-    set(OpenBLAS_ROOT "/opt/homebrew/opt/openblas/") #work for homebrew installed openblas in MacOSX
-    set(Lapack_ROOT "/opt/homebrew/opt/lapack")
-    set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${OpenBLAS_ROOT} ${Lapack_ROOT}) # For find
-    set(BLAS_INCLUDE_DIR "${OpenBLAS_ROOT}/include")
-endif ()
 
+include(cmake/Modules/MathBackend.cmake)
 FIND_PACKAGE(BLAS REQUIRED)
 FIND_PACKAGE(LAPACK REQUIRED)
+
 find_package(MPI REQUIRED)
 
 # Intel MKL multi-thread may conflict with other compiler's OpenMP
@@ -181,58 +172,58 @@ add_unittest(test_index "test_qltensor/test_index.cc" "" "" "")
 ## Test symmetry-blocked sparse tensor, QLTensor.
 add_unittest(test_qltensor
         "test_qltensor/test_qltensor.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 
 add_unittest(test_fermion_qltensor
         "test_qltensor/test_fermion_qltensor.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 
 ## Test tensor manipulation functions.
 # Test basic tensor operations.
 add_unittest(test_basic_operations
         "test_tensor_manipulation/test_basic_operations.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor linear combination.
 add_unittest(test_ten_linear_combine
         "test_tensor_manipulation/test_ten_linear_combine.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor contraction.
 add_unittest(test_ten_ctrct
         "test_tensor_manipulation/test_ten_ctrct.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 add_unittest(test_fermion_ten_ctrct
         "test_tensor_manipulation/test_fermion_ten_ctrct.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 #Test tensor restriction contract
 add_unittest(test_ten_ctrct_1sct
         "test_tensor_manipulation/test_ten_ctrct_1sct.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor SVD.
 add_unittest(test_ten_svd
         "test_tensor_manipulation/test_ten_svd.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # EVD
 add_unittest(test_sym_mat_evd
         "test_tensor_manipulation/test_sym_mat_evd.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor QR.
 add_unittest(test_ten_qr
         "test_tensor_manipulation/test_ten_qr.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor index combination.
 add_unittest(test_index_combine
         "test_tensor_manipulation/test_index_combine.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 # Test tensor expansion
 add_unittest(test_ten_expand

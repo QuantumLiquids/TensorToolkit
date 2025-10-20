@@ -22,11 +22,7 @@
 #include <cassert>     // assert
 
 #ifndef USE_GPU
-#ifndef USE_OPENBLAS
-#include "mkl.h"
-#else
-#include <cblas.h>
-#endif
+#include "qlten/framework/hp_numeric/backend_selector.h"
 #else //use gpu
 #include <cuda_runtime.h>
 #include <cuComplex.h>
@@ -78,8 +74,30 @@ inline void MatrixTransposeBatch(
         Bmat_array[i], rows_array[i]
         );
   }
-#else
-  // Use OpenBLAS style implementation here
+#elif defined(HP_NUMERIC_BACKEND_AOCL)
+  // AOCL exposes only column-major omatcopy.  For row-major data a^T,
+  // we reinterpret the buffers as column-major matrices with swapped
+  // dimensions so that omatcopy(T) performs the desired operation.
+  // The leading dimensions therefore follow the original row/col sizes
+  // (lda = original cols, ldb = original rows).
+  for (size_t blk = 0; blk < group_count; ++blk) {
+    f77_int rows = static_cast<f77_int>(cols_array[blk]);
+    f77_int cols = static_cast<f77_int>(rows_array[blk]);
+    f77_int lda = rows;
+    f77_int ldb = cols;
+    const double alpha = 1.0;
+    f77_char trans = 'T';
+    domatcopy_(
+        &trans,
+        &rows,
+        &cols,
+        &alpha,
+        reinterpret_cast<const double *>(Amat_array[blk]),
+        &lda,
+        reinterpret_cast<double *>(Bmat_array[blk]),
+        &ldb);
+  }
+#elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
   for (size_t i = 0; i < group_count; i++) {
     cblas_domatcopy(
         CblasRowMajor, CblasTrans,
@@ -89,6 +107,8 @@ inline void MatrixTransposeBatch(
         Bmat_array[i], rows_array[i]
     );
   }
+#else
+#   error "Unsupported hp_numeric backend"
 #endif
 }
 
@@ -132,8 +152,28 @@ inline void MatrixTransposeBatch(
         Bmat_array[i], rows_array[i]
     );
   }
-#else
-  // Use OpenBLAS style implementation here
+#elif defined(HP_NUMERIC_BACKEND_AOCL)
+  // See the comment in the real-valued overload: we rely on AOCL's
+  // column-major implementation by swapping the dimensions to emulate
+  // a row-major transpose.
+  for (size_t blk = 0; blk < group_count; ++blk) {
+    f77_int rows = static_cast<f77_int>(cols_array[blk]);
+    f77_int cols = static_cast<f77_int>(rows_array[blk]);
+    f77_int lda = rows;
+    f77_int ldb = cols;
+    const dcomplex alpha = {1.0, 0.0};
+    f77_char trans = 'T';
+    zomatcopy_(
+        &trans,
+        &rows,
+        &cols,
+        &alpha,
+        reinterpret_cast<const dcomplex *>(Amat_array[blk]),
+        &lda,
+        reinterpret_cast<dcomplex *>(Bmat_array[blk]),
+        &ldb);
+  }
+#elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
   double alpha[2] = {1.0, 0.0};
   for (size_t i = 0; i < group_count; i++) {
     cblas_zomatcopy(
@@ -144,6 +184,8 @@ inline void MatrixTransposeBatch(
         reinterpret_cast<double *>(Bmat_array[i]), rows_array[i]
     );
   }
+#else
+#   error "Unsupported hp_numeric backend"
 #endif
 }//MatrixTransposeBatch
 #else //USE_GPU

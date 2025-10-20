@@ -8,7 +8,7 @@
 
 
 # CMake basic setting
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.27) # Required for modern FindBLAS support used with AOCL.
 
 project("TensorToolkit"
         DESCRIPTION "a high-performance tensor basic operation library written in C++"
@@ -16,6 +16,7 @@ project("TensorToolkit"
 )
 
 set(CMAKE_CXX_STANDARD 17)
+
 
 # options.
 option(QLTEN_USE_GPU "Use GPU" OFF)

@@ -4,7 +4,7 @@
 * Creation Date: 2020-12-02 14:15
 * 
 * Description: QuantumLiquids/tensor project. High performance LAPACK related functions
-* based on MKL/Opanblas, or cuSolver.
+* based on MKL/Openblas, or cuSolver.
 *
 * The matrices in the wrapped API are all assumed to be ROW-MAJOR. cuSolver and cuBlas are all use
 * COLUMN-MAJOR matrix by default. Current file has carefully dealt with this incompatibility by introducing
@@ -23,12 +23,7 @@
 #include <cassert>      // assert
 
 #ifndef  USE_GPU
-#ifndef USE_OPENBLAS
-#include "mkl.h"       
-#else
-#include <cblas.h>
-#include <lapacke.h>
-#endif
+#include "qlten/framework/hp_numeric/backend_selector.h"
 #else
 #include <cuda_runtime.h>
 #include <cublas_v2.h>

@@ -28,13 +28,12 @@ inline void SetTensorManipulationThreads(unsigned thread) {
   assert(thread > 0);
   tensor_manipulation_num_threads = thread;
   tensor_transpose_num_threads = thread;
-#ifndef USE_OPENBLAS
+#ifdef HP_NUMERIC_BACKEND_INTEL
   mkl_set_num_threads(thread);
-//  mkl_set_num_threads_local(0);
-//  mkl_set_dynamic(true);
-#else
+#elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
   openblas_set_num_threads(thread);
-  //equivalent to  `export OMP_NUM_THREADS=4`, manually in script
+#elif defined(HP_NUMERIC_BACKEND_AMD)
+  bli_thread_set_num_threads(thread);
 #endif
 }
 

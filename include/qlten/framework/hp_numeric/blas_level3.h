@@ -23,15 +23,8 @@
 #endif
 
 #ifndef USE_GPU     // use CPU
-#ifndef USE_OPENBLAS
 
-#include "mkl.h"      // cblas_*axpy, cblas_*scal
-
-#else
-
-#include <cblas.h>
-
-#endif
+#include "qlten/framework/hp_numeric/backend_selector.h"
 #else
 #include <cublas_v2.h>
 #endif
@@ -148,7 +141,7 @@ inline void MatMultiply(
 #endif
 }
 
-#ifndef USE_OPENBLAS
+#if defined(HP_NUMERIC_BACKEND_MKL)
 
 inline void MatMultiplyBatch(
     const QLTEN_Double **a_array, const QLTEN_Double **b_array,

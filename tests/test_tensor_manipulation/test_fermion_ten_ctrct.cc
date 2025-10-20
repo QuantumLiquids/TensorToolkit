@@ -21,11 +21,7 @@
 #include "qlten/utility/timer.h"
 
 // In CUDA code, include mkl/openblas to benchmark
-#ifndef USE_OPENBLAS
-#include "mkl.h"
-#else
-#include <cblas.h>
-#endif
+#include "qlten/framework/hp_numeric/backend_selector.h"
 
 using namespace qlten;
 
@@ -75,8 +71,10 @@ struct TestContraction : public testing::Test {
   ZQLTensor zten_3d_l = ZQLTensor({idx_in_l, idx_out_l, idx_out_l});
 };
 
+// NOTE: AOCL's cblas.h only declares the legacy CBLAS_ORDER enum; MKL/OpenBLAS
+// continue to accept it as an alias, so use it here to avoid backend branches.
 inline void CblasGemm(
-    const CBLAS_LAYOUT Layout,
+    const CBLAS_ORDER Layout,
     const CBLAS_TRANSPOSE transa, const CBLAS_TRANSPOSE transb,
     const size_t m, const size_t n, const size_t k,
     const qlten::QLTEN_Double alpha,
@@ -96,7 +94,7 @@ inline void CblasGemm(
 }
 
 inline void CblasGemm(
-    const CBLAS_LAYOUT Layout,
+    const CBLAS_ORDER Layout,
     const CBLAS_TRANSPOSE transa, const CBLAS_TRANSPOSE transb,
     const size_t m, const size_t n, const size_t k,
     const qlten::QLTEN_Complex alpha,

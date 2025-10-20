@@ -16,12 +16,7 @@
 #include <cstring>      // memcpy, memset
 #include <cassert>     // assert
 
-#ifndef USE_OPENBLAS
-#include "mkl.h"      // cblas_*axpy, cblas_*scal
-#else
-#include <cblas.h>
-#include <lapacke.h>
-#endif
+#include "qlten/framework/hp_numeric/backend_selector.h"
 
 #include "qlten/framework/value_t.h"
 #include "qlten/framework/flops_count.h"  // flop
