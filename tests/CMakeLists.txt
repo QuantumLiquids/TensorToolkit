@@ -38,7 +38,7 @@ else ()
 endif ()
 
 
-include(cmake/Modules/MathBackend.cmake)
+include(../cmake/Modules/MathBackend.cmake)
 FIND_PACKAGE(BLAS REQUIRED)
 FIND_PACKAGE(LAPACK REQUIRED)
 

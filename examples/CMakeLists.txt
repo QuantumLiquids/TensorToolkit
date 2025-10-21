@@ -21,7 +21,7 @@ else()
 endif ()
 
 
-include(cmake/Modules/MathBackend.cmake)
+include(../cmake/Modules/MathBackend.cmake)
 find_package(BLAS REQUIRED)
 find_package(LAPACK REQUIRED)
 
