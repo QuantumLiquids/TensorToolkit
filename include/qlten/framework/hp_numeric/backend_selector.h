@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: LGPL-3.0-only
+/*
+* Author: Haoxin Wang <wanghaoxin1996@gmail.com>
+* Creation Date: 2025-10-27.
+*
+* Description: QuantumLiquids/tensor project. Backend selector for high performance numerical functions.
+*/
 
-#pragma once
+#ifndef QLTEN_FRAMEWORK_HP_NUMERIC_BACKEND_SELECTOR_H
+#define QLTEN_FRAMEWORK_HP_NUMERIC_BACKEND_SELECTOR_H
+
+/**
+@file backend_selector.h
+@brief Backend selector for high performance numerical functions.
+*/
 
 #if defined(HP_NUMERIC_BACKEND_MKL)
 #   include "mkl.h"
@@ -68,3 +80,4 @@ constexpr const char* Vendor()
 
 } // namespace hp_numeric_backend
 
+#endif /* ifndef QLTEN_FRAMEWORK_HP_NUMERIC_BACKEND_SELECTOR_H */

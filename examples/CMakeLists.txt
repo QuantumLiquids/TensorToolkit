@@ -43,7 +43,7 @@ target_include_directories(z2_ising_vertex
     PRIVATE ${QLTEN_HEADER_PATH}
     PRIVATE ${hptt_INCLUDE_DIR}
     PRIVATE ${MPI_CXX_HEADER_DIR}
-    PRIVATE ${BLAS_INCLUDE_DIR}
+    PRIVATE ${BLAS_INCLUDE_DIRS}
 )
 target_link_libraries(z2_ising_vertex
     PRIVATE ${hptt_LIBRARY}
@@ -56,7 +56,7 @@ target_include_directories(z2_ising_trg
     PRIVATE ${QLTEN_HEADER_PATH}
     PRIVATE ${hptt_INCLUDE_DIR}
     PRIVATE ${MPI_CXX_HEADER_DIR}
-    PRIVATE ${BLAS_INCLUDE_DIR}
+    PRIVATE ${BLAS_INCLUDE_DIRS}
 )
 target_link_libraries(z2_ising_trg
     PRIVATE ${hptt_LIBRARY}
