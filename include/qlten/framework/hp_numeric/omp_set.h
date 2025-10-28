@@ -15,6 +15,7 @@
 #define QLTEN_FRAMEWORK_HP_NUMERIC_OMP_SET_H
 
 #include <cassert>
+#include <omp.h>
 
 namespace qlten {
 /// High performance numerical functions.
@@ -32,8 +33,9 @@ inline void SetTensorManipulationThreads(unsigned thread) {
   mkl_set_num_threads(thread);
 #elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
   openblas_set_num_threads(thread);
-#elif defined(HP_NUMERIC_BACKEND_AMD)
-  bli_thread_set_num_threads(thread);
+#elif defined(HP_NUMERIC_BACKEND_AOCL)
+  // AOCL builds typically use OpenMP; control threads via OpenMP runtime
+  omp_set_num_threads(thread);
 #endif
 }
 

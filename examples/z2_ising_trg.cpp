@@ -52,6 +52,8 @@ struct TRGStepInfo {
   double actual_truncation_error; // max of the two SVD truncation errors
   size_t actual_bond_dim; // resulting kept bond dimension (max of two)
   double norm; // normalization factor applied to T
+  double svd_time; // total time spent in SVDs in this step (s)
+  double contract_time; // total time spent in Contracts in this step (s)
 };
 
 /**
@@ -90,11 +92,25 @@ TRGStepInfo TRGCoarseGrainStep(DTen &T, size_t max_bond_dim, size_t min_bond_dim
   DTen u, s, vt;
   DTen T0 = T;
   T0.Transpose({0, 3, 1, 2});
-  SVD(&T0, 2, T0.Div(), trunc_err, min_bond_dim, max_bond_dim, &u, &s, &vt, &actual_truncation_error0, &actual_bond_dim0);
+  double svd_time = 0.0;
+  double contract_time = 0.0;
+  {
+    Timer __t_svd0;
+    SVD(&T0, 2, T0.Div(), trunc_err, min_bond_dim, max_bond_dim, &u, &s, &vt, &actual_truncation_error0, &actual_bond_dim0);
+    svd_time += __t_svd0.Elapsed();
+  }
   auto s_sqrt = ElementWiseSqrt(s);
   DTen P0, Q0;
-  Contract(&u, &s_sqrt, {{2}, {0}}, &P0);
-  Contract(&s_sqrt, &vt, {{1}, {0}}, &Q0);
+  {
+    Timer __t_ctr0;
+    Contract(&u, &s_sqrt, {{2}, {0}}, &P0);
+    contract_time += __t_ctr0.Elapsed();
+  }
+  {
+    Timer __t_ctr1;
+    Contract(&s_sqrt, &vt, {{1}, {0}}, &Q0);
+    contract_time += __t_ctr1.Elapsed();
+  }
 
   /**
    *    u              u2
@@ -112,11 +128,23 @@ TRGStepInfo TRGCoarseGrainStep(DTen &T, size_t max_bond_dim, size_t min_bond_dim
   u = DTen();
   s = DTen();
   vt = DTen();
-  SVD(&T, 2, T.Div(), trunc_err, min_bond_dim, max_bond_dim, &u, &s, &vt, &actual_truncation_error1, &actual_bond_dim1);
+  {
+    Timer __t_svd1;
+    SVD(&T, 2, T.Div(), trunc_err, min_bond_dim, max_bond_dim, &u, &s, &vt, &actual_truncation_error1, &actual_bond_dim1);
+    svd_time += __t_svd1.Elapsed();
+  }
   s_sqrt = ElementWiseSqrt(s);
   DTen P1, Q1;
-  Contract(&u, &s_sqrt, {{2}, {0}}, &Q1);
-  Contract(&s_sqrt, &vt, {{1}, {0}}, &P1);
+  {
+    Timer __t_ctr2;
+    Contract(&u, &s_sqrt, {{2}, {0}}, &Q1);
+    contract_time += __t_ctr2.Elapsed();
+  }
+  {
+    Timer __t_ctr3;
+    Contract(&s_sqrt, &vt, {{1}, {0}}, &P1);
+    contract_time += __t_ctr3.Elapsed();
+  }
 
   //Update T with new coarse-grained tensor
   /**
@@ -134,15 +162,27 @@ TRGStepInfo TRGCoarseGrainStep(DTen &T, size_t max_bond_dim, size_t min_bond_dim
    *    0             2
    */
   DTen tmp0, tmp1, tmp2;
-  Contract(&P1, {1}, &P0, {0}, &tmp0);
-  Contract(&Q1, {0}, &Q0, {2}, &tmp1);
-  Contract(&tmp0, {1, 2}, &tmp1, {3, 0}, &tmp2);
+  {
+    Timer __t_ctr4;
+    Contract(&P1, {1}, &P0, {0}, &tmp0);
+    contract_time += __t_ctr4.Elapsed();
+  }
+  {
+    Timer __t_ctr5;
+    Contract(&Q1, {0}, &Q0, {2}, &tmp1);
+    contract_time += __t_ctr5.Elapsed();
+  }
+  {
+    Timer __t_ctr6;
+    Contract(&tmp0, {1, 2}, &tmp1, {3, 0}, &tmp2);
+    contract_time += __t_ctr6.Elapsed();
+  }
 
   auto actual_truncation_error = std::max(actual_truncation_error0, actual_truncation_error1);
   auto actual_bond_dim = std::max(actual_bond_dim0, actual_bond_dim1);
   auto norm = tmp2.Normalize();
   T = tmp2;
-  return TRGStepInfo{actual_truncation_error, actual_bond_dim, norm};
+  return TRGStepInfo{actual_truncation_error, actual_bond_dim, norm, svd_time, contract_time};
 }
 
 /**
@@ -170,7 +210,7 @@ TRGIterationResult RunTRG(double beta, double J, const TRGParams &params) {
   double lnZ = 0.0;
   double lattice_size = 1.0; // 2^scale
   double prev_free_energy = std::numeric_limits<double>::quiet_NaN();
-  TRGStepInfo last_step_info{0.0, 0, 1.0};
+  TRGStepInfo last_step_info{0.0, 0, 1.0, 0.0, 0.0};
   double last_free_energy = std::numeric_limits<double>::quiet_NaN();
   double last_free_energy_error = std::numeric_limits<double>::infinity();
 
@@ -195,12 +235,13 @@ TRGIterationResult RunTRG(double beta, double J, const TRGParams &params) {
 
     if (params.verbose) {
       std::cout << "Scale " << cur_scale
-          << ": bond_dim = " << step_info.actual_bond_dim
+          << ": chi = " << step_info.actual_bond_dim
           << ", trunc_err = " << std::scientific << step_info.actual_truncation_error
           << ", norm = " << std::fixed << step_info.norm
-          << ", free_energy = " << free_energy
-          << ", |Δf| = " << free_energy_error
-          << ", coarse-grained time = " << coarse_grained_time << "s\n";
+          << ", F = " << free_energy
+          << ", SVD = " << step_info.svd_time << "s"
+          << ", Contract = " << step_info.contract_time << "s"
+          << ", TotT = " << coarse_grained_time << "s\n";
     }
 
     // Convergence check on free energy change (skip at scale 1)
@@ -274,6 +315,8 @@ static bool FindNearestExact(double beta,
 int main(int argc, char **argv) {
   std::cout << "=== Z2 Ising TRG Implementation ===\n";
   std::cout << "TensorToolkit Version: " << QLTEN_VERSION_MAJOR << "." << QLTEN_VERSION_MINOR << "\n\n";
+
+  hp_numeric::SetTensorManipulationThreads(4);
 
   // Optional: load analytic free energy CSV if provided as argv[1]
   std::vector<double> exact_betas;
