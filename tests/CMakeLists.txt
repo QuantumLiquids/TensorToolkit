@@ -228,43 +228,31 @@ add_unittest(test_index_combine
 # Test tensor expansion
 add_unittest(test_ten_expand
         "test_tensor_manipulation/test_ten_expand.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 
 # Test tensor fuse index
 add_unittest(test_ten_fuse_index
         "test_tensor_manipulation/test_ten_fuse_index.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 
 # Test tensor block expansion
 add_unittest(test_ten_blk_expand
         "test_tensor_manipulation/test_ten_block_expand.cc"
-        "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 if (NOT QLTEN_USE_GPU)
-    # Test tensor communication for serialization
-    #    add_unittest(test_boost_serialization
-    #            "test_tensor_mpi/test_ten_boost_serialization.cc"
-    #            "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}"
-    #    )
-
-    # Test boost mpi
-    #    add_mpi_unittest(test_boost_mpi
-    #            "test_tensor_mpi/test_boost_mpi.cc"
-    #            "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}" "2"
-    #    )
-
     # Test tensor communication for mpi
     add_mpi_unittest(test_ten_mpi_basic
             "test_tensor_mpi/test_ten_mpi_basic.cc"
-            "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}" "2"
+            "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
     )
 
 
     # Test mpi svd performance
     add_mpi_unittest(test_mpi_svd
             "test_tensor_mpi/test_mpi_svd.cc"
-            "${BLAS_INCLUDE_DIR}" "" "${MATH_LIB_LINK_FLAGS}" "3"
+            "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}" "3"
     )
 endif ()

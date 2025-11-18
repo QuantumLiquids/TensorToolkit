@@ -97,7 +97,7 @@ inline void MatrixTransposeBatch(
         reinterpret_cast<double *>(Bmat_array[blk]),
         &ldb);
   }
-#elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
+#else //  OpenBlas or Huawei-KML
   for (size_t i = 0; i < group_count; i++) {
     cblas_domatcopy(
         CblasRowMajor, CblasTrans,
@@ -107,8 +107,6 @@ inline void MatrixTransposeBatch(
         Bmat_array[i], rows_array[i]
     );
   }
-#else
-#   error "Unsupported hp_numeric backend"
 #endif
 }
 
@@ -173,7 +171,7 @@ inline void MatrixTransposeBatch(
         reinterpret_cast<dcomplex *>(Bmat_array[blk]),
         &ldb);
   }
-#elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
+#else //  OpenBlas or Huawei-KML
   double alpha[2] = {1.0, 0.0};
   for (size_t i = 0; i < group_count; i++) {
     cblas_zomatcopy(
@@ -184,8 +182,6 @@ inline void MatrixTransposeBatch(
         reinterpret_cast<double *>(Bmat_array[i]), rows_array[i]
     );
   }
-#else
-#   error "Unsupported hp_numeric backend"
 #endif
 }//MatrixTransposeBatch
 #else //USE_GPU

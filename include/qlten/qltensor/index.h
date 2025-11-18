@@ -137,18 +137,16 @@ class Index : public Hashable, public Streamable, public Showable, public Fermio
   std::pair<size_t, size_t> CoorToBlkCoorDataCoor(const size_t coor) const {
     assert(coor < dim_);
     size_t residue_coor = coor;
-    size_t blk_coor, data_coor;
-    for (size_t i = 0; i < qnscts_.size(); ++i) {
-      auto qnsct_dim = qnscts_[i].dim();
+    for (size_t blk_coor = 0; blk_coor < qnscts_.size(); ++blk_coor) {
+      auto qnsct_dim = qnscts_[blk_coor].dim();
       if (residue_coor < qnsct_dim) {
-        blk_coor = i;
-        data_coor = qnscts_[i].CoorToDataCoor(residue_coor);
-        break;
-      } else {
-        residue_coor -= qnsct_dim;
-      }
+        const size_t data_coor = qnscts_[blk_coor].CoorToDataCoor(residue_coor);
+        return std::make_pair(blk_coor, data_coor);
+      } 
+      residue_coor -= qnsct_dim;
     }
-    return std::make_pair(blk_coor, data_coor);
+    assert(false);
+    return std::make_pair(static_cast<size_t>(0), static_cast<size_t>(0));
   }
 
   /**

@@ -56,6 +56,9 @@ void zomatcopy_( f77_char* trans,
                  dcomplex*   b,
                  f77_int*  ldb );
 }
+#elif defined(HP_NUMERIC_BACKEND_KML)
+#   include "kblas.h"
+#   include "lapacke.h"
 #elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
 #   include <cblas.h>
 #   include <lapacke.h>
@@ -71,6 +74,8 @@ constexpr const char* Vendor()
     return "intel";
 #elif defined(HP_NUMERIC_BACKEND_AOCL)
     return "amd";
+#elif defined(HP_NUMERIC_BACKEND_KML)
+  return "huawei";
 #elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
     return "openblas";
 #else
