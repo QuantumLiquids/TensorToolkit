@@ -17,6 +17,8 @@ const std::string kQLTenFileSuffix = "qlten";
 
 // Double numerical error.
 const double kDoubleEpsilon = 1.0E-15;
+// Float numerical error.
+const float kFloatEpsilon = 1.0E-6f;
 
 // Default omp threads number.
 const int kTensorOperationDefaultNumThreads = 4;

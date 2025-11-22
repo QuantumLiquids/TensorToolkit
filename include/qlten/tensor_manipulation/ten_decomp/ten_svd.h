@@ -31,12 +31,14 @@ namespace qlten {
 
 
 // (unnormalized sv, data_blk_mat, mat_dim_label, sv2)
-using TruncedSVInfo = std::tuple<QLTEN_Double, size_t, size_t, QLTEN_Double>;
+template<typename RealT>
+using TruncedSVInfo = std::tuple<RealT, size_t, size_t, RealT>;
 
+template<typename RealT>
 struct SDataBlkInfo {
   size_t blk_coor;
   size_t blk_dim;
-  std::vector<QLTEN_Double> svs;
+  std::vector<RealT> svs;
   std::vector<size_t> mat_dims;
 
   SDataBlkInfo(void) = default;
@@ -44,7 +46,7 @@ struct SDataBlkInfo {
   SDataBlkInfo(
       const size_t blk_coor,
       const size_t blk_dim,
-      const std::vector<QLTEN_Double> &svs,
+      const std::vector<RealT> &svs,
       const std::vector<size_t> &mat_dims
   ) : blk_coor(blk_coor),
       blk_dim(blk_dim),
@@ -82,6 +84,7 @@ Tensor SVD executor.
 */
 template<typename TenElemT, typename QNT>
 class TensorSVDExecutor : public Executor {
+  using RealT = typename RealTypeTrait<TenElemT>::type;
  public:
   TensorSVDExecutor(
       const QLTensor<TenElemT, QNT> *,
@@ -89,7 +92,7 @@ class TensorSVDExecutor : public Executor {
       const QNT &,
       const QLTEN_Double, const size_t, const size_t,
       QLTensor<TenElemT, QNT> *,
-      QLTensor<QLTEN_Double, QNT> *,
+      QLTensor<RealT, QNT> *,
       QLTensor<TenElemT, QNT> *,
       QLTEN_Double *, size_t *
   );
@@ -99,19 +102,19 @@ class TensorSVDExecutor : public Executor {
   void Execute(void) override;
 
  protected:
-  std::vector<TruncedSVInfo> CalcTruncedSVInfo_(
+  std::vector<TruncedSVInfo<RealT>> CalcTruncedSVInfo_(
       const std::map<size_t, DataBlkMatSvdRes<TenElemT>> &
   );
   void ConstructSVDResTens_(
-      const std::vector<TruncedSVInfo> &,
+      const std::vector<TruncedSVInfo<RealT>> &,
       const std::map<size_t, DataBlkMatSvdRes<TenElemT>> &
   );
   UVtDataBlkInfoVecPair CreateSVDResTens_(
-      const std::map<size_t, SDataBlkInfo> &
+      const std::map<size_t, SDataBlkInfo<RealT>> &
   );
   void FillSVDResTens_(
       const std::map<size_t, DataBlkMatSvdRes<TenElemT>> &,
-      const std::map<size_t, SDataBlkInfo> &,
+      const std::map<size_t, SDataBlkInfo<RealT>> &,
       const UVtDataBlkInfoVecPair &
   );
 
@@ -124,7 +127,7 @@ class TensorSVDExecutor : public Executor {
   const size_t Dmin_;
   const size_t Dmax_;
   QLTensor<TenElemT, QNT> *pu_;
-  QLTensor<QLTEN_Double, QNT> *ps_;
+  QLTensor<RealT, QNT> *ps_;
   QLTensor<TenElemT, QNT> *pvt_;
   QLTEN_Double *pactual_trunc_err_;
   size_t *pD_;
@@ -153,7 +156,7 @@ TensorSVDExecutor<TenElemT, QNT>::TensorSVDExecutor(
     const QNT &lqndiv,
     const QLTEN_Double trunc_err, const size_t Dmin, const size_t Dmax,
     QLTensor<TenElemT, QNT> *pu,
-    QLTensor<QLTEN_Double, QNT> *ps,
+    QLTensor<RealT, QNT> *ps,
     QLTensor<TenElemT, QNT> *pvt,
     QLTEN_Double *pactual_trunc_err, size_t *pD
 ) : pt_(pt),
@@ -237,7 +240,7 @@ void SVD(
     const QNT &lqndiv,
     const QLTEN_Double trunc_err, const size_t Dmin, const size_t Dmax,
     QLTensor<TenElemT, QNT> *pu,
-    QLTensor<QLTEN_Double, QNT> *ps,
+    QLTensor<typename RealTypeTrait<TenElemT>::type, QNT> *ps,
     QLTensor<TenElemT, QNT> *pvt,
     QLTEN_Double *pactual_trunc_err, size_t *pD
 ) {
@@ -251,12 +254,13 @@ void SVD(
   ten_svd_executor.Execute();
 }
 
-inline QLTEN_Double SumSV2(
-    const std::vector<TruncedSVInfo> &trunced_sv_info,
+template<typename RealT>
+inline RealT SumSV2(
+    const std::vector<TruncedSVInfo<RealT>> &trunced_sv_info,
     const size_t beg,
     const size_t end
 ) {
-  QLTEN_Double sv2_sum = 0.0;
+  RealT sv2_sum = 0.0;
   for (size_t i = beg; i < end; ++i) {
     sv2_sum += std::get<3>(trunced_sv_info[i]);
   }
@@ -267,10 +271,10 @@ inline QLTEN_Double SumSV2(
 Get truncated singular value information.
 */
 template<typename TenElemT, typename QNT>
-std::vector<TruncedSVInfo> TensorSVDExecutor<TenElemT, QNT>::CalcTruncedSVInfo_(
+std::vector<TruncedSVInfo<typename RealTypeTrait<TenElemT>::type>> TensorSVDExecutor<TenElemT, QNT>::CalcTruncedSVInfo_(
     const std::map<size_t, DataBlkMatSvdRes<TenElemT>> &idx_svd_res_map
 ) {
-  std::vector<TruncedSVInfo> trunced_sv_info;
+  std::vector<TruncedSVInfo<RealT>> trunced_sv_info;
   trunced_sv_info.reserve(Dmin_);
   for (auto &idx_svd_res : idx_svd_res_map) {
     auto idx = idx_svd_res.first;
@@ -279,14 +283,14 @@ std::vector<TruncedSVInfo> TensorSVDExecutor<TenElemT, QNT>::CalcTruncedSVInfo_(
 #ifndef USE_GPU
     auto s = svd_res.s;
 #else
-    QLTEN_Double *s = new double[k];
-    auto cuda_err = cudaMemcpy(s, svd_res.s, k * sizeof(QLTEN_Double), cudaMemcpyDeviceToHost);
+    RealT *s = new RealT[k];
+    auto cuda_err = cudaMemcpy(s, svd_res.s, k * sizeof(RealT), cudaMemcpyDeviceToHost);
     if (cuda_err != cudaSuccess) {
       std::cerr << "cudaMemcpy error (1): " << cuda_err << std::endl;
     }
 #endif
     for (size_t i = 0; i < k; ++i) {
-      QLTEN_Double &sv = s[i];
+      RealT &sv = s[i];
       if (sv != 0.0) {
         trunced_sv_info.emplace_back(std::make_tuple(sv, idx, i, sv * sv));
       }
@@ -309,18 +313,18 @@ std::vector<TruncedSVInfo> TensorSVDExecutor<TenElemT, QNT>::CalcTruncedSVInfo_(
       trunced_sv_info.begin(),
       trunced_sv_info.end(),
       [](
-          const TruncedSVInfo &sv_info_a,
-          const TruncedSVInfo &sv_info_b
+          const TruncedSVInfo<RealT> &sv_info_a,
+          const TruncedSVInfo<RealT> &sv_info_b
       ) -> bool {
         return std::get<0>(sv_info_a) > std::get<0>(sv_info_b);
       }
   );
-  QLTEN_Double total_kept_sv2_sum = SumSV2(trunced_sv_info, 0, trunced_sv_info.size());
-  QLTEN_Double target_kept_sv2_sum = total_kept_sv2_sum * (1 - trunc_err_);
+  RealT total_kept_sv2_sum = SumSV2(trunced_sv_info, 0, trunced_sv_info.size());
+  RealT target_kept_sv2_sum = total_kept_sv2_sum * (1 - trunc_err_);
   size_t kept_dim = Dmin_;
-  QLTEN_Double kept_sv2_sum = SumSV2(trunced_sv_info, 0, kept_dim);
+  RealT kept_sv2_sum = SumSV2(trunced_sv_info, 0, kept_dim);
   size_t next_kept_dim;
-  QLTEN_Double next_kept_sv2_sum;
+  RealT next_kept_sv2_sum;
   while (true) {
     if (kept_sv2_sum > target_kept_sv2_sum) { break; }
     next_kept_dim = kept_dim + 1;
@@ -344,8 +348,8 @@ std::vector<TruncedSVInfo> TensorSVDExecutor<TenElemT, QNT>::CalcTruncedSVInfo_(
       trunced_sv_info.begin(),
       trunced_sv_info.end(),
       [](
-          const TruncedSVInfo &sv_info_a,
-          const TruncedSVInfo &sv_info_b
+          const TruncedSVInfo<RealT> &sv_info_a,
+          const TruncedSVInfo<RealT> &sv_info_b
       ) -> bool {
         if (std::get<1>(sv_info_a) < std::get<1>(sv_info_b)) {
           return true;
@@ -359,12 +363,13 @@ std::vector<TruncedSVInfo> TensorSVDExecutor<TenElemT, QNT>::CalcTruncedSVInfo_(
   return trunced_sv_info;
 }
 
-inline std::map<size_t, SDataBlkInfo> GenIdxSDataBlkInfoMap(
-    const std::vector<TruncedSVInfo> &trunced_sv_info
+template<typename RealT>
+inline std::map<size_t, SDataBlkInfo<RealT>> GenIdxSDataBlkInfoMap(
+    const std::vector<TruncedSVInfo<RealT>> &trunced_sv_info
 ) {
-  std::map < size_t, SDataBlkInfo > idx_s_data_blk_info_map;
+  std::map < size_t, SDataBlkInfo<RealT> > idx_s_data_blk_info_map;
   size_t blk_coor = 0;
-  std::vector<QLTEN_Double> svs;
+  std::vector<RealT> svs;
   std::vector<size_t> mat_dims;
   size_t blk_dim = 0;
   auto total_sv_size = trunced_sv_info.size();
@@ -379,7 +384,7 @@ inline std::map<size_t, SDataBlkInfo> GenIdxSDataBlkInfoMap(
         ) {
       idx_s_data_blk_info_map[
           idx
-      ] = SDataBlkInfo(blk_coor, blk_dim, svs, mat_dims);
+      ] = SDataBlkInfo<RealT>(blk_coor, blk_dim, svs, mat_dims);
       blk_coor += 1;
       blk_dim = 0;
       svs.clear();
@@ -410,10 +415,10 @@ Construct SVD result tensors.
 */
 template<typename TenElemT, typename QNT>
 void TensorSVDExecutor<TenElemT, QNT>::ConstructSVDResTens_(
-    const std::vector<TruncedSVInfo> &trunced_sv_info,
+    const std::vector<TruncedSVInfo<RealT>> &trunced_sv_info,
     const std::map<size_t, DataBlkMatSvdRes<TenElemT>> &idx_raw_data_svd_res
 ) {
-  auto idx_s_data_blk_info_map = GenIdxSDataBlkInfoMap(trunced_sv_info);
+  auto idx_s_data_blk_info_map = GenIdxSDataBlkInfoMap<RealT>(trunced_sv_info);
   auto u_vt_data_blks_info = CreateSVDResTens_(idx_s_data_blk_info_map);
   FillSVDResTens_(
       idx_raw_data_svd_res,
@@ -425,30 +430,40 @@ void TensorSVDExecutor<TenElemT, QNT>::ConstructSVDResTens_(
 template<typename QNT>
 QNSectorVec<QNT> GenMidQNSects(
     const IdxDataBlkMatMap<QNT> &idx_data_blk_mat_map,
-    const std::map<size_t, SDataBlkInfo> idx_s_data_blk_info_map
+    const std::map<size_t, size_t> &idx_blk_dim_map // Simplified interface for dim extraction
 ) {
   QNSectorVec<QNT> mid_qnscts;
-  mid_qnscts.reserve(idx_s_data_blk_info_map.size());
-  for (auto &idx_s_data_blk_info : idx_s_data_blk_info_map) {
-    auto idx = idx_s_data_blk_info.first;
+  mid_qnscts.reserve(idx_blk_dim_map.size());
+  for (auto &idx_blk_dim : idx_blk_dim_map) {
+    auto idx = idx_blk_dim.first;
     mid_qnscts.push_back(
         QNSector<QNT>(
             idx_data_blk_mat_map.at(idx).mid_qn,
-            idx_s_data_blk_info.second.blk_dim
+            idx_blk_dim.second
         )
     );
   }
   return mid_qnscts;
 }
 
+// Helper to convert SDataBlkInfo map to dim map
+template<typename RealT>
+std::map<size_t, size_t> ExtractDims(const std::map<size_t, SDataBlkInfo<RealT>> &info_map) {
+    std::map<size_t, size_t> dim_map;
+    for(const auto& kv : info_map) {
+        dim_map[kv.first] = kv.second.blk_dim;
+    }
+    return dim_map;
+}
+
 template<typename TenElemT, typename QNT>
 UVtDataBlkInfoVecPair TensorSVDExecutor<TenElemT, QNT>::CreateSVDResTens_(
-    const std::map<size_t, SDataBlkInfo> &idx_s_data_blk_info_map
+    const std::map<size_t, SDataBlkInfo<RealT>> &idx_s_data_blk_info_map
 ) {
   // Initialize u, s, vt tensors
   auto mid_qnscts = GenMidQNSects(
       idx_ten_decomp_data_blk_mat_map_,
-      idx_s_data_blk_info_map
+      ExtractDims(idx_s_data_blk_info_map)
   );
   auto mid_index_out = Index<QNT>(mid_qnscts, TenIndexDirType::OUT);
   auto mid_index_in = InverseIndex(mid_index_out);
@@ -463,7 +478,7 @@ UVtDataBlkInfoVecPair TensorSVDExecutor<TenElemT, QNT>::CreateSVDResTens_(
   );
   (*pvt_) = QLTensor<TenElemT, QNT>(std::move(vt_indexes));
   IndexVec<QNT> s_indexes{mid_index_in, mid_index_out};
-  (*ps_) = QLTensor<QLTEN_Double, QNT>(std::move(s_indexes));
+  (*ps_) = QLTensor<RealT, QNT>(std::move(s_indexes));
 
   // Insert empty data blocks
   UVtDataBlkInfoVec u_data_blks_info, vt_data_blks_info;
@@ -513,7 +528,7 @@ UVtDataBlkInfoVecPair TensorSVDExecutor<TenElemT, QNT>::CreateSVDResTens_(
 template<typename TenElemT, typename QNT>
 void TensorSVDExecutor<TenElemT, QNT>::FillSVDResTens_(
     const std::map<size_t, DataBlkMatSvdRes<TenElemT>> &idx_svd_res_map,
-    const std::map<size_t, SDataBlkInfo> &idx_s_data_blk_info_map,
+    const std::map<size_t, SDataBlkInfo<RealT>> &idx_s_data_blk_info_map,
     const UVtDataBlkInfoVecPair &u_vt_data_blks_info
 ) {
   // Fill s tensor

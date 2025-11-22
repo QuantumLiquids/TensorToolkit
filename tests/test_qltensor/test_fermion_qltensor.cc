@@ -1257,15 +1257,6 @@ TEST_F(TestQLTensor, ElementWiseClipTo) {
   }
 }
 
-// Backward compatibility test
-TEST_F(TestQLTensor, ElementWiseBoundTo_BackwardCompatibility) {
-  // Simple test to ensure the deprecated API still works
-  dten_scalar.Random(fU1QN());
-  double bound = 0.3;
-  dten_scalar.ElementWiseBoundTo(bound);  // Should work via deprecated API
-  EXPECT_LE(std::abs(dten_scalar.GetElem({})), bound);
-}
-
 TEST_F(TestQLTensor, ElementWiseInv) {
   // Test scalar tensor
   dten_scalar.Random(fU1QN());

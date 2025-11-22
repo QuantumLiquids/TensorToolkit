@@ -459,16 +459,16 @@ void QLTensor<ElemT, QNT>::Transpose(
  * @return the 2-norm
  */
 template<typename ElemT, typename QNT>
-QLTEN_Double QLTensor<ElemT, QNT>::Get2Norm(void) const {
+auto QLTensor<ElemT, QNT>::Get2Norm(void) const {
   assert(!IsDefault());
-  QLTEN_Double norm = pblk_spar_data_ten_->Norm();
+  auto norm = pblk_spar_data_ten_->Norm();
   return norm;
 }
 
 template<typename ElemT, typename QNT>
-QLTEN_Double QLTensor<ElemT, QNT>::GetQuasi2Norm(void) const {
+auto QLTensor<ElemT, QNT>::GetQuasi2Norm(void) const {
   assert(!IsDefault());
-  QLTEN_Double norm = pblk_spar_data_ten_->Quasi2Norm();
+  auto norm = pblk_spar_data_ten_->Quasi2Norm();
   return norm;
 }
 
@@ -478,16 +478,16 @@ Normalize the tensor and return its norm.
 @return The norm before the normalization.
 */
 template<typename ElemT, typename QNT>
-QLTEN_Double QLTensor<ElemT, QNT>::Normalize(void) {
+auto QLTensor<ElemT, QNT>::Normalize(void) {
   assert(!IsDefault());
-  QLTEN_Double norm = pblk_spar_data_ten_->Normalize();
+  auto norm = pblk_spar_data_ten_->Normalize();
   return norm;
 }
 
 template<typename ElemT, typename QNT>
-QLTEN_Double QLTensor<ElemT, QNT>::QuasiNormalize() {
+auto QLTensor<ElemT, QNT>::QuasiNormalize() {
   assert(!IsDefault());
-  QLTEN_Double norm = pblk_spar_data_ten_->QuasiNormalize();
+  auto norm = pblk_spar_data_ten_->QuasiNormalize();
   return norm;
 }
 
@@ -591,7 +591,7 @@ QLTensor<ElemT, QNT> ElementWiseInv(const QLTensor<ElemT, QNT> &tensor) {
 }
 
 template<typename ElemT, typename QNT>
-QLTensor<ElemT, QNT> ElementWiseInv(const QLTensor<ElemT, QNT> &tensor, const double tolerance) {
+QLTensor<ElemT, QNT> ElementWiseInv(const QLTensor<ElemT, QNT> &tensor, const typename RealTypeTrait<ElemT>::type tolerance) {
   QLTensor<ElemT, QNT> res(tensor);
   res.ElementWiseInv(tolerance);
   return res;
@@ -605,7 +605,7 @@ QLTensor<ElemT, QNT> DiagMatInv(const QLTensor<ElemT, QNT> &tensor) {
 }
 
 template<typename ElemT, typename QNT>
-QLTensor<ElemT, QNT> DiagMatInv(const QLTensor<ElemT, QNT> &tensor, const double tolerance) {
+QLTensor<ElemT, QNT> DiagMatInv(const QLTensor<ElemT, QNT> &tensor, const typename RealTypeTrait<ElemT>::type tolerance) {
   QLTensor<ElemT, QNT> res(tensor);
   res.DiagMatInv(tolerance);
   return res;
@@ -1051,7 +1051,7 @@ void QLTensor<ElemT, QNT>::ElementWiseInv(void) {
 }
 
 template<typename ElemT, typename QNT>
-void QLTensor<ElemT, QNT>::ElementWiseInv(double tolerance) {
+void QLTensor<ElemT, QNT>::ElementWiseInv(typename RealTypeTrait<ElemT>::type tolerance) {
   pblk_spar_data_ten_->ElementWiseInv(tolerance);
 }
 
@@ -1071,13 +1071,8 @@ void QLTensor<ElemT, QNT>::ElementWiseSign() {
 }
 
 template<typename ElemT, typename QNT>
-void QLTensor<ElemT, QNT>::ElementWiseClipTo(double limit) {
+void QLTensor<ElemT, QNT>::ElementWiseClipTo(typename RealTypeTrait<ElemT>::type limit) {
   pblk_spar_data_ten_->ElementWiseClipTo(limit);
-}
-
-template<typename ElemT, typename QNT>
-void QLTensor<ElemT, QNT>::ElementWiseBoundTo(double bound) {
-  pblk_spar_data_ten_->ElementWiseClipTo(bound);
 }
 
 #ifndef USE_GPU
@@ -1089,18 +1084,18 @@ void QLTensor<ElemT, QNT>::DiagMatInv(void) {
 }
 
 template<typename ElemT, typename QNT>
-void QLTensor<ElemT, QNT>::DiagMatInv(double tolerance) {
+void QLTensor<ElemT, QNT>::DiagMatInv(typename RealTypeTrait<ElemT>::type tolerance) {
   for (size_t i = 0; i < GetShape()[0]; i++) {
-    if (std::abs((*this)({i, i})) > tolerance)
-      (*this)({i, i}) = 1.0 / (*this)({i, i});
+    if (qlten::abs((*this)({i, i})) > tolerance)
+      (*this)({i, i}) = ElemT(1) / (*this)({i, i});
     else
-      (*this)({i, i}) = 0.0;
+      (*this)({i, i}) = ElemT(0);
   }
 }
 
 template<typename ElemT, typename QNT>
 template<typename RandGenerator>
-void QLTensor<ElemT, QNT>::ElementWiseRandomizeMagnitudePreservePhase(std::uniform_real_distribution<double> &dist,
+void QLTensor<ElemT, QNT>::ElementWiseRandomizeMagnitudePreservePhase(std::uniform_real_distribution<typename RealTypeTrait<ElemT>::type> &dist,
                                                RandGenerator &g) {
   pblk_spar_data_ten_->ElementWiseRandomizeMagnitudePreservePhase(dist, g);
 }

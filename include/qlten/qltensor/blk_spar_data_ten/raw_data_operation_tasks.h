@@ -275,7 +275,7 @@ struct DataBlkMatSvdRes {
   size_t n = 0;
   size_t k = 0;
   ElemT *u = nullptr;
-  QLTEN_Double *s = nullptr;
+  typename RealTypeTrait<ElemT>::type *s = nullptr;
   ElemT *vt = nullptr;
 
   DataBlkMatSvdRes(void) = default;
@@ -285,7 +285,7 @@ struct DataBlkMatSvdRes {
       const size_t n,
       const size_t k,
       ElemT *u,
-      QLTEN_Double *s,
+      typename RealTypeTrait<ElemT>::type *s,
       ElemT *vt
   ) : m(m), n(n), k(k), u(u), s(s), vt(vt) {}
 };

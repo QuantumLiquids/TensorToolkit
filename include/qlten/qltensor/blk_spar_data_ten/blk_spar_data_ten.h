@@ -200,13 +200,13 @@ class BlockSparseDataTensor : public Streamable {
 
   std::vector<RawDataFermionNormTask> GenFermionNormTask(void) const;
 
-  QLTEN_Double Norm(void);
+  auto Norm(void);
 
-  QLTEN_Double Quasi2Norm(void);
+  auto Quasi2Norm(void);
 
-  QLTEN_Double Normalize(void);
+  auto Normalize(void);
 
-  QLTEN_Double QuasiNormalize(void);
+  auto QuasiNormalize(void);
 
   void Conj(void);
 
@@ -269,10 +269,12 @@ class BlockSparseDataTensor : public Streamable {
 
   void CopyFromReal(const BlockSparseDataTensor<QLTEN_Double, QNT> &);
 
+  void CopyFromReal(const BlockSparseDataTensor<QLTEN_Float, QNT> &);
+
   ///< ElementWiseInv with tolerance = 0
   void ElementWiseInv(void);
 
-  void ElementWiseInv(double tolerance);
+  void ElementWiseInv(typename RealTypeTrait<ElemT>::type tolerance);
 
   void ElementWiseMultiply(const BlockSparseDataTensor &);
 
@@ -282,13 +284,13 @@ class BlockSparseDataTensor : public Streamable {
 
   void ElementWiseSign(void);
 
-  void ElementWiseClipTo(double limit);
+  void ElementWiseClipTo(typename RealTypeTrait<ElemT>::type limit);
 
   template<typename RandGenerator>
-  void ElementWiseRandomizeMagnitudePreservePhase(std::uniform_real_distribution<double> &dist,
+  void ElementWiseRandomizeMagnitudePreservePhase(std::uniform_real_distribution<typename RealTypeTrait<ElemT>::type> &dist,
                            RandGenerator &g);
 
-  double GetMaxAbs(void) const;
+  auto GetMaxAbs(void) const;
 
   ElemT GetFirstNonZeroElement(void) const;
 
@@ -449,6 +451,8 @@ class BlockSparseDataTensor : public Streamable {
 
   void RawDataDuplicateFromReal_(const QLTEN_Double *, const size_t);
 
+  void RawDataDuplicateFromReal_(const QLTEN_Float *, const size_t);
+
   void RawDataRand_(void);
 
   void RawDataFill_(const ElemT &);
@@ -457,11 +461,11 @@ class BlockSparseDataTensor : public Streamable {
 
   void RawDataTranspose_(const std::vector<RawDataTransposeTask> &);
 
-  QLTEN_Double RawDataNorm_(void);
+  auto RawDataNorm_(void);
 
-  QLTEN_Double RawDataFermionNorm_(const std::vector<RawDataFermionNormTask> &);
+  auto RawDataFermionNorm_(const std::vector<RawDataFermionNormTask> &);
 
-  QLTEN_Double RawDataNormalize_(double norm);  //input the 2-norm
+  auto RawDataNormalize_(typename RealTypeTrait<ElemT>::type norm);  //input the 2-norm
 
   void RawDataConj_(void);
 
@@ -474,7 +478,7 @@ class BlockSparseDataTensor : public Streamable {
       const ElemT *,
       const size_t,
       const size_t, const size_t, const size_t,
-      const double,
+      const typename RealTypeTrait<ElemT>::type,
       const ElemT
   );
 

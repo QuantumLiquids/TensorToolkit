@@ -34,6 +34,17 @@ using QNSctVecT = QNSectorVec<U1QN>;
 
 using DQLTensor = QLTensor<QLTEN_Double, U1QN>;
 using ZQLTensor = QLTensor<QLTEN_Complex, U1QN>;
+using FQLTensor = QLTensor<QLTEN_Float, U1QN>;
+using CFQLTensor = QLTensor<QLTEN_ComplexFloat, U1QN>;
+
+template <typename T>
+double GetEpsilon() { return kEpsilon; }
+
+template <>
+double GetEpsilon<QLTEN_Float>() { return 1e-6; }
+
+template <>
+double GetEpsilon<QLTEN_ComplexFloat>() { return 1e-6; }
 
 struct TestContraction : public testing::Test {
   std::string qn_nm = "qn";
@@ -71,6 +82,24 @@ struct TestContraction : public testing::Test {
   ZQLTensor zten_3d_s3 = ZQLTensor({idx_in_s, idx_in_s, idx_out_s});
   ZQLTensor zten_3d_s4 = ZQLTensor({idx_out_s, idx_in_s, idx_in_s});
   ZQLTensor zten_3d_l = ZQLTensor({idx_in_l, idx_out_l, idx_out_l});
+
+  FQLTensor ften_1d_s = FQLTensor({idx_out_s});
+  FQLTensor ften_1d_l = FQLTensor({idx_out_l});
+  FQLTensor ften_2d_s = FQLTensor({idx_in_s, idx_out_s});
+  FQLTensor ften_2d_l = FQLTensor({idx_in_l, idx_out_l});
+  FQLTensor ften_3d_s = FQLTensor({idx_in_s, idx_out_s, idx_out_s});
+  FQLTensor ften_3d_s3 = FQLTensor({idx_in_s, idx_in_s, idx_out_s});
+  FQLTensor ften_3d_s4 = FQLTensor({idx_out_s, idx_in_s, idx_in_s});
+  FQLTensor ften_3d_l = FQLTensor({idx_in_l, idx_out_l, idx_out_l});
+
+  CFQLTensor cften_1d_s = CFQLTensor({idx_out_s});
+  CFQLTensor cften_1d_l = CFQLTensor({idx_out_l});
+  CFQLTensor cften_2d_s = CFQLTensor({idx_in_s, idx_out_s});
+  CFQLTensor cften_2d_l = CFQLTensor({idx_in_l, idx_out_l});
+  CFQLTensor cften_3d_s = CFQLTensor({idx_in_s, idx_out_s, idx_out_s});
+  CFQLTensor cften_3d_s3 = CFQLTensor({idx_in_s, idx_in_s, idx_out_s});
+  CFQLTensor cften_3d_s4 = CFQLTensor({idx_out_s, idx_in_s, idx_in_s});
+  CFQLTensor cften_3d_l = CFQLTensor({idx_in_l, idx_out_l, idx_out_l});
 };
 
 // NOTE: AOCL's cblas.h only declares the legacy CBLAS_ORDER enum; MKL/OpenBLAS
@@ -115,6 +144,46 @@ inline void CblasGemm(
       c, ldc);
 }
 
+inline void CblasGemm(
+    const CBLAS_ORDER Layout,
+    const CBLAS_TRANSPOSE transa, const CBLAS_TRANSPOSE transb,
+    const size_t m, const size_t n, const size_t k,
+    const qlten::QLTEN_Float alpha,
+    const qlten::QLTEN_Float *a, const size_t lda,
+    const qlten::QLTEN_Float *b, const size_t ldb,
+    const qlten::QLTEN_Float beta,
+    qlten::QLTEN_Float *c, const size_t ldc) {
+  cblas_sgemm(
+      Layout,
+      transa, transb,
+      m, n, k,
+      alpha,
+      a, lda,
+      b, ldb,
+      beta,
+      c, ldc);
+}
+
+inline void CblasGemm(
+    const CBLAS_ORDER Layout,
+    const CBLAS_TRANSPOSE transa, const CBLAS_TRANSPOSE transb,
+    const size_t m, const size_t n, const size_t k,
+    const qlten::QLTEN_ComplexFloat alpha,
+    const qlten::QLTEN_ComplexFloat *a, const size_t lda,
+    const qlten::QLTEN_ComplexFloat *b, const size_t ldb,
+    const qlten::QLTEN_ComplexFloat beta,
+    qlten::QLTEN_ComplexFloat *c, const size_t ldc) {
+  cblas_cgemm(
+      Layout,
+      transa, transb,
+      m, n, k,
+      &alpha,
+      a, lda,
+      b, ldb,
+      &beta,
+      c, ldc);
+}
+
 template<typename TenElemT, typename QNT>
 void RunTestTenCtrct1DCase(QLTensor<TenElemT, QNT> &t, const QNT &div) {
   t.Random(div);
@@ -133,7 +202,7 @@ void RunTestTenCtrct1DCase(QLTensor<TenElemT, QNT> &t, const QNT &div) {
   for (auto &coors : GenAllCoors(t.GetShape())) {
     res += qlten::norm(t.GetElem(coors));
   }
-  GtestExpectNear(t_res.GetElem({}), res, kEpsilon);
+  GtestExpectNear(t_res.GetElem({}), res, GetEpsilon<TenElemT>());
 }
 
 TEST_F(TestContraction, 1DCase) {
@@ -144,6 +213,14 @@ TEST_F(TestContraction, 1DCase) {
   RunTestTenCtrct1DCase(zten_1d_s, qn0);
   RunTestTenCtrct1DCase(zten_1d_s, qnp1);
   RunTestTenCtrct1DCase(zten_1d_s, qnm1);
+
+  RunTestTenCtrct1DCase(ften_1d_s, qn0);
+  RunTestTenCtrct1DCase(ften_1d_s, qnp1);
+  RunTestTenCtrct1DCase(ften_1d_s, qnm1);
+
+  RunTestTenCtrct1DCase(cften_1d_s, qn0);
+  RunTestTenCtrct1DCase(cften_1d_s, qnp1);
+  RunTestTenCtrct1DCase(cften_1d_s, qnm1);
 }
 
 template<typename TenElemT, typename QNT>
@@ -183,7 +260,7 @@ void RunTestTenCtrct2DInOutInOutSectDegnDsCase1(
                       {0}}, &res);
   idx = 0;
   for (auto &coors : GenAllCoors(res.GetShape())) {
-    GtestExpectNear(res.GetElem(coors), dense_res[idx], kEpsilon);
+    GtestExpectNear(res.GetElem(coors), dense_res[idx], GetEpsilon<TenElemT>());
     idx++;
   }
 
@@ -222,7 +299,7 @@ void RunTestTenCtrct2DCase2(
   QLTensor<TenElemT, QNT> res;
   Contract(&ta, &tb, {{0, 1},
                       {1, 0}}, &res);
-  GtestExpectNear(res.GetElem({}), res_scalar, kEpsilon);
+  GtestExpectNear(res.GetElem({}), res_scalar, GetEpsilon<TenElemT>());
 
   delete[] dense_ta;
   delete[] dense_tb;
@@ -256,6 +333,34 @@ TEST_F(TestContraction, 2DCase) {
   zten_2d_s2.Random(qnm1);
   RunTestTenCtrct2DInOutInOutSectDegnDsCase1(zten_2d_s, zten_2d_s2);
   RunTestTenCtrct2DCase2(zten_2d_s, zten_2d_s2);
+
+  auto ften_2d_s2 = ften_2d_s;
+  ften_2d_s.Random(qn0);
+  ften_2d_s2.Random(qn0);
+  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(ften_2d_s, ften_2d_s2);
+  RunTestTenCtrct2DCase2(ften_2d_s, ften_2d_s2);
+  ften_2d_s.Random(qnp1);
+  ften_2d_s2.Random(qn0);
+  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(ften_2d_s, ften_2d_s2);
+  RunTestTenCtrct2DCase2(ften_2d_s, ften_2d_s2);
+  ften_2d_s.Random(qnp1);
+  ften_2d_s2.Random(qnm1);
+  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(ften_2d_s, ften_2d_s2);
+  RunTestTenCtrct2DCase2(ften_2d_s, ften_2d_s2);
+
+  auto cften_2d_s2 = cften_2d_s;
+  cften_2d_s.Random(qn0);
+  cften_2d_s2.Random(qn0);
+  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(cften_2d_s, cften_2d_s2);
+  RunTestTenCtrct2DCase2(cften_2d_s, cften_2d_s2);
+  cften_2d_s.Random(qnp1);
+  cften_2d_s2.Random(qn0);
+  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(cften_2d_s, cften_2d_s2);
+  RunTestTenCtrct2DCase2(cften_2d_s, cften_2d_s2);
+  cften_2d_s.Random(qnp1);
+  cften_2d_s2.Random(qnm1);
+  RunTestTenCtrct2DInOutInOutSectDegnDsCase1(cften_2d_s, cften_2d_s2);
+  RunTestTenCtrct2DCase2(cften_2d_s, cften_2d_s2);
 }
 
 template<typename TenElemT, typename QNT>
@@ -295,7 +400,7 @@ void RunTestTenCtrct3DCase1(
                       {0}}, &res);
   idx = 0;
   for (auto &coors : GenAllCoors(res.GetShape())) {
-    GtestExpectNear(res.GetElem(coors), dense_res[idx], kEpsilon);
+    GtestExpectNear(res.GetElem(coors), dense_res[idx], GetEpsilon<TenElemT>());
     idx++;
   }
 
@@ -341,7 +446,7 @@ void RunTestTenCtrct3DCase2(
                       {0, 1}}, &res);
   idx = 0;
   for (auto &coors : GenAllCoors(res.GetShape())) {
-    GtestExpectNear(res.GetElem(coors), dense_res[idx], kEpsilon);
+    GtestExpectNear(res.GetElem(coors), dense_res[idx], GetEpsilon<TenElemT>());
     idx++;
   }
 
@@ -380,7 +485,7 @@ void RunTestTenCtrct3DCase3(
   QLTensor<TenElemT, QNT> res;
   Contract(&ta, &tb, {{0, 1, 2},
                       {0, 1, 2}}, &res);
-  GtestExpectNear(res.GetElem({}), res_scalar, kEpsilon);
+  GtestExpectNear(res.GetElem({}), res_scalar, GetEpsilon<TenElemT>());
 
   delete[] dense_ta;
   delete[] dense_tb;
@@ -444,6 +549,64 @@ TEST_F(TestContraction, 3DCase) {
   zten_3d_s.Random(qnp1);
   zten_3d_s4.Random(qnm1);
   RunTestTenCtrct3DCase3(zten_3d_s, zten_3d_s4);
+
+  auto ften_3d_s2 = ften_3d_s;
+  ften_3d_s.Random(qn0);
+  ften_3d_s2.Random(qn0);
+  RunTestTenCtrct3DCase1(ften_3d_s, ften_3d_s2);
+  ften_3d_s.Random(qnp1);
+  ften_3d_s2.Random(qn0);
+  RunTestTenCtrct3DCase1(ften_3d_s, ften_3d_s2);
+  ften_3d_s.Random(qnp1);
+  ften_3d_s2.Random(qnm1);
+  RunTestTenCtrct3DCase1(ften_3d_s, ften_3d_s2);
+  ften_3d_s.Random(qn0);
+  ften_3d_s3.Random(qn0);
+  RunTestTenCtrct3DCase2(ften_3d_s, ften_3d_s3);
+  ften_3d_s.Random(qnp1);
+  ften_3d_s3.Random(qn0);
+  RunTestTenCtrct3DCase2(ften_3d_s, ften_3d_s3);
+  ften_3d_s.Random(qnp1);
+  ften_3d_s3.Random(qnm1);
+  RunTestTenCtrct3DCase2(ften_3d_s, ften_3d_s3);
+  ften_3d_s.Random(qn0);
+  ften_3d_s4.Random(qn0);
+  RunTestTenCtrct3DCase3(ften_3d_s, ften_3d_s4);
+  ften_3d_s.Random(qnp1);
+  ften_3d_s4.Random(qn0);
+  RunTestTenCtrct3DCase3(ften_3d_s, ften_3d_s4);
+  ften_3d_s.Random(qnp1);
+  ften_3d_s4.Random(qnm1);
+  RunTestTenCtrct3DCase3(ften_3d_s, ften_3d_s4);
+
+  auto cften_3d_s2 = cften_3d_s;
+  cften_3d_s.Random(qn0);
+  cften_3d_s2.Random(qn0);
+  RunTestTenCtrct3DCase1(cften_3d_s, cften_3d_s2);
+  cften_3d_s.Random(qnp1);
+  cften_3d_s2.Random(qn0);
+  RunTestTenCtrct3DCase1(cften_3d_s, cften_3d_s2);
+  cften_3d_s.Random(qnp1);
+  cften_3d_s2.Random(qnm1);
+  RunTestTenCtrct3DCase1(cften_3d_s, cften_3d_s2);
+  cften_3d_s.Random(qn0);
+  cften_3d_s3.Random(qn0);
+  RunTestTenCtrct3DCase2(cften_3d_s, cften_3d_s3);
+  cften_3d_s.Random(qnp1);
+  cften_3d_s3.Random(qn0);
+  RunTestTenCtrct3DCase2(cften_3d_s, cften_3d_s3);
+  cften_3d_s.Random(qnp1);
+  cften_3d_s3.Random(qnm1);
+  RunTestTenCtrct3DCase2(cften_3d_s, cften_3d_s3);
+  cften_3d_s.Random(qn0);
+  cften_3d_s4.Random(qn0);
+  RunTestTenCtrct3DCase3(cften_3d_s, cften_3d_s4);
+  cften_3d_s.Random(qnp1);
+  cften_3d_s4.Random(qn0);
+  RunTestTenCtrct3DCase3(cften_3d_s, cften_3d_s4);
+  cften_3d_s.Random(qnp1);
+  cften_3d_s4.Random(qnm1);
+  RunTestTenCtrct3DCase3(cften_3d_s, cften_3d_s4);
 }
 
 template<typename TenElemT, typename QNT>
@@ -536,31 +699,31 @@ void RunTestTenMatBasedCtrct(
   }
 
   const BlockSparseDataTensor<TenElemT, QNT> &bsdt_res = benchmark_res.GetBlkSparDataTen();
-
+  using RealT = RealTypeTrait<TenElemT>::type;
   EXPECT_EQ(benchmark_res.GetIndexes(), res1.GetIndexes());
   const BlockSparseDataTensor<TenElemT, QNT> &bsdt_res1 = res1.GetBlkSparDataTen();
   EXPECT_EQ(bsdt_res.GetActualRawDataSize(), bsdt_res1.GetActualRawDataSize());
   TenT diff1 = benchmark_res + (-res1);
-  EXPECT_NEAR(diff1.Get2Norm() / std::max(res1.Get2Norm(), 1e-5), 0.0, kDoubleEpsilon);
+  EXPECT_NEAR(diff1.Get2Norm() / std::max(res1.Get2Norm(), RealT(1e-5)), 0.0, GetEpsilon<TenElemT>());
 
   EXPECT_EQ(benchmark_res.GetIndexes(), res2.GetIndexes());
   TenT diff2 = benchmark_res + (-res2);
-  EXPECT_NEAR(diff2.Normalize() / std::max(res2.Get2Norm(), 1e-5), 0.0, kDoubleEpsilon);
+  EXPECT_NEAR(diff2.Normalize() / std::max(res2.Get2Norm(), RealT(1e-5)), 0.0, GetEpsilon<TenElemT>());
 
   EXPECT_EQ(benchmark_res.GetIndexes(), res3.GetIndexes());
   EXPECT_TRUE(BSDTCompareShell(bsdt_res, res3.GetBlkSparDataTen()));
   TenT diff3 = benchmark_res + (-res3);
-  double norm_diff3 = diff3.Get2Norm();
-  double norm_res3 = res3.Get2Norm();
-  EXPECT_NEAR(norm_diff3 / std::max(norm_res3, 1e-5), 0.0, kDoubleEpsilon * 10);
-  if (norm_diff3 / std::max(norm_res3, 1e-5) > kDoubleEpsilon) {
+  auto norm_diff3 = diff3.Get2Norm();
+  auto norm_res3 = res3.Get2Norm();
+  EXPECT_NEAR(norm_diff3 / std::max<RealT>(norm_res3, RealT(1e-5)), 0.0, GetEpsilon<TenElemT>() * 10);
+  if (norm_diff3 / std::max<RealT>(norm_res3, RealT(1e-5)) > GetEpsilon<TenElemT>()) {
     std::cout << "norm_diff3 = " << std::scientific << norm_diff3 << std::endl;
     std::cout << "norm_res3 = " << norm_res3 << std::endl;
   }
 
   EXPECT_EQ(benchmark_res.GetIndexes(), res4.GetIndexes());
   TenT diff4 = benchmark_res + (-res4);
-  EXPECT_NEAR(diff4.Get2Norm() / std::max(res4.Get2Norm(), 1e-5), 0.0, kDoubleEpsilon * 10);
+  EXPECT_NEAR(diff4.Get2Norm() / std::max(res4.Get2Norm(), RealT(1e-5)), 0.0, GetEpsilon<TenElemT>() * 10);
 }
 
 TEST_F(TestContraction, MatBasedContract) {
@@ -627,5 +790,69 @@ TEST_F(TestContraction, MatBasedContract) {
   zten_3d_s.Random(qnp1);
   zten_3d_s4.Random(qnm1);
   RunTestTenMatBasedCtrct(zten_3d_s, {0, 1, 2}, zten_3d_s4, {0, 1, 2});
+
+  auto ften_3d_s2 = ften_3d_s;
+  ften_3d_s.Random(qn0);
+  ften_3d_s2.Random(qn0);
+  RunTestTenMatBasedCtrct(ften_3d_s, {2}, ften_3d_s2, {0});
+  RunTestTenMatBasedCtrct(ften_3d_s, {1}, ften_3d_s2, {0});
+  ften_3d_s.Random(qnp1);
+  ften_3d_s2.Random(qn0);
+  RunTestTenMatBasedCtrct(ften_3d_s, {2}, ften_3d_s2, {0});
+  RunTestTenMatBasedCtrct(ften_3d_s, {1}, ften_3d_s2, {0});
+  ften_3d_s.Random(qnp1);
+  ften_3d_s2.Random(qnm1);
+  RunTestTenMatBasedCtrct(ften_3d_s, {2}, ften_3d_s2, {0});
+  RunTestTenMatBasedCtrct(ften_3d_s, {1}, ften_3d_s2, {0});
+  ften_3d_s.Random(qn0);
+  ften_3d_s3.Random(qn0);
+  RunTestTenMatBasedCtrct(ften_3d_s, {1, 2}, ften_3d_s3, {0, 1});
+  ften_3d_s.Random(qnp1);
+  ften_3d_s3.Random(qn0);
+  RunTestTenMatBasedCtrct(ften_3d_s, {1, 2}, ften_3d_s3, {0, 1});
+  ften_3d_s.Random(qnp1);
+  ften_3d_s3.Random(qnm1);
+  RunTestTenMatBasedCtrct(ften_3d_s, {1, 2}, ften_3d_s3, {0, 1});
+  ften_3d_s.Random(qn0);
+  ften_3d_s4.Random(qn0);
+  RunTestTenMatBasedCtrct(ften_3d_s, {0, 1, 2}, ften_3d_s4, {0, 1, 2});
+  ften_3d_s.Random(qnp1);
+  ften_3d_s4.Random(qn0);
+  RunTestTenMatBasedCtrct(ften_3d_s, {0, 1, 2}, ften_3d_s4, {0, 1, 2});
+  ften_3d_s.Random(qnp1);
+  ften_3d_s4.Random(qnm1);
+  RunTestTenMatBasedCtrct(ften_3d_s, {0, 1, 2}, ften_3d_s4, {0, 1, 2});
+
+  auto cften_3d_s2 = cften_3d_s;
+  cften_3d_s.Random(qn0);
+  cften_3d_s2.Random(qn0);
+  RunTestTenMatBasedCtrct(cften_3d_s, {2}, cften_3d_s2, {0});
+  RunTestTenMatBasedCtrct(cften_3d_s, {1}, cften_3d_s2, {0});
+  cften_3d_s.Random(qnp1);
+  cften_3d_s2.Random(qn0);
+  RunTestTenMatBasedCtrct(cften_3d_s, {2}, cften_3d_s2, {0});
+  RunTestTenMatBasedCtrct(cften_3d_s, {1}, cften_3d_s2, {0});
+  cften_3d_s.Random(qnp1);
+  cften_3d_s2.Random(qnm1);
+  RunTestTenMatBasedCtrct(cften_3d_s, {2}, cften_3d_s2, {0});
+  RunTestTenMatBasedCtrct(cften_3d_s, {1}, cften_3d_s2, {0});
+  cften_3d_s.Random(qn0);
+  cften_3d_s3.Random(qn0);
+  RunTestTenMatBasedCtrct(cften_3d_s, {1, 2}, cften_3d_s3, {0, 1});
+  cften_3d_s.Random(qnp1);
+  cften_3d_s3.Random(qn0);
+  RunTestTenMatBasedCtrct(cften_3d_s, {1, 2}, cften_3d_s3, {0, 1});
+  cften_3d_s.Random(qnp1);
+  cften_3d_s3.Random(qnm1);
+  RunTestTenMatBasedCtrct(cften_3d_s, {1, 2}, cften_3d_s3, {0, 1});
+  cften_3d_s.Random(qn0);
+  cften_3d_s4.Random(qn0);
+  RunTestTenMatBasedCtrct(cften_3d_s, {0, 1, 2}, cften_3d_s4, {0, 1, 2});
+  cften_3d_s.Random(qnp1);
+  cften_3d_s4.Random(qn0);
+  RunTestTenMatBasedCtrct(cften_3d_s, {0, 1, 2}, cften_3d_s4, {0, 1, 2});
+  cften_3d_s.Random(qnp1);
+  cften_3d_s4.Random(qnm1);
+  RunTestTenMatBasedCtrct(cften_3d_s, {0, 1, 2}, cften_3d_s4, {0, 1, 2});
 }
 

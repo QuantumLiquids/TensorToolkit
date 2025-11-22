@@ -57,6 +57,29 @@ inline void MatMultiply(
 #endif
 }
 
+inline void MatMultiply(
+    const float alpha,
+    const QLTEN_Float *a,
+    const QLTEN_Float *b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const QLTEN_Float beta,
+    QLTEN_Float *c) {
+  cblas_sgemm(
+      CblasRowMajor, CblasNoTrans, CblasNoTrans,
+      m, n, k,
+      alpha,
+      a, k,
+      b, n,
+      beta,
+      c, n
+  );
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (2 * k + 2);
+#endif
+}
+
 /**
  * C = alpha * A * B + beta * C
  *
@@ -73,6 +96,30 @@ inline void MatMultiply(
     QLTEN_Complex *c) {
   QLTEN_Complex alpha_complex(alpha);
   cblas_zgemm(
+      CblasRowMajor, CblasNoTrans, CblasNoTrans,
+      m, n, k,
+      &alpha_complex,
+      a, k,
+      b, n,
+      &beta,
+      c, n
+  );
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (8 * k + 8);
+#endif
+}
+
+inline void MatMultiply(
+    const float alpha,
+    const QLTEN_ComplexFloat *a,
+    const QLTEN_ComplexFloat *b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const QLTEN_ComplexFloat beta,
+    QLTEN_ComplexFloat *c) {
+  QLTEN_ComplexFloat alpha_complex(alpha);
+  cblas_cgemm(
       CblasRowMajor, CblasNoTrans, CblasNoTrans,
       m, n, k,
       &alpha_complex,
@@ -114,6 +161,33 @@ inline void MatMultiply(
 }
 
 inline void MatMultiply(
+    const float alpha,
+    const QLTEN_Float *a,
+    const CBLAS_TRANSPOSE cblas_transpose_a,
+    const QLTEN_Float *b,
+    const CBLAS_TRANSPOSE cblas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const size_t ldb,
+    const QLTEN_Float beta,
+    QLTEN_Float *c) {
+  cblas_sgemm(
+      CblasRowMajor, cblas_transpose_a, cblas_transpose_b,
+      m, n, k,
+      alpha,
+      a, lda,
+      b, ldb,
+      beta,
+      c, n
+  );
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (2 * k + 2);
+#endif
+}
+
+inline void MatMultiply(
     const double alpha,
     const QLTEN_Complex *a,
     const CBLAS_TRANSPOSE cblas_transpose_a,
@@ -128,6 +202,34 @@ inline void MatMultiply(
     QLTEN_Complex *c) {
   QLTEN_Complex alpha_complex(alpha);
   cblas_zgemm(
+      CblasRowMajor, cblas_transpose_a, cblas_transpose_b,
+      m, n, k,
+      &alpha_complex,
+      a, lda,
+      b, ldb,
+      &beta,
+      c, n
+  );
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (8 * k + 8);
+#endif
+}
+
+inline void MatMultiply(
+    const float alpha,
+    const QLTEN_ComplexFloat *a,
+    const CBLAS_TRANSPOSE cblas_transpose_a,
+    const QLTEN_ComplexFloat *b,
+    const CBLAS_TRANSPOSE cblas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const size_t ldb,
+    const QLTEN_ComplexFloat beta,
+    QLTEN_ComplexFloat *c) {
+  QLTEN_ComplexFloat alpha_complex(alpha);
+  cblas_cgemm(
       CblasRowMajor, cblas_transpose_a, cblas_transpose_b,
       m, n, k,
       &alpha_complex,
@@ -294,6 +396,174 @@ inline void MatMultiplyBatch(
   for (MKL_INT i = 0; i < group_count; ++i) {
     for (MKL_INT j = 0; j < 1; ++j) {
       cblas_zgemm(
+          Layout,
+          CblasNoTrans, CblasNoTrans,
+          m_array[i], n_array[i], k_array[i],
+          &alpha,
+          a_array[idx], lda_array[i],
+          b_array[idx], ldb_array[i],
+          &beta_array[i],
+          c_array[idx], ldc_array[i]);
+      ++idx;
+#ifdef QLTEN_COUNT_FLOPS
+      flop += m_array[i] * n_array[i] * (8 * k_array[i] + 8);
+#endif
+    }
+  }
+#endif
+}
+
+inline void MatMultiplyBatch(
+    const QLTEN_Float **a_array, const QLTEN_Float **b_array,
+    const MKL_INT *m_array, const MKL_INT *k_array, const MKL_INT *n_array,
+    const QLTEN_Float *beta_array,
+    QLTEN_Float **c_array,
+    const MKL_INT group_count) {
+
+  const CBLAS_LAYOUT Layout = CblasRowMajor;
+  const MKL_INT *lda_array = k_array;
+  const MKL_INT *ldb_array = n_array;
+  const MKL_INT *ldc_array = n_array;
+
+#ifdef QLTEN_USE_MKL_GEMM_BATCH
+  // NOTE: DONOT use this part code now, except contracting one index
+  // because when c_array has some same elements (c_array[i]==c_array[j] with i!=j),
+  //different CPU&caches will load&read the data at the same time.
+  CBLAS_TRANSPOSE* transa_array = (CBLAS_TRANSPOSE *) malloc(group_count* sizeof(CBLAS_TRANSPOSE));
+  CBLAS_TRANSPOSE* transb_array = (CBLAS_TRANSPOSE *) malloc(group_count* sizeof(CBLAS_TRANSPOSE));
+  for (MKL_INT i = 0 ; i < group_count ; i++){
+    transa_array[i] = CblasNoTrans;
+  }
+  for (MKL_INT i = 0 ; i < group_count ; i++){
+    transb_array[i] = CblasNoTrans;
+  }
+
+  QLTEN_Float *alpha_array = (QLTEN_Float *) malloc(group_count* sizeof(QLTEN_Float));
+  for (MKL_INT i = 0 ; i < group_count ; i++){
+    alpha_array[i] = 1.0f;
+  }
+
+  MKL_INT* group_size = (MKL_INT *) malloc(group_count* sizeof(MKL_INT));
+  for (MKL_INT i = 0 ; i < group_count ; i++){
+    group_size[i] = 1;
+  }
+
+  cblas_sgemm_batch (
+      Layout,
+      transa_array, transb_array,
+      m_array, n_array, k_array,
+      alpha_array,
+      a_array, lda_array,
+      b_array, ldb_array,
+      beta_array,
+      c_array, ldc_array,
+      group_count,
+      group_size);
+
+  free(transa_array);
+  free(transb_array);
+  free(alpha_array);
+  free(group_size);
+#else // Use direct gemm loop.
+
+  auto idx = 0;
+  for (MKL_INT i = 0; i < group_count; ++i) {
+    for (MKL_INT j = 0; j < 1; ++j) {
+      cblas_sgemm(
+          Layout,
+          CblasNoTrans, CblasNoTrans,
+          m_array[i], n_array[i], k_array[i],
+          1.0f,
+          a_array[idx], lda_array[i],
+          b_array[idx], ldb_array[i],
+          beta_array[i],
+          c_array[idx], ldc_array[i]);
+      ++idx;
+#ifdef QLTEN_COUNT_FLOPS
+      flop += m_array[i] * n_array[i] * (2 * k_array[i] + 2);
+#endif
+    }
+}
+
+#endif
+}
+
+inline void MatMultiplyBatch(
+    const QLTEN_ComplexFloat **a_array,
+    const QLTEN_ComplexFloat **b_array,
+    const MKL_INT *m_array, const MKL_INT *k_array, const MKL_INT *n_array,
+    const QLTEN_ComplexFloat *beta_array,
+    QLTEN_ComplexFloat **c_array,
+    const MKL_INT group_count) {
+
+  const CBLAS_LAYOUT Layout = CblasRowMajor;
+
+  const MKL_INT *lda_array = k_array;
+  const MKL_INT *ldb_array = n_array;
+  const MKL_INT *ldc_array = n_array;
+
+#ifdef QLTEN_USE_MKL_GEMM_BATCH
+  // NOTE: DONOT use this part code now, except contracting one index
+  // because when c_array has some same elements (c_array[i]==c_array[j] with i!=j),
+  //different CPU&caches will load&read the data at the same time.
+  CBLAS_TRANSPOSE* transa_array = (CBLAS_TRANSPOSE *) malloc(group_count* sizeof(CBLAS_TRANSPOSE));
+  CBLAS_TRANSPOSE* transb_array = (CBLAS_TRANSPOSE *) malloc(group_count* sizeof(CBLAS_TRANSPOSE));
+  for (MKL_INT i = 0 ; i < group_count ; i++){
+    transa_array[i] = CblasNoTrans;
+  }
+  for (MKL_INT i = 0 ; i < group_count ; i++){
+    transb_array[i] = CblasNoTrans;
+  }
+
+  QLTEN_ComplexFloat *alpha_array = (QLTEN_ComplexFloat *) malloc(group_count* sizeof(QLTEN_ComplexFloat));
+  for (MKL_INT i = 0 ; i < group_count ; i++){
+    alpha_array[i] = QLTEN_ComplexFloat(1.0f);
+  }
+
+  MKL_INT* group_size = (MKL_INT *) malloc(group_count* sizeof(MKL_INT));
+  for (MKL_INT i = 0 ; i < group_count ; i++){
+    group_size[i] = 1;
+  }
+
+  const void** a_array_void_pointer = (const void** ) malloc(group_count* sizeof(void*));
+  for(size_t i=0;i < group_count; i++){
+    a_array_void_pointer[i] = (const void*) a_array[i];
+  }
+  const void** b_array_void_pointer = (const void** ) malloc(group_count* sizeof(void*));
+  for(size_t i=0;i < group_count; i++){
+    b_array_void_pointer[i] = (const void*) b_array[i];
+  }
+  void** c_array_void_pointer = (void** ) malloc(group_count* sizeof(void*));
+  for(size_t i=0;i < group_count; i++){
+    c_array_void_pointer[i] = (void*) c_array[i];
+  }
+
+  cblas_cgemm_batch (
+      Layout,
+      transa_array, transb_array,
+      m_array, n_array, k_array,
+      alpha_array,
+      a_array_void_pointer, lda_array,
+      b_array_void_pointer, ldb_array,
+      beta_array,
+      c_array_void_pointer, ldc_array,
+      group_count,
+      group_size);
+
+  free(a_array_void_pointer);
+  free(b_array_void_pointer);
+  free(c_array_void_pointer);
+
+  free(transa_array);
+  free(transb_array);
+  free(alpha_array);
+  free(group_size);
+#else // Use direct gemm loop.
+  QLTEN_ComplexFloat alpha = QLTEN_ComplexFloat(1.0f);
+  auto idx = 0;
+  for (MKL_INT i = 0; i < group_count; ++i) {
+    for (MKL_INT j = 0; j < 1; ++j) {
+      cblas_cgemm(
           Layout,
           CblasNoTrans, CblasNoTrans,
           m_array[i], n_array[i], k_array[i],

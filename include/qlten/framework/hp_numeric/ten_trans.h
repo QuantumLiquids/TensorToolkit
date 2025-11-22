@@ -193,14 +193,34 @@ cutensorDataType_t GetCuTensorDataType();
 template<>
 inline cutensorDataType_t GetCuTensorDataType<QLTEN_Double>() { return CUTENSOR_R_64F; }
 template<>
+inline cutensorDataType_t GetCuTensorDataType<QLTEN_Float>() { return CUTENSOR_R_32F; }
+template<>
 inline cutensorDataType_t GetCuTensorDataType<QLTEN_Complex>() { return CUTENSOR_C_64F; }
+template<>
+inline cutensorDataType_t GetCuTensorDataType<QLTEN_ComplexFloat>() { return CUTENSOR_C_32F; }
+
+template<typename ElemT>
+cutensorComputeDescriptor_t GetCuTensorComputeDesc();
+
+template<>
+inline cutensorComputeDescriptor_t GetCuTensorComputeDesc<QLTEN_Double>() { return CUTENSOR_COMPUTE_DESC_64F; }
+template<>
+inline cutensorComputeDescriptor_t GetCuTensorComputeDesc<QLTEN_Float>() { return CUTENSOR_COMPUTE_DESC_32F; }
+template<>
+inline cutensorComputeDescriptor_t GetCuTensorComputeDesc<QLTEN_Complex>() { return CUTENSOR_COMPUTE_DESC_64F; }
+template<>
+inline cutensorComputeDescriptor_t GetCuTensorComputeDesc<QLTEN_ComplexFloat>() { return CUTENSOR_COMPUTE_DESC_32F; }
 
 template<typename ElemT>
 ElemT TypedAlpha(double);
 template<>
 inline QLTEN_Double TypedAlpha<QLTEN_Double>(double alpha) { return alpha; }
 template<>
+inline QLTEN_Float TypedAlpha<QLTEN_Float>(double alpha) { return static_cast<float>(alpha); }
+template<>
 inline QLTEN_Complex TypedAlpha<QLTEN_Complex>(double alpha) { return {alpha, 0}; }
+template<>
+inline QLTEN_ComplexFloat TypedAlpha<QLTEN_ComplexFloat>(double alpha) { return {static_cast<float>(alpha), 0.0f}; }
 
 template<typename ElemT, typename IntType>
 /**
@@ -280,7 +300,7 @@ void TensorTranspose(
       handle, &op_desc,
       descA, no_perm, CUTENSOR_OP_IDENTITY, // Identity operation
       descB, perm, // Permuted order for output tensor
-      CUTENSOR_COMPUTE_DESC_64F);
+      GetCuTensorComputeDesc<ElemT>());
   HANDLE_CUTENSOR_ERROR(status);
 
   /*****************************

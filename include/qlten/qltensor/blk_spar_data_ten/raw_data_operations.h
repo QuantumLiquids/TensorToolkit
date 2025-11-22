@@ -235,14 +235,14 @@ calculate the 2-norm (square root of elements' square summation) of the raw data
 @return The 2-norm
 */
 template<typename ElemT, typename QNT>
-QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::RawDataNorm_(void) {
+auto BlockSparseDataTensor<ElemT, QNT>::RawDataNorm_(void) {
   return hp_numeric::Vector2Norm(pactual_raw_data_, actual_raw_data_size_);
 }
 
 template<typename ElemT, typename QNT>
-QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::RawDataFermionNorm_(
+auto BlockSparseDataTensor<ElemT, QNT>::RawDataFermionNorm_(
     const std::vector<RawDataFermionNormTask> &tasks) {
-  double sum_square = 0.0;
+  typename RealTypeTrait<ElemT>::type sum_square = typename RealTypeTrait<ElemT>::type(0.0);
   for (auto &task : tasks) {
     sum_square += task.sign * hp_numeric::VectorSumSquares(pactual_raw_data_ + task.data_offset, task.data_size);
   }
@@ -258,8 +258,8 @@ Normalize the raw data array.
 @return The norm before normalization.
 */
 template<typename ElemT, typename QNT>
-QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::RawDataNormalize_(double norm) {
-  double inv_norm = 1.0 / norm;
+auto BlockSparseDataTensor<ElemT, QNT>::RawDataNormalize_(typename RealTypeTrait<ElemT>::type norm) {
+  typename RealTypeTrait<ElemT>::type inv_norm = 1.0 / norm;
   hp_numeric::VectorScale(pactual_raw_data_, actual_raw_data_size_, inv_norm);
   return norm;
 }
@@ -488,6 +488,16 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataDuplicateFromReal_(
   }
 }
 
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::RawDataDuplicateFromReal_(
+    const QLTEN_Float *preal_raw_data_, const size_t size) {
+  if constexpr (std::is_same<ElemT, QLTEN_ComplexFloat>::value) {
+    hp_numeric::VectorRealToCplx(preal_raw_data_, size, pactual_raw_data_);
+  } else {
+    assert(false);
+  }
+}
+
 /**
 Multiply the raw data by a scalar.
 
@@ -511,7 +521,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataTwoMatMultiplyAndAssignIn_(
     const ElemT *b,
     const size_t c_data_offset,
     const size_t m, const size_t k, const size_t n,
-    const double alpha, //for fermion sign
+    const typename RealTypeTrait<ElemT>::type alpha, //for fermion sign
     const ElemT beta
 ) {
   assert(actual_raw_data_size_ != 0);
@@ -654,12 +664,12 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv(void) {
                 num_threads(ompth)\
                 schedule(static)
   for (size_t i = 0; i < actual_raw_data_size_; i++) {
-    *(pactual_raw_data_ + i) = 1.0 / (*(pactual_raw_data_ + i));
+    *(pactual_raw_data_ + i) = ElemT(1) / (*(pactual_raw_data_ + i));
   }
 }
 
 template<typename ElemT, typename QNT>
-void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv(double tolerance) {
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv(typename RealTypeTrait<ElemT>::type tolerance) {
   int ompth = hp_numeric::tensor_manipulation_num_threads;
 #pragma omp parallel for default(none) \
                 shared(pactual_raw_data_, tolerance)\
@@ -667,7 +677,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv(double tolerance) {
                 schedule(static)
   for (size_t i = 0; i < actual_raw_data_size_; i++) {
     ElemT &elem = *(pactual_raw_data_ + i);
-    elem = (std::abs(elem) < tolerance) ? ElemT(0) : 1.0 / elem;
+    elem = (qlten::abs(elem) < tolerance) ? ElemT(0) : ElemT(1) / elem;
   }
 }
 
@@ -758,6 +768,17 @@ inline void RandMagnitudePreservePhase(QLTEN_Double *number,
 }
 
 template<typename RandGenerator>
+inline void RandMagnitudePreservePhase(QLTEN_Float *number,
+                     std::uniform_real_distribution<float> &dist,
+                     RandGenerator &g,
+                     float tolerance) {
+  if (std::abs(*number) > tolerance) {
+    const float r = dist(g);
+    *number = std::copysign(r, *number);
+  }
+}
+
+template<typename RandGenerator>
 inline void RandMagnitudePreservePhase(QLTEN_Complex *number,
                      std::uniform_real_distribution<double> &dist,
                      RandGenerator &g,
@@ -770,22 +791,39 @@ inline void RandMagnitudePreservePhase(QLTEN_Complex *number,
   }
 }
 
+template<typename RandGenerator>
+inline void RandMagnitudePreservePhase(QLTEN_ComplexFloat *number,
+                     std::uniform_real_distribution<float> &dist,
+                     RandGenerator &g,
+                     float tolerance) {
+  const float mag = std::abs(*number);
+  if (mag > tolerance) {
+    const QLTEN_ComplexFloat phase = (*number) / mag; // unit complex with same phase
+    const float r = dist(g);
+    *number = phase * r;
+  }
+}
+
 template<typename ElemT, typename QNT>
 template<typename RandGenerator>
-void BlockSparseDataTensor<ElemT, QNT>::ElementWiseRandomizeMagnitudePreservePhase(std::uniform_real_distribution<double> &dist,
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseRandomizeMagnitudePreservePhase(std::uniform_real_distribution<typename RealTypeTrait<ElemT>::type> &dist,
                                                             RandGenerator &g) {
   const ElemT *max_ele = std::max_element(pactual_raw_data_, pactual_raw_data_ + actual_raw_data_size_,
                                           [](const ElemT &a, const ElemT &b) {
                                             return std::abs(a) < std::abs(b);
                                           });
   // Match tests' tolerance policy exactly
-  const double tolerance = std::abs(*max_ele) * 1.0e-3; // ! bad thing, magic number
+  const auto tolerance = static_cast<typename RealTypeTrait<ElemT>::type>(std::abs(*max_ele) * 1.0e-3); // ! bad thing, magic number
   for (size_t i = 0; i < actual_raw_data_size_; i++) {
     RandMagnitudePreservePhase(pactual_raw_data_ + i, dist, g, tolerance);
   }
 }
 
 inline QLTEN_Double ClipValue(QLTEN_Double number, double limit) {
+  return std::copysign(limit, number);
+}
+
+inline QLTEN_Float ClipValue(QLTEN_Float number, float limit) {
   return std::copysign(limit, number);
 }
 
@@ -798,8 +836,17 @@ inline QLTEN_Complex ClipValue(QLTEN_Complex number, double limit) {
   return number;
 }
 
+inline QLTEN_ComplexFloat ClipValue(QLTEN_ComplexFloat number, float limit) {
+  float magnitude = std::abs(number);
+  if (magnitude > limit) {
+    float phase = std::arg(number);  // Get phase angle
+    return std::polar(limit, phase);  // Reconstruct with clipped magnitude
+  }
+  return number;
+}
+
 template<typename ElemT, typename QNT>
-void BlockSparseDataTensor<ElemT, QNT>::ElementWiseClipTo(double limit) {
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseClipTo(typename RealTypeTrait<ElemT>::type limit) {
   for (size_t i = 0; i < actual_raw_data_size_; i++) {
     ElemT *elem = pactual_raw_data_ + i;
     if (std::abs(*elem) > limit) {
@@ -809,7 +856,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseClipTo(double limit) {
 }
 
 template<typename ElemT, typename QNT>
-double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
+auto BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
   auto max_abs_value_iter = std::max_element(pactual_raw_data_,
                                              pactual_raw_data_ + actual_raw_data_size_,
                                              [](ElemT a, ElemT b) {
@@ -974,6 +1021,14 @@ inline void ElementWiseClipKernel(double *data, size_t size, double limit) {
 }
 
 __global__
+inline void ElementWiseClipKernel(float *data, size_t size, float limit) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = ::copysignf(limit, data[idx]);  // Use global namespace for CUDA
+  }
+}
+
+__global__
 inline void ElementWiseClipKernel(cuda::std::complex<double> *data, size_t size, double limit) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
@@ -985,8 +1040,20 @@ inline void ElementWiseClipKernel(cuda::std::complex<double> *data, size_t size,
   }
 }
 
+__global__
+inline void ElementWiseClipKernel(cuda::std::complex<float> *data, size_t size, float limit) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    float magnitude = cuda::std::abs(data[idx]);
+    if (magnitude > limit) {
+      float phase = cuda::std::arg(data[idx]);  // Get phase angle
+      data[idx] = cuda::std::polar(limit, phase);  // Reconstruct with clipped magnitude
+    }
+  }
+}
+
 template<typename ElemT, typename QNT>
-void BlockSparseDataTensor<ElemT, QNT>::ElementWiseClipTo(double limit) {
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseClipTo(typename RealTypeTrait<ElemT>::type limit) {
   const int threadsPerBlock = 256;
   const int blocks = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
 
@@ -1035,13 +1102,23 @@ struct AbsFunctor {
   }
 
   __host__ __device__
+  float operator()(const cuda::std::complex<float> &z) const {
+    return hypotf(z.real(), z.imag());
+  }
+
+  __host__ __device__
   double operator()(const double &x) const {
+    return std::abs(x); // For real numbers
+  }
+
+  __host__ __device__
+  float operator()(const float &x) const {
     return std::abs(x); // For real numbers
   }
 };
 
 template<typename ElemT, typename QNT>
-double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
+auto BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
   // Wrap raw device pointer into a Thrust device pointer
   thrust::device_ptr<const ElemT> dev_ptr(pactual_raw_data_);
 
@@ -1050,7 +1127,7 @@ double BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
       thrust::device, dev_ptr, dev_ptr + actual_raw_data_size_,
       AbsFunctor(),                      // Transformation (absolute value)
       0.0,                               // Initial value
-      thrust::maximum<double>()          // Reduction operation (max)
+      thrust::maximum<typename RealTypeTrait<ElemT>::type>()          // Reduction operation (max)
   );
 }
 

@@ -605,7 +605,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVD(
     ElemT *mat = RawDataGenDenseDataBlkMat_(data_blk_mat);
     ElemT *u = nullptr;
     ElemT *vt = nullptr;
-    QLTEN_Double *s = nullptr;
+    typename RealTypeTrait<ElemT>::type *s = nullptr;
     size_t m = data_blk_mat.rows;
     size_t n = data_blk_mat.cols;
     size_t k = m > n ? n : m;
@@ -736,7 +736,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
       hp_numeric::MPI_Recv(m, worker_id, idx + 14, comm);
       hp_numeric::MPI_Recv(n, worker_id, idx + 15, comm);
       const size_t ld = std::min(m, n);
-      QLTEN_Double *s = (QLTEN_Double *) qlten::QLMalloc(ld * sizeof(QLTEN_Double));
+      typename RealTypeTrait<ElemT>::type *s = (typename RealTypeTrait<ElemT>::type *) qlten::QLMalloc(ld * sizeof(typename RealTypeTrait<ElemT>::type));
       ElemT *u = (ElemT *) qlten::QLMalloc((ld * m) * sizeof(ElemT));
       ElemT *vt = (ElemT *) qlten::QLMalloc((ld * n) * sizeof(ElemT));
       const size_t k = m > n ? n : m;
@@ -766,7 +766,7 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
       hp_numeric::MPI_Recv(m, worker_id, idx + 14, comm);
       hp_numeric::MPI_Recv(n, worker_id, idx + 15, comm);
       const size_t ld = std::min(m, n);
-      QLTEN_Double *s = (QLTEN_Double *) qlten::QLMalloc(ld * sizeof(QLTEN_Double));
+      typename RealTypeTrait<ElemT>::type *s = (typename RealTypeTrait<ElemT>::type *) qlten::QLMalloc(ld * sizeof(typename RealTypeTrait<ElemT>::type));
       ElemT *u = (ElemT *) qlten::QLMalloc((ld * m) * sizeof(ElemT));
       ElemT *vt = (ElemT *) qlten::QLMalloc((ld * n) * sizeof(ElemT));
       const size_t k = m > n ? n : m;
@@ -878,7 +878,7 @@ void DataBlkDecompSVDSlave(const MPI_Comm &comm) {
 
       ElemT *u = nullptr;
       ElemT *vt = nullptr;
-      QLTEN_Double *s = nullptr;
+      typename RealTypeTrait<ElemT>::type *s = nullptr;
       hp_numeric::MatSVD(mat, m, n, u, s, vt);
       qlten::QLFree(mat);
       size_t ld = std::min(m, n);

@@ -46,7 +46,11 @@ MPI_Datatype GetMPIDataType();
 template<>
 inline MPI_Datatype GetMPIDataType<QLTEN_Double>() { return MPI_DOUBLE; }
 template<>
+inline MPI_Datatype GetMPIDataType<QLTEN_Float>() { return MPI_FLOAT; }
+template<>
 inline MPI_Datatype GetMPIDataType<QLTEN_Complex>() { return MPI_CXX_DOUBLE_COMPLEX; }
+template<>
+inline MPI_Datatype GetMPIDataType<QLTEN_ComplexFloat>() { return MPI_CXX_FLOAT_COMPLEX; }
 
 ///< Send a solely number with type of size_t
 inline void MPI_Send(const size_t n,

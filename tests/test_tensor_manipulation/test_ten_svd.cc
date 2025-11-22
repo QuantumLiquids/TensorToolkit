@@ -23,6 +23,8 @@ using QNSctVecT = QNSectorVec<U1QN>;
 
 using DQLTensor = QLTensor<QLTEN_Double, U1QN>;
 using ZQLTensor = QLTensor<QLTEN_Complex, U1QN>;
+using FQLTensor = QLTensor<QLTEN_Float, U1QN>;
+using CQLTensor = QLTensor<QLTEN_ComplexFloat, U1QN>;
 
 struct TestSvd : public testing::Test {
   std::string qn_nm = "qn";
@@ -48,6 +50,16 @@ struct TestSvd : public testing::Test {
   ZQLTensor zten_2d_s = ZQLTensor({idx_in_s, idx_out_s});
   ZQLTensor zten_3d_s = ZQLTensor({idx_in_s, idx_out_s, idx_out_s});
   ZQLTensor zten_4d_s = ZQLTensor({idx_in_s, idx_out_s, idx_out_s, idx_out_s});
+
+  FQLTensor ften_1d_s = FQLTensor({idx_out_s});
+  FQLTensor ften_2d_s = FQLTensor({idx_in_s, idx_out_s});
+  FQLTensor ften_3d_s = FQLTensor({idx_in_s, idx_out_s, idx_out_s});
+  FQLTensor ften_4d_s = FQLTensor({idx_in_s, idx_out_s, idx_out_s, idx_out_s});
+
+  CQLTensor cten_1d_s = CQLTensor({idx_out_s});
+  CQLTensor cten_2d_s = CQLTensor({idx_in_s, idx_out_s});
+  CQLTensor cten_3d_s = CQLTensor({idx_in_s, idx_out_s, idx_out_s});
+  CQLTensor cten_4d_s = CQLTensor({idx_in_s, idx_out_s, idx_out_s, idx_out_s});
 };
 
 inline size_t IntDot(const size_t &size, const size_t *x, const size_t *y) {
@@ -60,7 +72,15 @@ inline double ToDouble(const double d) {
   return d;
 }
 
+inline double ToDouble(const float d) {
+  return static_cast<double>(d);
+}
+
 inline double ToDouble(const QLTEN_Complex z) {
+  return z.real();
+}
+
+inline double ToDouble(const QLTEN_ComplexFloat z) {
   return z.real();
 }
 
@@ -71,6 +91,17 @@ inline void SVDTensRestore(
     const size_t ldims,
     DQLTensor *pres) {
   DQLTensor t_restored_tmp;
+  Contract(pu, ps, {{ldims}, {0}}, &t_restored_tmp);
+  Contract(&t_restored_tmp, pvt, {{ldims}, {0}}, pres);
+}
+
+inline void SVDTensRestore(
+    const FQLTensor *pu,
+    const FQLTensor *ps,
+    const FQLTensor *pvt,
+    const size_t ldims,
+    FQLTensor *pres) {
+  FQLTensor t_restored_tmp;
   Contract(pu, ps, {{ldims}, {0}}, &t_restored_tmp);
   Contract(&t_restored_tmp, pvt, {{ldims}, {0}}, pres);
 }
@@ -87,8 +118,29 @@ inline void SVDTensRestore(
   Contract(&t_restored_tmp, pvt, {{ldims}, {0}}, pres);
 }
 
-template<typename TenT>
-void CheckIsIdTen(const TenT &t) {
+inline void SVDTensRestore(
+    const CQLTensor *pu,
+    const FQLTensor *ps,
+    const CQLTensor *pvt,
+    const size_t ldims,
+    CQLTensor *pres) {
+  CQLTensor t_restored_tmp;
+  auto zs = ToComplex(*ps);
+  Contract(pu, &zs, {{ldims}, {0}}, &t_restored_tmp);
+  Contract(&t_restored_tmp, pvt, {{ldims}, {0}}, pres);
+}
+
+template<typename ElemT, typename QNT>
+void CheckIsIdTen(const QLTensor<ElemT, QNT> &t) {
+  double epsilon = kEpsilon;
+  using TenT = QLTensor<ElemT, QNT>;
+  if constexpr (std::is_same_v<ElemT, float> || std::is_same_v<ElemT, std::complex<float>> 
+#ifdef USE_GPU
+      || std::is_same_v<ElemT, cuda::std::complex<float>>
+#endif
+      ) {
+    epsilon = 2.0e-5;
+  }
   auto shape = t.GetShape();
   EXPECT_EQ(shape.size(), 2);
   EXPECT_EQ(shape[0], shape[1]);
@@ -96,11 +148,11 @@ void CheckIsIdTen(const TenT &t) {
     for (size_t j = 0; j < shape[1]; ++j) {
       QLTEN_Complex elem = t.GetElem({i, j});
       if (i == j) {
-        EXPECT_NEAR(elem.real(), 1.0, kEpsilon);
+        EXPECT_NEAR(elem.real(), 1.0, epsilon);
       } else {
-        EXPECT_NEAR(elem.real(), 0.0, kEpsilon);
+        EXPECT_NEAR(elem.real(), 0.0, epsilon);
       }
-      EXPECT_NEAR(elem.imag(), 0.0, kEpsilon);
+      EXPECT_NEAR(elem.imag(), 0.0, epsilon);
     }
   }
 }
@@ -118,8 +170,16 @@ void RunTestSvdCase(
     qlten::SetRandomSeed(0);
     t.Random(*random_div);
   }
+  double epsilon = kEpsilon;
+  if constexpr (std::is_same_v<TenElemT, float> || std::is_same_v<TenElemT, std::complex<float>> 
+#ifdef USE_GPU
+      || std::is_same_v<TenElemT, cuda::std::complex<float>>
+#endif
+      ) {
+    epsilon = 2.0e-5;
+  }
   QLTensor<TenElemT, QNT> u, vt;
-  QLTensor<QLTEN_Double, QNT> s;
+  QLTensor<typename RealTypeTrait<TenElemT>::type, QNT> s;
   double trunc_err;
   size_t D;
   std::string qn_nm = "qn";
@@ -163,7 +223,7 @@ void RunTestSvdCase(
   }
   TenElemT *dense_u;
   TenElemT *dense_vt;
-  QLTEN_Double *dense_s;
+  typename RealTypeTrait<TenElemT>::type *dense_s;
   qlten::test::MatSVD(dense_mat, rows, cols, dense_u, dense_s, dense_vt);
   size_t dense_sdim;
   if (rows > cols) {
@@ -191,10 +251,10 @@ void RunTestSvdCase(
   EXPECT_EQ(qn_svs.size(), saved_dense_svs.size());
   for (size_t i = 0; i < qn_svs.size(); ++i) {
 #ifndef  USE_GPU
-    EXPECT_NEAR(qn_svs[i], saved_dense_svs[i], kEpsilon);
+    EXPECT_NEAR(qn_svs[i], saved_dense_svs[i], epsilon);
 #else
     // more tolerance for CUDA, because of different algorithm used in CUDA and LAPACK.
-    EXPECT_NEAR(qn_svs[i], saved_dense_svs[i], 1.5 * kEpsilon);
+    EXPECT_NEAR(qn_svs[i], saved_dense_svs[i], 1.5 * epsilon);
 #endif
   }
 
@@ -207,13 +267,13 @@ void RunTestSvdCase(
     saved_square_sum += ssv * ssv;
   }
   auto dense_trunc_err = 1 - saved_square_sum / total_square_sum;
-  EXPECT_NEAR(trunc_err, dense_trunc_err, kEpsilon);
+  EXPECT_NEAR(trunc_err, dense_trunc_err, epsilon);
 
   if (trunc_err < 1.0E-10) {
     QLTensor<TenElemT, QNT> t_restored;
     SVDTensRestore(&u, &s, &vt, ldims, &t_restored);
     for (auto &coors : GenAllCoors(t.GetShape())) {
-      GtestExpectNear(t_restored.GetElem(coors), t.GetElem(coors), kEpsilon);
+      GtestExpectNear(t_restored.GetElem(coors), t.GetElem(coors), epsilon);
     }
   } else {
     QLTensor<TenElemT, QNT> t_restored;
@@ -222,7 +282,7 @@ void RunTestSvdCase(
     auto t_diff_norm = t_diff.Normalize();
     auto t_norm = t.Normalize();
     auto norm_ratio = (t_diff_norm / t_norm);
-    GtestExpectNear(norm_ratio * norm_ratio, trunc_err, 1E-02);
+    GtestExpectNear(static_cast<double>(norm_ratio * norm_ratio), trunc_err, 1E-02);
   }
 
   delete[] dense_mat;
@@ -577,6 +637,64 @@ TEST_F(TestSvd, 4DCase) {
       1, 3,
       0, 1, d_s * 2,
       &qnp1);
+}
+
+TEST_F(TestSvd, 2DCaseFloat) {
+  RunTestSvdCase(
+      ften_2d_s,
+      1, 1,
+      0, 1, d_s * 3,
+      &qn0);
+  RunTestSvdCase(
+      ften_2d_s,
+      1, 1,
+      0, 1, d_s,
+      &qn0);
+  RunTestSvdCase(
+      ften_2d_s,
+      1, 1,
+      0, 1, d_s * 3,
+      &qnp1);
+
+  RunTestSvdCase(
+      cten_2d_s,
+      1, 1,
+      0, 1, d_s * 3,
+      &qn0);
+  RunTestSvdCase(
+      cten_2d_s,
+      1, 1,
+      0, 1, d_s,
+      &qn0);
+  RunTestSvdCase(
+      cten_2d_s,
+      1, 1,
+      0, 1, d_s * 3,
+      &qnp1);
+}
+
+TEST_F(TestSvd, 3DCaseFloat) {
+  RunTestSvdCase(
+      ften_3d_s,
+      1, 2,
+      0, 1, d_s * 3,
+      &qn0);
+  RunTestSvdCase(
+      ften_3d_s,
+      2, 1,
+      0, 1, d_s * 3,
+      &qn0);
+
+  RunTestSvdCase(
+      cten_3d_s,
+      1, 2,
+      0, 1, d_s * 3,
+      &qn0);
+  RunTestSvdCase(
+      cten_3d_s,
+      2, 1,
+      0, 1, d_s * 3,
+      &qn0);
 }
 
 struct TestSvdOmpParallel : public testing::Test {

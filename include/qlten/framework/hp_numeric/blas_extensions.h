@@ -184,6 +184,145 @@ inline void MatrixTransposeBatch(
   }
 #endif
 }//MatrixTransposeBatch
+
+inline void MatrixTransposeBatch(
+    const QLTEN_Float **Amat_array,
+    QLTEN_Float **Bmat_array,
+    const size_t *rows_array,
+    const size_t *cols_array,
+    const size_t group_count
+) {
+#if defined(INTEL_MKL_VERSION) && INTEL_MKL_VERSION >= (20210004)
+  char *trans_array = new char[group_count];
+  float *alpha_array = new float[group_count];
+  size_t *group_size = new size_t[group_count];
+  for (size_t i = 0; i < group_count; i++) {
+    trans_array[i] = 'T';
+    alpha_array[i] = 1.0f;
+    group_size[i] = 1;
+  }
+  mkl_somatcopy_batch(
+      'R', trans_array,
+      rows_array, cols_array,
+      alpha_array,
+      Amat_array, cols_array,
+      Bmat_array, rows_array,
+      group_count, group_size
+  );
+
+  delete[] trans_array;
+  delete[] alpha_array;
+  delete[] group_size;
+#elif defined(INTEL_MKL_VERSION)
+  for(size_t i = 0; i < group_count; i++) {
+    mkl_somatcopy(
+        'R', 'T',
+        rows_array[i], cols_array[i],
+        1.0f,
+        Amat_array[i], cols_array[i],
+        Bmat_array[i], rows_array[i]
+        );
+  }
+#elif defined(HP_NUMERIC_BACKEND_AOCL)
+  for (size_t blk = 0; blk < group_count; ++blk) {
+    f77_int rows = static_cast<f77_int>(cols_array[blk]);
+    f77_int cols = static_cast<f77_int>(rows_array[blk]);
+    f77_int lda = rows;
+    f77_int ldb = cols;
+    const float alpha = 1.0f;
+    f77_char trans = 'T';
+    somatcopy_(
+        &trans,
+        &rows,
+        &cols,
+        &alpha,
+        reinterpret_cast<const float *>(Amat_array[blk]),
+        &lda,
+        reinterpret_cast<float *>(Bmat_array[blk]),
+        &ldb);
+  }
+#else //  OpenBlas or Huawei-KML
+  for (size_t i = 0; i < group_count; i++) {
+    cblas_somatcopy(
+        CblasRowMajor, CblasTrans,
+        rows_array[i], cols_array[i],
+        1.0f,
+        Amat_array[i], cols_array[i],
+        Bmat_array[i], rows_array[i]
+    );
+  }
+#endif
+}
+
+inline void MatrixTransposeBatch(
+    const QLTEN_ComplexFloat **Amat_array,
+    QLTEN_ComplexFloat **Bmat_array,
+    const size_t *rows_array,
+    const size_t *cols_array,
+    const size_t group_count
+) {
+#if defined(INTEL_MKL_VERSION) && INTEL_MKL_VERSION >= (20210004)
+  char *trans_array = new char[group_count];
+  MKL_Complex8 *alpha_array = new MKL_Complex8[group_count];
+  size_t *group_size = new size_t[group_count];
+  for (size_t i = 0; i < group_count; i++) {
+    trans_array[i] = 'T';
+    alpha_array[i] = {1.0f, 0.0f};
+    group_size[i] = 1;
+  }
+  mkl_comatcopy_batch(
+      'R', trans_array,
+      rows_array, cols_array,
+      alpha_array,
+      Amat_array, cols_array,
+      Bmat_array, rows_array,
+      group_count, group_size
+  );
+
+  delete[] trans_array;
+  delete[] alpha_array;
+  delete[] group_size;
+#elif defined(INTEL_MKL_VERSION)
+  for(size_t i = 0; i < group_count; i++) {
+    mkl_comatcopy(
+        'R', 'T',
+        rows_array[i], cols_array[i],
+        MKL_Complex8{1.0f, 0.0f},
+        Amat_array[i], cols_array[i],
+        Bmat_array[i], rows_array[i]
+    );
+  }
+#elif defined(HP_NUMERIC_BACKEND_AOCL)
+  for (size_t blk = 0; blk < group_count; ++blk) {
+    f77_int rows = static_cast<f77_int>(cols_array[blk]);
+    f77_int cols = static_cast<f77_int>(rows_array[blk]);
+    f77_int lda = rows;
+    f77_int ldb = cols;
+    const scomplex alpha = {1.0f, 0.0f};
+    f77_char trans = 'T';
+    comatcopy_(
+        &trans,
+        &rows,
+        &cols,
+        &alpha,
+        reinterpret_cast<const scomplex *>(Amat_array[blk]),
+        &lda,
+        reinterpret_cast<scomplex *>(Bmat_array[blk]),
+        &ldb);
+  }
+#else //  OpenBlas or Huawei-KML
+  float alpha[2] = {1.0f, 0.0f};
+  for (size_t i = 0; i < group_count; i++) {
+    cblas_comatcopy(
+        CblasRowMajor, CblasTrans,
+        rows_array[i], cols_array[i],
+        alpha,
+        reinterpret_cast<const float *>(Amat_array[i]), cols_array[i],
+        reinterpret_cast<float *>(Bmat_array[i]), rows_array[i]
+    );
+  }
+#endif
+}
 #else //USE_GPU
 
 //row major

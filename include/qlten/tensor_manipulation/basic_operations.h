@@ -65,5 +65,22 @@ QLTensor<QLTEN_Complex, QNT> ToComplex(
   }
   return cplx_t;
 }
+
+/**
+Convert a real QLTensor to a complex QLTensor.
+*/
+template<typename QNT>
+QLTensor<QLTEN_ComplexFloat, QNT> ToComplex(
+    const QLTensor<QLTEN_Float, QNT> &real_t
+) {
+  assert(!real_t.IsDefault());
+  QLTensor<QLTEN_ComplexFloat, QNT> cplx_t(real_t.GetIndexes());
+  if (cplx_t.IsScalar()) {
+    cplx_t.SetElem({}, real_t.GetElem({}));
+  } else {
+    cplx_t.GetBlkSparDataTen().CopyFromReal(real_t.GetBlkSparDataTen());
+  }
+  return cplx_t;
+}
 } /* qlten */
 #endif /* ifndef QLTEN_TENSOR_MANIPULATION_BASIC_OPERATIONS_H */

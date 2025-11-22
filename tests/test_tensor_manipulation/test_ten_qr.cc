@@ -20,27 +20,47 @@ using QNSctVecT = QNSectorVec<U1QN>;
 
 using DQLTensor = QLTensor<QLTEN_Double, U1QN>;
 using ZQLTensor = QLTensor<QLTEN_Complex, U1QN>;
+using FQLTensor = QLTensor<QLTEN_Float, U1QN>;
+using CQLTensor = QLTensor<QLTEN_ComplexFloat, U1QN>;
 
-template<typename TenT>
-void CheckIsIdTen(const TenT &t) {
+template<typename ElemT, typename QNT>
+void CheckIsIdTen(const QLTensor<ElemT,QNT> &t) {
+  double epsilon = kEpsilon;
+  using TenT = QLTensor<ElemT,QNT>;
+  if constexpr (std::is_same_v<ElemT, float> || std::is_same_v<ElemT, std::complex<float>> 
+#ifdef USE_GPU
+      || std::is_same_v<ElemT, cuda::std::complex<float>>
+#endif
+      ) {
+    epsilon = 2.0e-5;
+  }
   auto shape = t.GetShape();
   EXPECT_EQ(shape.size(), 2);
   EXPECT_EQ(shape[0], shape[1]);
   for (size_t i = 0; i < shape[0]; ++i) {
     QLTEN_Complex elem = t.GetElem({i, i});
-    EXPECT_NEAR(elem.real(), 1.0, kEpsilon);
-    EXPECT_NEAR(elem.imag(), 0.0, kEpsilon);
+    EXPECT_NEAR(elem.real(), 1.0, epsilon);
+    EXPECT_NEAR(elem.imag(), 0.0, epsilon);
   }
 }
 
-template<typename TenT>
-void CheckTwoTenClose(const TenT &t1, const TenT &t2) {
+template<typename ElemT, typename QNT>
+void CheckTwoTenClose(const QLTensor<ElemT, QNT> &t1, const QLTensor<ElemT,QNT> &t2) {
+  double epsilon = kEpsilon;
+  using TenT = QLTensor<ElemT,QNT>;
+  if constexpr (std::is_same_v<ElemT, float> || std::is_same_v<ElemT, std::complex<float>> 
+#ifdef USE_GPU
+      || std::is_same_v<ElemT, cuda::std::complex<float>>
+#endif
+      ) {
+    epsilon = 2.0e-5;
+  }
   EXPECT_EQ(t1.GetIndexes(), t2.GetIndexes());
   for (auto &coors : GenAllCoors(t1.GetShape())) {
     QLTEN_Complex elem1 = t1.GetElem(coors);
     QLTEN_Complex elem2 = t2.GetElem(coors);
-    EXPECT_NEAR(elem1.real(), elem2.real(), kEpsilon);
-    EXPECT_NEAR(elem1.imag(), elem2.imag(), kEpsilon);
+    EXPECT_NEAR(elem1.real(), elem2.real(), epsilon);
+    EXPECT_NEAR(elem1.imag(), elem2.imag(), epsilon);
   }
 }
 
@@ -68,6 +88,16 @@ struct TestQr : public testing::Test {
   ZQLTensor zten_2d_s = ZQLTensor({idx_in_s, idx_out_s});
   ZQLTensor zten_3d_s = ZQLTensor({idx_in_s, idx_out_s, idx_out_s});
   ZQLTensor zten_4d_s = ZQLTensor({idx_in_s, idx_out_s, idx_out_s, idx_out_s});
+
+  FQLTensor ften_1d_s = FQLTensor({idx_out_s});
+  FQLTensor ften_2d_s = FQLTensor({idx_in_s, idx_out_s});
+  FQLTensor ften_3d_s = FQLTensor({idx_in_s, idx_out_s, idx_out_s});
+  FQLTensor ften_4d_s = FQLTensor({idx_in_s, idx_out_s, idx_out_s, idx_out_s});
+
+  CQLTensor cten_1d_s = CQLTensor({idx_out_s});
+  CQLTensor cten_2d_s = CQLTensor({idx_in_s, idx_out_s});
+  CQLTensor cten_3d_s = CQLTensor({idx_in_s, idx_out_s, idx_out_s});
+  CQLTensor cten_4d_s = CQLTensor({idx_in_s, idx_out_s, idx_out_s, idx_out_s});
 };
 
 template<typename TenElemT, typename QNT>
@@ -172,4 +202,22 @@ TEST_F(TestQr, 4DCase) {
   RunTestQrCase(zten_4d_s, 3, &qnp2);
   RunTestQrCase(zten_4d_s, 3, &qnm1);
   RunTestQrCase(zten_4d_s, 3, &qnm2);
+}
+
+TEST_F(TestQr, 2DCaseFloat) {
+  RunTestQrCase(ften_2d_s, 1, &qn0);
+  RunTestQrCase(ften_2d_s, 1, &qnp1);
+  RunTestQrCase(ften_2d_s, 1, &qnm1);
+
+  RunTestQrCase(cten_2d_s, 1, &qn0);
+  RunTestQrCase(cten_2d_s, 1, &qnp1);
+  RunTestQrCase(cten_2d_s, 1, &qnm1);
+}
+
+TEST_F(TestQr, 3DCaseFloat) {
+  RunTestQrCase(ften_3d_s, 1, &qn0);
+  RunTestQrCase(ften_3d_s, 2, &qn0);
+
+  RunTestQrCase(cten_3d_s, 1, &qn0);
+  RunTestQrCase(cten_3d_s, 2, &qn0);
 }

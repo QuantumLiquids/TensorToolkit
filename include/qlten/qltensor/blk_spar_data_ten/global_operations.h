@@ -272,7 +272,7 @@ void BlockSparseDataTensor<ElemT, QNT>::FuseFirstTwoIndex(
 }
 
 template<typename ElemT, typename QNT>
-QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Norm(void) {
+auto BlockSparseDataTensor<ElemT, QNT>::Norm(void) {
   if constexpr (Fermionicable<QNT>::IsFermionic()) {
     if (IsScalar()) {
 #ifndef USE_GPU
@@ -291,7 +291,7 @@ QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Norm(void) {
 }
 
 template<typename ElemT, typename QNT>
-QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Quasi2Norm(void) {
+auto BlockSparseDataTensor<ElemT, QNT>::Quasi2Norm(void) {
   return RawDataNorm_();
 }
 
@@ -301,14 +301,14 @@ Normalize the data tensor and return its norm.
 @return The norm before the normalization.
 */
 template<typename ElemT, typename QNT>
-QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::Normalize(void) {
-  double norm = Norm();
+auto BlockSparseDataTensor<ElemT, QNT>::Normalize(void) {
+  auto norm = Norm();
   return RawDataNormalize_(norm);
 }
 
 template<typename ElemT, typename QNT>
-QLTEN_Double BlockSparseDataTensor<ElemT, QNT>::QuasiNormalize(void) {
-  double norm = RawDataNorm_();
+auto BlockSparseDataTensor<ElemT, QNT>::QuasiNormalize(void) {
+  auto norm = RawDataNorm_();
   return RawDataNormalize_(norm);
 }
 
@@ -1029,6 +1029,29 @@ void BlockSparseDataTensor<ElemT, QNT>::CopyFromReal(
 ) {
   Clear();
   if (std::is_same<ElemT, QLTEN_Complex>::value) {
+    for (auto &blk_idx_data_blk : real_bsdt.GetBlkIdxDataBlkMap()) {
+      DataBlkInsert(blk_idx_data_blk.second.blk_coors, false);
+    }
+    if (IsScalar() && (real_bsdt.GetActualRawDataSize() != 0)) {
+      raw_data_size_ = 1;
+    }
+
+    Allocate();
+    RawDataDuplicateFromReal_(
+        real_bsdt.GetActualRawDataPtr(),
+        real_bsdt.GetActualRawDataSize()
+    );
+  } else {
+    assert(false);    // TODO: To-be implemented!
+  }
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::CopyFromReal(
+    const BlockSparseDataTensor<QLTEN_Float, QNT> &real_bsdt
+) {
+  Clear();
+  if (std::is_same<ElemT, QLTEN_ComplexFloat>::value) {
     for (auto &blk_idx_data_blk : real_bsdt.GetBlkIdxDataBlkMap()) {
       DataBlkInsert(blk_idx_data_blk.second.blk_coors, false);
     }

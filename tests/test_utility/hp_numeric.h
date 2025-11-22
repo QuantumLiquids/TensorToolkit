@@ -72,6 +72,49 @@ inline lapack_int MatSVD(
 }
 
 inline lapack_int MatSVD(
+    QLTEN_Float *mat,
+    const size_t m, const size_t n,
+    QLTEN_Float *&u,
+    QLTEN_Float *&s,
+    QLTEN_Float *&vt
+) {
+  auto lda = n;
+  size_t ldu = std::min(m, n);
+  size_t ldvt = n;
+  u = (QLTEN_Float *) malloc((ldu * m) * sizeof(QLTEN_Float));
+  s = (QLTEN_Float *) malloc(ldu * sizeof(QLTEN_Float));
+  vt = (QLTEN_Float *) malloc((ldvt * ldu) * sizeof(QLTEN_Float));
+#ifdef FAST_SVD
+  auto info = LAPACKE_sgesdd(
+      LAPACK_ROW_MAJOR, 'S',
+      m, n,
+      mat, lda,
+      s,
+      u, ldu,
+      vt, ldvt
+      );
+#else // More stable
+  float *superb = new float[m];
+  auto info = LAPACKE_sgesvd(
+      LAPACK_ROW_MAJOR, 'S', 'S',
+      m, n,
+      mat, lda,
+      s,
+      u, ldu,
+      vt, ldvt,
+      superb
+  );
+  delete[] superb;
+#endif
+  assert(info == 0);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 4 * m * n * n - 4 * n * n * n / 3;
+  // a rough estimation
+#endif
+  return info;
+}
+
+inline lapack_int MatSVD(
     QLTEN_Complex *mat,
     const size_t m, const size_t n,
     QLTEN_Complex *&u,
@@ -103,6 +146,51 @@ inline lapack_int MatSVD(
       s,
       reinterpret_cast<lapack_complex_double *>(u), ldu,
       reinterpret_cast<lapack_complex_double *>(vt), ldvt,
+      superb
+  );
+  delete[] superb;
+
+#endif
+  assert(info == 0);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 8 * m * n * n - 8 * n * n * n / 3;
+  // a rough estimation
+#endif
+  return info;
+}
+
+inline lapack_int MatSVD(
+    QLTEN_ComplexFloat *mat,
+    const size_t m, const size_t n,
+    QLTEN_ComplexFloat *&u,
+    QLTEN_Float *&s,
+    QLTEN_ComplexFloat *&vt
+) {
+
+  auto lda = n;
+  size_t ldu = std::min(m, n);
+  size_t ldvt = n;
+  u = (QLTEN_ComplexFloat *) malloc((ldu * m) * sizeof(QLTEN_ComplexFloat));
+  s = (QLTEN_Float *) malloc(ldu * sizeof(QLTEN_Float));
+  vt = (QLTEN_ComplexFloat *) malloc((ldvt * ldu) * sizeof(QLTEN_ComplexFloat));
+#ifdef FAST_SVD
+  auto info = LAPACKE_cgesdd(
+      LAPACK_ROW_MAJOR, 'S',
+      m, n,
+      reinterpret_cast<lapack_complex_float *>(mat), lda,
+      s,
+      reinterpret_cast<lapack_complex_float *>(u), ldu,
+      reinterpret_cast<lapack_complex_float *>(vt), ldvt
+      );
+#else // stable
+  float *superb = new float[m];
+  auto info = LAPACKE_cgesvd(
+      LAPACK_ROW_MAJOR, 'S', 'S',
+      m, n,
+      reinterpret_cast<lapack_complex_float *>(mat), lda,
+      s,
+      reinterpret_cast<lapack_complex_float *>(u), ldu,
+      reinterpret_cast<lapack_complex_float *>(vt), ldvt,
       superb
   );
   delete[] superb;
@@ -212,6 +300,42 @@ inline void MatQR(
 }
 
 inline void MatQR(
+    QLTEN_Float *mat,
+    const size_t m, const size_t n,
+    QLTEN_Float *&q,
+    QLTEN_Float *&r
+) {
+  auto k = std::min(m, n);
+  size_t elem_type_size = sizeof(QLTEN_Float);
+  auto tau = (QLTEN_Float *) malloc(k * elem_type_size);
+  LAPACKE_sgeqrf(LAPACK_ROW_MAJOR, m, n, mat, n, tau);
+
+  // Create R matrix
+  r = (QLTEN_Float *) malloc((k * n) * elem_type_size);
+  for (size_t i = 0; i < k; ++i) {
+    memset(r + i * n, 0, i * elem_type_size);
+    memcpy(r + i * n + i, mat + i * n + i, (n - i) * elem_type_size);
+  }
+
+  // Create Q matrix
+  LAPACKE_sorgqr(LAPACK_ROW_MAJOR, m, k, k, mat, n, tau);     // or: orthogonal
+  free(tau);
+  q = (QLTEN_Float *) malloc((m * k) * elem_type_size);
+  if (m == n) {
+    memcpy(q, mat, (m * n) * elem_type_size);
+  } else {
+    for (size_t i = 0; i < m; ++i) {
+      memcpy(q + i * k, mat + i * n, k * elem_type_size);
+    }
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 2 * m * n * n - 2 * n * n * n / 3;
+  // the book "Numerical Linear Algebra" by Trefethen and Bau
+  // assume Householder transformations
+#endif
+}
+
+inline void MatQR(
     QLTEN_Complex *mat,
     const size_t m, const size_t n,
     QLTEN_Complex *&q,
@@ -252,6 +376,49 @@ inline void MatQR(
   // roughly estimate for complex number
 #endif
 }
+
+inline void MatQR(
+    QLTEN_ComplexFloat *mat,
+    const size_t m, const size_t n,
+    QLTEN_ComplexFloat *&q,
+    QLTEN_ComplexFloat *&r
+) {
+  auto k = std::min(m, n);
+  size_t elem_type_size = sizeof(QLTEN_ComplexFloat);
+  auto tau = (QLTEN_ComplexFloat *) malloc(k * elem_type_size);
+
+  LAPACKE_cgeqrf(LAPACK_ROW_MAJOR, m, n,
+                 reinterpret_cast<lapack_complex_float *>(mat),
+                 n, reinterpret_cast<lapack_complex_float *>(tau));
+
+  // Create R matrix
+  r = (QLTEN_ComplexFloat *) malloc((k * n) * elem_type_size);
+  for (size_t row = 0; row < k; ++row) {
+    std::fill(r + row * n, r + row * n + row, 0);
+    std::copy(mat + row * n + row, mat + row * n + n, r + row * n + row);
+  }
+
+  // Create Q matrix
+  LAPACKE_cungqr(LAPACK_ROW_MAJOR, m, k, k,
+                 reinterpret_cast<lapack_complex_float *>(mat),
+                 n, reinterpret_cast<lapack_complex_float *>(tau));
+  free(tau);
+  q = (QLTEN_ComplexFloat *) malloc((m * k) * elem_type_size);
+  if (m == n) {
+    memcpy(q, mat, (m * n) * elem_type_size);
+  } else {
+    for (size_t i = 0; i < m; ++i) {
+      memcpy(q + i * k, mat + i * n, k * elem_type_size);
+    }
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 8 * m * n * n - 8 * n * n * n / 3;
+  // the book "Numerical Linear Algebra" by Trefethen and Bau
+  // assume Householder transformations
+  // roughly estimate for complex number
+#endif
+}
+
 }//test
 }//qlten
 

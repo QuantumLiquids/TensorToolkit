@@ -25,8 +25,8 @@ using IndexT = Index<U1QN>;
 using QNSctT = QNSector<U1QN>;
 using QNSctVecT = QNSectorVec<U1QN>;
 
-using DQLTensor = QLTensor<QLTEN_Double, U1QN>;
-using ZQLTensor = QLTensor<QLTEN_Complex, U1QN>;
+using DQLTensor = QLTensor<QLTEN_Float, U1QN>;
+using ZQLTensor = QLTensor<QLTEN_ComplexFloat, U1QN>;
 
 struct TestQLTensor : public testing::Test {
   std::string qn_nm = "qn";
@@ -126,84 +126,84 @@ TEST_F(TestQLTensor, TestElemAssignment) {
   Show(dten_default);
 
   DQLTensor dten_scalar2(dten_scalar);
-  auto scalar = drand();
+  auto scalar = frand();
   dten_scalar2() = scalar;
   EXPECT_EQ(dten_scalar2(), scalar);
-  RunTestQLTensorElemAssignmentCase(dten_scalar, {drand()}, {{}});
+  RunTestQLTensorElemAssignmentCase(dten_scalar, {frand()}, {{}});
 
   DQLTensor dten_1d_s2(dten_1d_s);
-  auto elem0 = drand();
+  auto elem0 = frand();
   dten_1d_s2(0) = elem0;
   EXPECT_EQ(dten_1d_s2(0), elem0);
-  EXPECT_EQ(dten_1d_s2(1), 0.0);
-  auto elem1 = drand();
+  EXPECT_EQ(dten_1d_s2(1), 0.0f);
+  auto elem1 = frand();
   dten_1d_s2(1) = elem1;
   EXPECT_EQ(dten_1d_s2(1), elem1);
-  RunTestQLTensorElemAssignmentCase(dten_1d_s, {drand()}, {{0}});
-  RunTestQLTensorElemAssignmentCase(dten_1d_s, {drand()}, {{1}});
-  RunTestQLTensorElemAssignmentCase(dten_1d_s, {drand(), drand()}, {{0},
+  RunTestQLTensorElemAssignmentCase(dten_1d_s, {frand()}, {{0}});
+  RunTestQLTensorElemAssignmentCase(dten_1d_s, {frand()}, {{1}});
+  RunTestQLTensorElemAssignmentCase(dten_1d_s, {frand(), frand()}, {{0},
                                                                     {1}});
-  RunTestQLTensorElemAssignmentCase(dten_1d_s, {drand(), drand()}, {{1},
+  RunTestQLTensorElemAssignmentCase(dten_1d_s, {frand(), frand()}, {{1},
                                                                     {2}});
 
   DQLTensor dten_2d_s2(dten_2d_s);
   dten_2d_s2(2, 3) = elem0;
   EXPECT_EQ(dten_2d_s2(2, 3), elem0);
-  EXPECT_EQ(dten_2d_s2(1, 7), 0.0);
+  EXPECT_EQ(dten_2d_s2(1, 7), 0.0f);
   dten_2d_s2(1, 7) = elem1;
   EXPECT_EQ(dten_2d_s2(1, 7), elem1);
-  RunTestQLTensorElemAssignmentCase(dten_2d_s, {drand()}, {{0, 0}});
-  RunTestQLTensorElemAssignmentCase(dten_2d_s, {drand()}, {{2, 3}});
+  RunTestQLTensorElemAssignmentCase(dten_2d_s, {frand()}, {{0, 0}});
+  RunTestQLTensorElemAssignmentCase(dten_2d_s, {frand()}, {{2, 3}});
   RunTestQLTensorElemAssignmentCase(
       dten_2d_s,
-      {drand(), drand()},
+      {frand(), frand()},
       {{2, 3},
        {3, 7}});
 
-  RunTestQLTensorElemAssignmentCase(dten_3d_s, {drand()}, {{0, 0, 0}});
-  RunTestQLTensorElemAssignmentCase(dten_3d_s, {drand()}, {{2, 3, 4}});
+  RunTestQLTensorElemAssignmentCase(dten_3d_s, {frand()}, {{0, 0, 0}});
+  RunTestQLTensorElemAssignmentCase(dten_3d_s, {frand()}, {{2, 3, 4}});
   RunTestQLTensorElemAssignmentCase(
       dten_3d_s,
-      {drand(), drand()},
+      {frand(), frand()},
       {{2, 3, 5},
        {8, 7, 10}});
 
   RunTestQLTensorElemAssignmentCase(
       zten_1d_s,
-      {zrand()},
+      {crand()},
       {{0}});
   RunTestQLTensorElemAssignmentCase(
       zten_1d_s,
-      {zrand()},
+      {crand()},
       {{1}});
   RunTestQLTensorElemAssignmentCase(
       zten_1d_s,
-      {zrand(), zrand()},
+      {crand(), crand()},
       {{0},
        {1}});
   RunTestQLTensorElemAssignmentCase(
       zten_1d_s,
-      {zrand(), zrand()},
+      {crand(), crand()},
       {{1},
        {2}});
   RunTestQLTensorElemAssignmentCase(
       zten_2d_s,
-      {zrand()},
+      {crand()},
       {{0, 0}});
   RunTestQLTensorElemAssignmentCase(
       zten_2d_s,
-      {zrand()},
+      {crand()},
       {{2, 3}});
   RunTestQLTensorElemAssignmentCase(
       zten_2d_s,
-      {zrand(), zrand()},
+      {crand(), crand()},
       {{2, 3},
        {3, 7}});
-  RunTestQLTensorElemAssignmentCase(zten_3d_s, {zrand()}, {{0, 0, 0}});
-  RunTestQLTensorElemAssignmentCase(zten_3d_s, {zrand()}, {{2, 3, 4}});
+  RunTestQLTensorElemAssignmentCase(zten_3d_s, {crand()}, {{0, 0, 0}});
+  RunTestQLTensorElemAssignmentCase(zten_3d_s, {crand()}, {{2, 3, 4}});
   RunTestQLTensorElemAssignmentCase(
       zten_3d_s,
-      {zrand(), zrand()},
+      {crand(), crand()},
       {{2, 3, 5},
        {8, 7, 10}});
 }
@@ -631,20 +631,20 @@ void RunTestQLTensorNormalizeCase(QLTensorT &t) {
     norm2 += norm;
   }
   auto norm = t.Normalize();
-  EXPECT_NEAR(1, qlten::sqrt(norm2) / norm, 1e-14);
+  EXPECT_NEAR(1, qlten::sqrt(norm2) / norm, 1e-5);
   norm2 = 0.0;
   for (auto &coors : GenAllCoors(t.GetShape())) {
     norm2 += qlten::norm(t.GetElem(coors));
   }
-  EXPECT_NEAR(norm2, 1.0, kEpsilon);
+  EXPECT_NEAR(norm2, 1.0, kFloatEpsilon);
 }
 
 TEST_F(TestQLTensor, TestNormalize) {
   dten_scalar.Random(U1QN());
   auto dscalar = dten_scalar.GetElem({});
   auto dnorm = dten_scalar.Normalize();
-  EXPECT_DOUBLE_EQ(dnorm, qlten::abs(dscalar));
-  EXPECT_DOUBLE_EQ(dten_scalar.GetElem({}), 1.0);
+  EXPECT_FLOAT_EQ(dnorm, qlten::abs(dscalar));
+  EXPECT_FLOAT_EQ(dten_scalar.GetElem({}), 1.0);
 
   dten_1d_s.Random(qn0);
   RunTestQLTensorNormalizeCase(dten_1d_s);
@@ -658,7 +658,7 @@ TEST_F(TestQLTensor, TestNormalize) {
   zten_scalar.Random(U1QN());
   auto zscalar = zten_scalar.GetElem({});
   auto znorm = zten_scalar.Normalize();
-  EXPECT_DOUBLE_EQ(znorm, qlten::abs(zscalar));
+  EXPECT_FLOAT_EQ(znorm, qlten::abs(zscalar));
   EXPECT_COMPLEX_EQ(zten_scalar.GetElem({}), zscalar / znorm);
 
   zten_1d_s.Random(qn0);
@@ -676,7 +676,7 @@ void RunTestQLTensorQuasi2NormCase(const QLTensorT &t) {
   // For bosonic tensors, Quasi2Norm should be the same as Get2Norm
   auto quasi_norm = t.GetQuasi2Norm();
   auto norm = t.Get2Norm();
-  EXPECT_NEAR(quasi_norm, norm, kEpsilon);
+  EXPECT_FLOAT_EQ(quasi_norm, norm);
   
   // Verify that Quasi2Norm is the square root of sum of element squares
   double expected_norm = 0.0;
@@ -684,7 +684,7 @@ void RunTestQLTensorQuasi2NormCase(const QLTensorT &t) {
     expected_norm += qlten::norm(t.GetElem(coors));
   }
   expected_norm = qlten::sqrt(expected_norm);
-  EXPECT_NEAR(quasi_norm, expected_norm, kEpsilon);
+  EXPECT_FLOAT_EQ(quasi_norm, expected_norm);
 }
 
 TEST_F(TestQLTensor, TestQuasi2Norm) {
@@ -692,12 +692,12 @@ TEST_F(TestQLTensor, TestQuasi2Norm) {
   dten_scalar.Random(U1QN());
   auto dscalar = dten_scalar.GetElem({});
   auto dquasi_norm = dten_scalar.GetQuasi2Norm();
-  EXPECT_DOUBLE_EQ(dquasi_norm, qlten::abs(dscalar));
+  EXPECT_FLOAT_EQ(dquasi_norm, qlten::abs(dscalar));
 
   zten_scalar.Random(U1QN());
   auto zscalar = zten_scalar.GetElem({});
   auto zquasi_norm = zten_scalar.GetQuasi2Norm();
-  EXPECT_DOUBLE_EQ(zquasi_norm, qlten::abs(zscalar));
+  EXPECT_FLOAT_EQ(zquasi_norm, qlten::abs(zscalar));
 
   // Test 1D tensors
   dten_1d_s.Random(qn0);
@@ -803,26 +803,31 @@ void RunTestQLTensorDotMultiCase(
   QLTensor<ElemT, QNT> multied_t2(t);
   multied_t2 *= scalar;
   for (auto &coors : GenAllCoors(t.GetShape())) {
-    GtestNear(multied_t.GetElem(coors), scalar * t.GetElem(coors), kEpsilon);
-    GtestNear(multied_t2.GetElem(coors), scalar * t.GetElem(coors), kEpsilon);
+    if constexpr (std::is_same_v<ElemT, QLTEN_Float>) {
+      EXPECT_FLOAT_EQ(multied_t.GetElem(coors), scalar * t.GetElem(coors));
+      EXPECT_FLOAT_EQ(multied_t2.GetElem(coors), scalar * t.GetElem(coors));
+    } else {
+      EXPECT_COMPLEX_EQ(multied_t.GetElem(coors), scalar * t.GetElem(coors));
+      EXPECT_COMPLEX_EQ(multied_t2.GetElem(coors), scalar * t.GetElem(coors));
+    }
   }
 }
 
 TEST_F(TestQLTensor, TestDotMultiplication) {
   dten_scalar.Random(U1QN());
-  auto rand_d = drand();
+  auto rand_d = frand();
   auto multied_ten = rand_d * dten_scalar;
-  EXPECT_DOUBLE_EQ(multied_ten.GetElem({}), rand_d * dten_scalar.GetElem({}));
+  EXPECT_FLOAT_EQ(multied_ten.GetElem({}), rand_d * dten_scalar.GetElem({}));
 
   dten_1d_s.Random(qn0);
-  RunTestQLTensorDotMultiCase(dten_1d_s, drand());
+  RunTestQLTensorDotMultiCase(dten_1d_s, frand());
   dten_2d_s.Random(qn0);
-  RunTestQLTensorDotMultiCase(dten_2d_s, drand());
+  RunTestQLTensorDotMultiCase(dten_2d_s, frand());
   dten_3d_s.Random(qn0);
-  RunTestQLTensorDotMultiCase(dten_3d_s, drand());
+  RunTestQLTensorDotMultiCase(dten_3d_s, frand());
 
   zten_scalar.Random(U1QN());
-  auto rand_z = zrand();
+  auto rand_z = crand();
   auto multied_ten_z = rand_z * zten_scalar;
   EXPECT_COMPLEX_EQ(
       multied_ten_z.GetElem({}),
@@ -830,11 +835,11 @@ TEST_F(TestQLTensor, TestDotMultiplication) {
   );
 
   zten_1d_s.Random(qn0);
-  RunTestQLTensorDotMultiCase(zten_1d_s, zrand());
+  RunTestQLTensorDotMultiCase(zten_1d_s, crand());
   zten_2d_s.Random(qn0);
-  RunTestQLTensorDotMultiCase(zten_2d_s, zrand());
+  RunTestQLTensorDotMultiCase(zten_2d_s, crand());
   zten_3d_s.Random(qn0);
-  RunTestQLTensorDotMultiCase(zten_3d_s, zrand());
+  RunTestQLTensorDotMultiCase(zten_3d_s, crand());
 }
 
 template<typename QLTensorT>
@@ -885,7 +890,7 @@ TEST_F(TestQLTensor, FileIO) {
 
 template<typename QLTensorT>
 void RunTestQLTensorElementWiseOperationCase(QLTensorT t, bool real_ten = true) {
-  t.ElementWiseInv(1e-13);
+  t.ElementWiseInv(1e-5);
   t.ElementWiseSqrt();
   t.ElementWiseSquare();
   if (real_ten) {
@@ -894,10 +899,10 @@ void RunTestQLTensorElementWiseOperationCase(QLTensorT t, bool real_ten = true) 
   t.ElementWiseClipTo(0.05);
 
 #ifndef  USE_GPU
-  std::uniform_real_distribution<double> u_double(0, 1);
+  std::uniform_real_distribution<float> u_dist(0, 1);
   std::random_device rd;
   std::mt19937 gen(rd());
-  t.ElementWiseRandomizeMagnitudePreservePhase(u_double, gen);
+  t.ElementWiseRandomizeMagnitudePreservePhase(u_dist, gen);
 #endif
 }
 
@@ -905,7 +910,7 @@ void RunTestQLTensorElementWiseOperationCase(QLTensorT t, bool real_ten = true) 
 template<typename ElemT, typename QNT>
 void CheckRandomizeMagnitudePreservePhase(QLTensor<ElemT, QNT> t) {
   QLTensor<ElemT, QNT> before(t);
-  double max_abs = 0.0;
+  float max_abs = 0.0f;
   const auto &shape = before.GetShape();
   std::vector<size_t> coor(shape.size(), 0);
   auto advance = [&](std::vector<size_t> &c) -> bool {
@@ -919,22 +924,22 @@ void CheckRandomizeMagnitudePreservePhase(QLTensor<ElemT, QNT> t) {
     max_abs = std::abs(before.GetElem({}));
   } else {
     do {
-      max_abs = std::max(max_abs, (double)std::abs(before.GetElem(coor)));
+      max_abs = std::max(max_abs, (float)std::abs(before.GetElem(coor)));
     } while (advance(coor));
   }
-  const double tol = 1e-3 * max_abs;
+  const float tol = 1e-3 * max_abs;
 
-  std::uniform_real_distribution<double> u_double(0, 1);
+  std::uniform_real_distribution<float> u_dist(0, 1);
   std::random_device rd;
   std::mt19937 gen(rd());
-  t.ElementWiseRandomizeMagnitudePreservePhase(u_double, gen);
+  t.ElementWiseRandomizeMagnitudePreservePhase(u_dist, gen);
 
   std::fill(coor.begin(), coor.end(), 0);
   auto check_scalar = [&](const ElemT &oldv, const ElemT &newv) {
-    constexpr double eps = 1e-12;
-    if constexpr (std::is_same_v<ElemT, QLTEN_Double>) {
-      double a = oldv;
-      double b = newv;
+    constexpr float eps = 1E-6f;
+    if constexpr (std::is_same_v<ElemT, QLTEN_Float>) {
+      float a = oldv;
+      float b = newv;
       if (std::abs(a) > tol) {
         EXPECT_EQ(std::signbit(a), std::signbit(b));
         EXPECT_GE(std::abs(b), 0.0);
@@ -943,12 +948,12 @@ void CheckRandomizeMagnitudePreservePhase(QLTensor<ElemT, QNT> t) {
         EXPECT_NEAR(b, a, eps);
       }
     } else {
-      std::complex<double> a = oldv;
-      std::complex<double> b = newv;
-      double amag = std::abs(a);
+      std::complex<float> a = oldv;
+      std::complex<float> b = newv;
+      float amag = std::abs(a);
       if (amag > tol) {
         auto prod = b * std::conj(a);
-        EXPECT_NEAR(prod.imag(), 0.0, 1e-10);
+        EXPECT_NEAR(prod.imag(), 0.0, 1e-5);
         EXPECT_GE(prod.real(), -1e-12);
         EXPECT_GE(std::abs(b), 0.0);
         EXPECT_LE(std::abs(b), 1.0);
@@ -1022,13 +1027,13 @@ TEST_F(TestQLTensor, ElementWiseOperation) {
 #ifndef USE_GPU
 TEST_F(TestQLTensor, ElementWiseRandomizeMagnitudePreservePhaseBehavior) {
   // Real tensors
-  DQLTensor d1(dten_1d_s); d1.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Double, U1QN>(d1);
-  DQLTensor d2(dten_2d_s); d2.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Double, U1QN>(d2);
-  DQLTensor d3(dten_3d_s); d3.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Double, U1QN>(d3);
+  DQLTensor d1(dten_1d_s); d1.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Float, U1QN>(d1);
+  DQLTensor d2(dten_2d_s); d2.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Float, U1QN>(d2);
+  DQLTensor d3(dten_3d_s); d3.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Float, U1QN>(d3);
   // Complex tensors
-  ZQLTensor z1(zten_1d_s); z1.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Complex, U1QN>(z1);
-  ZQLTensor z2(zten_2d_s); z2.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Complex, U1QN>(z2);
-  ZQLTensor z3(zten_3d_s); z3.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_Complex, U1QN>(z3);
+  ZQLTensor z1(zten_1d_s); z1.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_ComplexFloat, U1QN>(z1);
+  ZQLTensor z2(zten_2d_s); z2.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_ComplexFloat, U1QN>(z2);
+  ZQLTensor z3(zten_3d_s); z3.Random(qn0); CheckRandomizeMagnitudePreservePhase<QLTEN_ComplexFloat, U1QN>(z3);
 }
 #endif
 
@@ -1037,24 +1042,24 @@ TEST_F(TestQLTensor, ElementWiseSquare) {
   dten_scalar.Random(U1QN());
   auto original_val = dten_scalar.GetElem({});
   dten_scalar.ElementWiseSquare();
-  EXPECT_NEAR(dten_scalar.GetElem({}), original_val * original_val, 1e-10);
+  EXPECT_NEAR(dten_scalar.GetElem({}), original_val * original_val, 1e-5);
 
   // Test 1D tensor
   DQLTensor dten_1d_test(dten_1d_s);
   dten_1d_test.Random(qn0);
-  std::vector<QLTEN_Double> original_vals;
+  std::vector<QLTEN_Float> original_vals;
   for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
     original_vals.push_back(dten_1d_test.GetElem({i}));
   }
   dten_1d_test.ElementWiseSquare();
   for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
-    EXPECT_NEAR(dten_1d_test.GetElem({i}), original_vals[i] * original_vals[i], 1e-10);
+    EXPECT_NEAR(dten_1d_test.GetElem({i}), original_vals[i] * original_vals[i], 1e-5);
   }
 
   // Test 2D tensor
   DQLTensor dten_2d_test(dten_2d_s);
   dten_2d_test.Random(qn0);
-  std::vector<std::vector<QLTEN_Double>> original_vals_2d;
+  std::vector<std::vector<QLTEN_Float>> original_vals_2d;
   for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
     original_vals_2d.emplace_back();
     for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
@@ -1065,7 +1070,7 @@ TEST_F(TestQLTensor, ElementWiseSquare) {
   for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
     for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
       EXPECT_NEAR(dten_2d_test.GetElem({i, j}), 
-                  original_vals_2d[i][j] * original_vals_2d[i][j], 1e-10);
+                  original_vals_2d[i][j] * original_vals_2d[i][j], 1e-5);
     }
   }
 
@@ -1074,9 +1079,9 @@ TEST_F(TestQLTensor, ElementWiseSquare) {
   auto original_zval = zten_scalar.GetElem({});
   zten_scalar.ElementWiseSquare();
   EXPECT_NEAR(zten_scalar.GetElem({}).real(), 
-              original_zval.real() * original_zval.real() - original_zval.imag() * original_zval.imag(), 1e-10);
+              original_zval.real() * original_zval.real() - original_zval.imag() * original_zval.imag(), 1e-5);
   EXPECT_NEAR(zten_scalar.GetElem({}).imag(), 
-              2.0 * original_zval.real() * original_zval.imag(), 1e-10);
+              2.0 * original_zval.real() * original_zval.imag(), 1e-5);
 
   // Test outer function (by copy + call member function)
   DQLTensor dten_copy_test(dten_1d_s);
@@ -1091,7 +1096,7 @@ TEST_F(TestQLTensor, ElementWiseClipTo) {
   // Test scalar tensor
   dten_scalar.Random(U1QN());
   auto original_val = dten_scalar.GetElem({});
-  double limit = 0.5;
+  float limit = 0.5;
   dten_scalar.ElementWiseClipTo(limit);
   EXPECT_LE(std::abs(dten_scalar.GetElem({})), limit);
 
@@ -1123,34 +1128,33 @@ TEST_F(TestQLTensor, ElementWiseClipTo) {
   zten_scalar.ElementWiseClipTo(limit);
   auto clipped_complex = zten_scalar.GetElem({});
   // Magnitude should be clipped
-  EXPECT_LE(qlten::abs(clipped_complex), limit + 1e-10);
+  EXPECT_LE(qlten::abs(clipped_complex), limit + 1e-5);
   // Phase should be preserved (for non-zero original values)
-  if (qlten::abs(original_complex) > 1e-10) {
+  if (qlten::abs(original_complex) > 1e-5) {
     double clipped_phase = qlten::arg(clipped_complex);
-    EXPECT_NEAR(original_phase, clipped_phase, 1e-10);
+    EXPECT_NEAR(original_phase, clipped_phase, 1e-5);
   }
 }
-
 
 TEST_F(TestQLTensor, ElementWiseInv) {
   // Test scalar tensor
   dten_scalar.Random(U1QN());
   auto original_val = dten_scalar.GetElem({});
   dten_scalar.ElementWiseInv();
-  EXPECT_NEAR(dten_scalar.GetElem({}), 1.0 / original_val, 1e-10);
+  EXPECT_NEAR(dten_scalar.GetElem({}), 1.0 / original_val, 1e-5);
 
   // Test 1D tensor
   DQLTensor dten_1d_test(dten_1d_s);
   dten_1d_test.Random(qn0);
-  std::vector<QLTEN_Double> original_vals;
+  std::vector<QLTEN_Float> original_vals;
   for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
     original_vals.push_back(dten_1d_test.GetElem({i}));
   }
-  double tolerance = 1e-13;
+  double tolerance = 1e-5;
   dten_1d_test.ElementWiseInv(tolerance);
   for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
     if (std::abs(original_vals[i]) > tolerance) {
-      EXPECT_NEAR(dten_1d_test.GetElem({i}), 1.0 / original_vals[i], 1e-10);
+      EXPECT_NEAR(dten_1d_test.GetElem({i}), 1.0 / original_vals[i], 1e-5);
     } else {
       EXPECT_EQ(dten_1d_test.GetElem({i}), 0.0);
     }
@@ -1159,15 +1163,15 @@ TEST_F(TestQLTensor, ElementWiseInv) {
   // Test with tolerance
   DQLTensor dten_1d_tol_test(dten_1d_s);
   dten_1d_tol_test.Random(qn0);
-  std::vector<QLTEN_Double> original_vals_tol;
+  std::vector<QLTEN_Float> original_vals_tol;
   for (size_t i = 0; i < dten_1d_tol_test.GetShape()[0]; ++i) {
     original_vals_tol.push_back(dten_1d_tol_test.GetElem({i}));
   }
-  double tolerance_tol = 1e-6;
+  double tolerance_tol = 1e-4;
   dten_1d_tol_test.ElementWiseInv(tolerance_tol);
   for (size_t i = 0; i < dten_1d_tol_test.GetShape()[0]; ++i) {
     if (std::abs(original_vals_tol[i]) > tolerance_tol) {
-      EXPECT_NEAR(dten_1d_tol_test.GetElem({i}), 1.0 / original_vals_tol[i], 1e-10);
+      EXPECT_NEAR(dten_1d_tol_test.GetElem({i}), 1.0 / original_vals_tol[i], 1e-5);
     } else {
       EXPECT_EQ(dten_1d_tol_test.GetElem({i}), 0.0);
     }
@@ -1177,9 +1181,9 @@ TEST_F(TestQLTensor, ElementWiseInv) {
   zten_scalar.Random(U1QN());
   auto original_zval = zten_scalar.GetElem({});
   zten_scalar.ElementWiseInv();
-  auto expected_inv = 1.0 / original_zval;
-  EXPECT_NEAR(zten_scalar.GetElem({}).real(), expected_inv.real(), 1e-10);
-  EXPECT_NEAR(zten_scalar.GetElem({}).imag(), expected_inv.imag(), 1e-10);
+  auto expected_inv = 1.0f / original_zval;
+  EXPECT_NEAR(zten_scalar.GetElem({}).real(), expected_inv.real(), 1e-5);
+  EXPECT_NEAR(zten_scalar.GetElem({}).imag(), expected_inv.imag(), 1e-5);
 
   // Test outer function (by copy + call member function)
   DQLTensor dten_copy_test(dten_1d_s);
@@ -1195,24 +1199,24 @@ TEST_F(TestQLTensor, ElementWiseSqrt) {
   dten_scalar.Random(U1QN());
   auto original_val = dten_scalar.GetElem({});
   dten_scalar.ElementWiseSqrt();
-  EXPECT_NEAR(dten_scalar.GetElem({}), std::sqrt(original_val), 1e-10);
+  EXPECT_NEAR(dten_scalar.GetElem({}), std::sqrt(original_val), 1e-5);
 
   // Test 1D tensor
   DQLTensor dten_1d_test(dten_1d_s);
   dten_1d_test.Random(qn0);
-  std::vector<QLTEN_Double> original_vals;
+  std::vector<QLTEN_Float> original_vals;
   for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
     original_vals.push_back(dten_1d_test.GetElem({i}));
   }
   dten_1d_test.ElementWiseSqrt();
   for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
-    EXPECT_NEAR(dten_1d_test.GetElem({i}), std::sqrt(original_vals[i]), 1e-10);
+    EXPECT_NEAR(dten_1d_test.GetElem({i}), std::sqrt(original_vals[i]), 1e-5);
   }
 
   // Test 2D tensor
   DQLTensor dten_2d_test(dten_2d_s);
   dten_2d_test.Random(qn0);
-  std::vector<std::vector<QLTEN_Double>> original_vals_2d;
+  std::vector<std::vector<QLTEN_Float>> original_vals_2d;
   for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
     original_vals_2d.emplace_back();
     for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
@@ -1223,7 +1227,7 @@ TEST_F(TestQLTensor, ElementWiseSqrt) {
   for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
     for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
       EXPECT_NEAR(dten_2d_test.GetElem({i, j}), 
-                  std::sqrt(original_vals_2d[i][j]), 1e-10);
+                  std::sqrt(original_vals_2d[i][j]), 1e-5);
     }
   }
 
@@ -1232,8 +1236,8 @@ TEST_F(TestQLTensor, ElementWiseSqrt) {
   auto original_zval = zten_scalar.GetElem({});
   zten_scalar.ElementWiseSqrt();
   auto expected_sqrt = qlten::sqrt(original_zval);
-  EXPECT_NEAR(zten_scalar.GetElem({}).real(), expected_sqrt.real(), 1e-10);
-  EXPECT_NEAR(zten_scalar.GetElem({}).imag(), expected_sqrt.imag(), 1e-10);
+  EXPECT_NEAR(zten_scalar.GetElem({}).real(), expected_sqrt.real(), 1e-5);
+  EXPECT_NEAR(zten_scalar.GetElem({}).imag(), expected_sqrt.imag(), 1e-5);
 
   // Test outer function (by copy + call member function)
   DQLTensor dten_copy_test(dten_1d_s);
@@ -1274,7 +1278,7 @@ void RunTestQLTensorSetElemByQNSectorCase(
 TEST_F(TestQLTensor, TestSetElemByQNSector) {
   // Test scalar tensor
   dten_scalar.Random(U1QN());
-  auto scalar_val = drand();
+  auto scalar_val = frand();
   RunTestQLTensorSetElemByQNSectorCase(dten_scalar, {}, {}, scalar_val);
   
   // Test 1D tensor
@@ -1283,13 +1287,13 @@ TEST_F(TestQLTensor, TestSetElemByQNSector) {
       dten_1d_s,
       {qn0},
       {1},
-      drand()
+      frand()
   );
   RunTestQLTensorSetElemByQNSectorCase(
       dten_1d_s,
       {qnp1},
       {2},
-      drand()
+      frand()
   );
   
   // Test 2D tensor
@@ -1298,13 +1302,13 @@ TEST_F(TestQLTensor, TestSetElemByQNSector) {
       dten_2d_s,
       {qnm1, qnm1},
       {1, 2},
-      drand()
+      frand()
   );
   RunTestQLTensorSetElemByQNSectorCase(
       dten_2d_s,
       {qn0, qnp1},
       {2, 1},
-      drand()
+      frand()
   );
   
   // Test 3D tensor
@@ -1313,18 +1317,18 @@ TEST_F(TestQLTensor, TestSetElemByQNSector) {
       dten_3d_s,
       {qnm1, qn0, qnp1},
       {1, 2, 3},
-      drand()
+      frand()
   );
   RunTestQLTensorSetElemByQNSectorCase(
       dten_3d_s,
       {qn0, qnp1, qn0},
       {2, 1, 2},
-      drand()
+      frand()
   );
   
   // Test complex tensors
   zten_scalar.Random(U1QN());
-  auto scalar_val_z = zrand();
+  auto scalar_val_z = crand();
   RunTestQLTensorSetElemByQNSectorCase(zten_scalar, {}, {}, scalar_val_z);
   
   zten_2d_s.Random(qn0);
@@ -1332,18 +1336,18 @@ TEST_F(TestQLTensor, TestSetElemByQNSector) {
       zten_2d_s,
       {qnm1, qnm1},
       {1, 2},
-      zrand()
+      crand()
   );
   RunTestQLTensorSetElemByQNSectorCase(
       zten_2d_s,
       {qn0, qnp1},
       {2, 1},
-      zrand()
+      crand()
   );
   
   // Test creating new blocks
   DQLTensor new_block_ten({idx_in_s, idx_out_s});
-  auto new_val = drand();
+  auto new_val = frand();
   RunTestQLTensorSetElemByQNSectorCase(
       new_block_ten,
       {qnm1, qnp1},
@@ -1353,16 +1357,16 @@ TEST_F(TestQLTensor, TestSetElemByQNSector) {
   
   // Test error cases
   EXPECT_THROW(
-      dten_2d_s.SetElemByQNSector({qnm1}, {1, 2}, drand()),
+      dten_2d_s.SetElemByQNSector({qnm1}, {1, 2}, frand()),
       std::invalid_argument
   );
   EXPECT_THROW(
-      dten_2d_s.SetElemByQNSector({qnm1, qnm1}, {1}, drand()),
+      dten_2d_s.SetElemByQNSector({qnm1, qnm1}, {1}, frand()),
       std::invalid_argument  
   );
 
   // Test normal case
-  auto val = drand();
+  auto val = frand();
   dten_2d_s.SetElemByQNSector({qnm1, qnm1}, {1, 1}, val);
   EXPECT_EQ(dten_2d_s.GetElem({1, 1}), val);
 }

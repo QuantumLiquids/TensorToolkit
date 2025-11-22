@@ -193,8 +193,20 @@ inline bool DoubleEq(const QLTEN_Double a, const QLTEN_Double b) {
   }
 }
 
+inline bool FloatEq(const QLTEN_Float a, const QLTEN_Float b) {
+  if (qlten::abs(a - b) < kFloatEpsilon) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 inline bool ComplexEq(const QLTEN_Complex a, const QLTEN_Complex b) {
   return qlten::abs(a - b) < kDoubleEpsilon;
+}
+
+inline bool ComplexFloatEq(const QLTEN_ComplexFloat a, const QLTEN_ComplexFloat b) {
+  return qlten::abs(a - b) < kFloatEpsilon;
 }
 
 inline bool ArrayEq(
@@ -205,6 +217,20 @@ inline bool ArrayEq(
   }
   for (size_t i = 0; i < size1; ++i) {
     if (!DoubleEq(parray1[i], parray2[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline bool ArrayEq(
+    const QLTEN_Float *parray1, const size_t size1,
+    const QLTEN_Float *parray2, const size_t size2) {
+  if (size1 != size2) {
+    return false;
+  }
+  for (size_t i = 0; i < size1; ++i) {
+    if (!FloatEq(parray1[i], parray2[i])) {
       return false;
     }
   }
@@ -224,6 +250,20 @@ inline bool ArrayEq(
   }
   return true;
 }
+
+inline bool ArrayEq(
+    const QLTEN_ComplexFloat *parray1, const size_t size1,
+    const QLTEN_ComplexFloat *parray2, const size_t size2) {
+  if (size1 != size2) {
+    return false;
+  }
+  for (size_t i = 0; i < size1; ++i) {
+    if (!ComplexFloatEq(parray1[i], parray2[i])) {
+      return false;
+    }
+  }
+  return true;
+}
 #else
 
 // Define custom comparator for floating-point equality
@@ -233,6 +273,16 @@ struct DoubleEqual {
 
   __device__
   bool operator()(const double &a, const double &b) const {
+    return qlten::abs(a - b) < epsilon;  // Floating-point comparison
+  }
+};
+
+struct FloatEqual {
+  const float epsilon;
+  FloatEqual(float eps) : epsilon(eps) {}
+
+  __device__
+  bool operator()(const float &a, const float &b) const {
     return qlten::abs(a - b) < epsilon;  // Floating-point comparison
   }
 };
@@ -247,14 +297,34 @@ struct ComplexEqual {
   }
 };
 
+struct ComplexFloatEqual {
+  const float epsilon;
+  ComplexFloatEqual(float eps) : epsilon(eps) {}
+
+  __device__
+  bool operator()(const QLTEN_ComplexFloat &a, const QLTEN_ComplexFloat &b) const {
+    return qlten::abs(a - b) < epsilon;  // Floating-point comparison
+  }
+};
+
 inline bool ArrayEq(const double *d_array1, const double *d_array2, size_t size) {
   thrust::device_ptr<const double> dev_ptr1(d_array1);
   thrust::device_ptr<const double> dev_ptr2(d_array2);
   return thrust::equal(thrust::device, dev_ptr1, dev_ptr1 + size, dev_ptr2, DoubleEqual(kDoubleEpsilon));
 }
 
+inline bool ArrayEq(const float *d_array1, const float *d_array2, size_t size) {
+  thrust::device_ptr<const float> dev_ptr1(d_array1);
+  thrust::device_ptr<const float> dev_ptr2(d_array2);
+  return thrust::equal(thrust::device, dev_ptr1, dev_ptr1 + size, dev_ptr2, FloatEqual(kFloatEpsilon));
+}
+
 inline bool ArrayEq(const QLTEN_Complex *d_array1, const QLTEN_Complex *d_array2, size_t size) {
   return thrust::equal(thrust::device, d_array1, d_array1 + size, d_array2, ComplexEqual(kDoubleEpsilon));
+}
+
+inline bool ArrayEq(const QLTEN_ComplexFloat *d_array1, const QLTEN_ComplexFloat *d_array2, size_t size) {
+  return thrust::equal(thrust::device, d_array1, d_array1 + size, d_array2, ComplexFloatEqual(kFloatEpsilon));
 }
 
 #endif//USE_GPU
@@ -265,20 +335,47 @@ inline QLTEN_Double drand(void) {
   return static_cast<QLTEN_Double>(qlten::Uniform01());
 }
 
+inline QLTEN_Float frand(void) {
+  return static_cast<QLTEN_Float>(qlten::Uniform01());
+}
+
 inline QLTEN_Complex zrand(void) {
   return QLTEN_Complex(drand(), drand());
+}
+
+inline QLTEN_ComplexFloat crand(void) {
+  return QLTEN_ComplexFloat(frand(), frand());
 }
 
 inline void Rand(QLTEN_Double &d) {
   d = drand();
 }
 
+inline void Rand(QLTEN_Float &f) {
+  f = frand();
+}
+
 inline void Rand(QLTEN_Complex &z) {
   z = zrand();
 }
+
+inline void Rand(QLTEN_ComplexFloat &z) {
+  z = crand();
+}
+
 #ifdef USE_GPU
 __global__
 inline void RandomKernel(QLTEN_Double *data, size_t size, unsigned long long seed) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    curandState state;
+    curand_init(seed, idx, 0, &state);  // Seed, sequence number, offset
+    data[idx] = curand_uniform(&state);  // Generate [0, 1] uniform random numbers
+  }
+}
+
+__global__
+inline void RandomKernel(QLTEN_Float *data, size_t size, unsigned long long seed) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     curandState state;
@@ -299,7 +396,26 @@ inline void RandomKernel(QLTEN_Complex *data, size_t size, unsigned long long se
 }
 
 __global__
+inline void RandomKernel(QLTEN_ComplexFloat *data, size_t size, unsigned long long seed) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    curandState state;
+    curand_init(seed, idx, 0, &state);  // Seed, sequence number, offset
+    data[idx].real(curand_uniform(&state));
+    data[idx].imag(curand_uniform(&state));
+  }
+}
+
+__global__
 inline void FillKernel(QLTEN_Double *data, size_t size, QLTEN_Double value) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = value;
+  }
+}
+
+__global__
+inline void FillKernel(QLTEN_Float *data, size_t size, QLTEN_Float value) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     data[idx] = value;
@@ -315,6 +431,14 @@ inline void FillKernel(QLTEN_Complex *data, size_t size, QLTEN_Complex value) {
 }
 
 __global__
+inline void FillKernel(QLTEN_ComplexFloat *data, size_t size, QLTEN_ComplexFloat value) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = value;
+  }
+}
+
+__global__
 inline void ElementWiseMultiplyKernel(QLTEN_Double *data, const QLTEN_Double *rhs_data, size_t size) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
@@ -323,7 +447,23 @@ inline void ElementWiseMultiplyKernel(QLTEN_Double *data, const QLTEN_Double *rh
 }
 
 __global__
+inline void ElementWiseMultiplyKernel(QLTEN_Float *data, const QLTEN_Float *rhs_data, size_t size) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] *= rhs_data[idx];
+  }
+}
+
+__global__
 inline void ElementWiseMultiplyKernel(QLTEN_Complex *data, const QLTEN_Complex *rhs_data, size_t size) {
+  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] *= rhs_data[idx];
+  }
+}
+
+__global__
+inline void ElementWiseMultiplyKernel(QLTEN_ComplexFloat *data, const QLTEN_ComplexFloat *rhs_data, size_t size) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     data[idx] *= rhs_data[idx];
@@ -343,7 +483,19 @@ inline QLTEN_Double CalcScalarNorm2(QLTEN_Double d) {
   return d * d;
 }
 
+inline QLTEN_Float CalcScalarNorm2(QLTEN_Float f) {
+  return f * f;
+}
+
 inline QLTEN_Double CalcScalarNorm2(QLTEN_Complex z) {
+#ifndef USE_GPU
+  return std::norm(z);
+#else
+  return cuda::std::norm(z);
+#endif
+}
+
+inline QLTEN_Float CalcScalarNorm2(QLTEN_ComplexFloat z) {
 #ifndef USE_GPU
   return std::norm(z);
 #else
@@ -355,15 +507,35 @@ inline QLTEN_Double CalcScalarNorm(QLTEN_Double d) {
   return std::abs(d);
 }
 
+inline QLTEN_Float CalcScalarNorm(QLTEN_Float f) {
+  return std::abs(f);
+}
+
 inline QLTEN_Double CalcScalarNorm(QLTEN_Complex z) {
   return std::sqrt(CalcScalarNorm2(z));
 }
+
+inline QLTEN_Float CalcScalarNorm(QLTEN_ComplexFloat z) {
+  return std::sqrt(CalcScalarNorm2(z));
+} 
 
 inline QLTEN_Double CalcConj(QLTEN_Double d) {
   return d;
 }
 
+inline QLTEN_Float CalcConj(QLTEN_Float f) {
+  return f;
+}
+
 inline QLTEN_Complex CalcConj(QLTEN_Complex z) {
+#ifndef USE_GPU
+  return std::conj(z);
+#else
+  return cuda::std::conj(z);
+#endif
+}
+
+inline QLTEN_ComplexFloat CalcConj(QLTEN_ComplexFloat z) {
 #ifndef USE_GPU
   return std::conj(z);
 #else

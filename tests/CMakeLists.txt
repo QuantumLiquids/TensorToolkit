@@ -175,6 +175,11 @@ add_unittest(test_qltensor
         "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
 
+add_unittest(test_qltensor_float
+        "test_qltensor/test_qltensor_float.cc"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+)
+
 add_unittest(test_fermion_qltensor
         "test_qltensor/test_fermion_qltensor.cc"
         "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"

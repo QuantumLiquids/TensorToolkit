@@ -49,6 +49,7 @@ namespace qlten {
  */
 template<typename ElemT, typename QNT>
 class QLTensor : public Showable, public Fermionicable<QNT> {
+  using RealType = typename RealTypeTrait<ElemT>::type;
  public:
   // Constructors and destructor.
   /**
@@ -270,14 +271,14 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
    * @note For fermionic tensors, prefer `GetQuasi2Norm()` or `QuasiNormalize()` when you
    *       need a conventional non-negative norm.
    */
-  QLTEN_Double Get2Norm(void) const;
+  auto Get2Norm(void) const;
 
   /** @brief Quasi 2-norm of the tensor.
    * For both bosonic and fermionic tensors,
    * \f$ \|A\|_{2,\mathrm{quasi}} = \sqrt{\sum_i |a_i|^2} \f$.
    * This is always non-negative and coincides with the standard Euclidean norm.
    */
-  QLTEN_Double GetQuasi2Norm(void) const;
+  auto GetQuasi2Norm(void) const;
 
   /**
    * @brief Normalize tensor by its 2-norm, returning the original norm.
@@ -286,10 +287,10 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
    *       If the graded norm is ill-defined (negative under the square root), 
    *       the result may be NaN. In such cases prefer QuasiNormalize().
    */
-  QLTEN_Double Normalize(void);
+  auto Normalize(void);
 
   /** @brief Rescale the tensor so that \f$\sum_i |a_i|^2 = 1\f$ (uses quasi 2-norm) */
-  QLTEN_Double QuasiNormalize(void);
+  auto QuasiNormalize(void);
 
   /**
    * @brief Hermitian conjugate: invert index directions and conjugate elements (if complex).
@@ -303,7 +304,7 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   void ElementWiseInv(void);
 
   /** @brief In-place element-wise inverse with tolerance for near-zeros. */
-  void ElementWiseInv(double tolerance);
+  void ElementWiseInv(RealType tolerance);
 
   /** @brief In-place element-wise product with another tensor (same indices). */
   void ElementWiseMultiply(const QLTensor &);
@@ -316,7 +317,7 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   /** @brief In-place inverse of a diagonal matrix with tolerance.
    * The input tensor should be a matrix form, that means the number of indices is 2, and the two indices are the same except direction.
    */
-  void DiagMatInv(double tolerance);
+  void DiagMatInv(RealType tolerance);
 
   /** @brief In-place element-wise square-root. */
   void ElementWiseSqrt(void);
@@ -339,19 +340,7 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
    * 
    * @param limit The magnitude limit to clip to
    */
-  void ElementWiseClipTo(double limit);
-
-  /** @brief Clip tensor elements to specified limit (magnitude bound).
-   * 
-   * @deprecated Use ElementWiseClipTo instead for clearer semantics
-   * 
-   * For real numbers: clips to ±limit while preserving sign
-   * For complex numbers: clips magnitude to limit while preserving phase
-   * 
-   * @param bound The magnitude limit to clip to
-   */
-  [[deprecated("Use ElementWiseClipTo instead")]]
-  void ElementWiseBoundTo(double bound);
+  void ElementWiseClipTo(RealType limit);
 
   template<typename RandGenerator>
   /**
@@ -359,11 +348,11 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
    * @param dist Uniform real distribution in [0,1) or similar.
    * @param g Random generator instance.
    */
-  void ElementWiseRandomizeMagnitudePreservePhase(std::uniform_real_distribution<double> &dist,
+  void ElementWiseRandomizeMagnitudePreservePhase(std::uniform_real_distribution<RealType> &dist,
                            RandGenerator &g);
 
   /** @brief Maximum absolute value among stored (non-zero) elements. */
-  double GetMaxAbs(void) const {
+  auto GetMaxAbs(void) const {
     return pblk_spar_data_ten_->GetMaxAbs();
   }
 
@@ -488,7 +477,23 @@ inline QLTensor<ElemT, QNT> operator*(
 
 template<typename ElemT, typename QNT>
 inline QLTensor<ElemT, QNT> operator*(
+    const QLTEN_Float scalar,
+    const QLTensor<ElemT, QNT> &t
+) {
+  return t * scalar;
+}
+
+template<typename ElemT, typename QNT>
+inline QLTensor<ElemT, QNT> operator*(
     const QLTEN_Complex scalar,
+    const QLTensor<ElemT, QNT> &t
+) {
+  return t * scalar;
+}
+
+template<typename ElemT, typename QNT>
+inline QLTensor<ElemT, QNT> operator*(
+    const QLTEN_ComplexFloat scalar,
     const QLTensor<ElemT, QNT> &t
 ) {
   return t * scalar;
