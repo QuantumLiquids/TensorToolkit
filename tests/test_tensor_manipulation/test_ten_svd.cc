@@ -180,7 +180,7 @@ void RunTestSvdCase(
   }
   QLTensor<TenElemT, QNT> u, vt;
   QLTensor<typename RealTypeTrait<TenElemT>::type, QNT> s;
-  double trunc_err;
+  typename RealTypeTrait<TenElemT>::type trunc_err;
   size_t D;
   std::string qn_nm = "qn";
   U1QN qn0 = U1QN({QNCard(qn_nm, U1QNVal(0))});
@@ -282,7 +282,7 @@ void RunTestSvdCase(
     auto t_diff_norm = t_diff.Normalize();
     auto t_norm = t.Normalize();
     auto norm_ratio = (t_diff_norm / t_norm);
-    GtestExpectNear(static_cast<double>(norm_ratio * norm_ratio), trunc_err, 1E-02);
+    GtestExpectNear(norm_ratio * norm_ratio, trunc_err, 1E-02);
   }
 
   delete[] dense_mat;

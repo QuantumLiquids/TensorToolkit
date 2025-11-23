@@ -90,11 +90,11 @@ class TensorSVDExecutor : public Executor {
       const QLTensor<TenElemT, QNT> *,
       const size_t,
       const QNT &,
-      const QLTEN_Double, const size_t, const size_t,
+      const RealT, const size_t, const size_t,
       QLTensor<TenElemT, QNT> *,
       QLTensor<RealT, QNT> *,
       QLTensor<TenElemT, QNT> *,
-      QLTEN_Double *, size_t *
+      RealT *, size_t *
   );
 
   ~TensorSVDExecutor(void) = default;
@@ -123,13 +123,13 @@ class TensorSVDExecutor : public Executor {
  private:
   const size_t ldims_;
   const QNT &lqndiv_;
-  const QLTEN_Double trunc_err_;
+  const RealT trunc_err_;
   const size_t Dmin_;
   const size_t Dmax_;
   QLTensor<TenElemT, QNT> *pu_;
   QLTensor<RealT, QNT> *ps_;
   QLTensor<TenElemT, QNT> *pvt_;
-  QLTEN_Double *pactual_trunc_err_;
+  RealT *pactual_trunc_err_;
   size_t *pD_;
 };
 
@@ -154,11 +154,11 @@ TensorSVDExecutor<TenElemT, QNT>::TensorSVDExecutor(
     const QLTensor<TenElemT, QNT> *pt,
     const size_t ldims,
     const QNT &lqndiv,
-    const QLTEN_Double trunc_err, const size_t Dmin, const size_t Dmax,
+    const RealT trunc_err, const size_t Dmin, const size_t Dmax,
     QLTensor<TenElemT, QNT> *pu,
     QLTensor<RealT, QNT> *ps,
     QLTensor<TenElemT, QNT> *pvt,
-    QLTEN_Double *pactual_trunc_err, size_t *pD
+    RealT *pactual_trunc_err, size_t *pD
 ) : pt_(pt),
     ldims_(ldims),
     lqndiv_(lqndiv),
@@ -238,11 +238,11 @@ void SVD(
     const QLTensor<TenElemT, QNT> *pt,
     const size_t ldims,
     const QNT &lqndiv,
-    const QLTEN_Double trunc_err, const size_t Dmin, const size_t Dmax,
+    const typename RealTypeTrait<TenElemT>::type trunc_err, const size_t Dmin, const size_t Dmax,
     QLTensor<TenElemT, QNT> *pu,
     QLTensor<typename RealTypeTrait<TenElemT>::type, QNT> *ps,
     QLTensor<TenElemT, QNT> *pvt,
-    QLTEN_Double *pactual_trunc_err, size_t *pD
+    typename RealTypeTrait<TenElemT>::type *pactual_trunc_err, size_t *pD
 ) {
   TensorSVDExecutor<TenElemT, QNT> ten_svd_executor(
       pt,
@@ -339,7 +339,7 @@ std::vector<TruncedSVInfo<typename RealTypeTrait<TenElemT>::type>> TensorSVDExec
     }
   }
   assert(kept_dim <= total_sv_size);
-  QLTEN_Double actual_trunc_err = 1 - (kept_sv2_sum / total_kept_sv2_sum);
+  RealT actual_trunc_err = 1 - (kept_sv2_sum / total_kept_sv2_sum);
   *pactual_trunc_err_ = actual_trunc_err > 0 ? actual_trunc_err : 0;
   *pD_ = kept_dim;
   trunced_sv_info.resize(kept_dim);

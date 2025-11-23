@@ -51,6 +51,9 @@ template<typename ElemT, typename QNT>
 class QLTensor : public Showable, public Fermionicable<QNT> {
   using RealType = typename RealTypeTrait<ElemT>::type;
  public:
+  using value_type = ElemT;
+  using qn_type = QNT;
+
   // Constructors and destructor.
   /**
    * @brief Default constructor.

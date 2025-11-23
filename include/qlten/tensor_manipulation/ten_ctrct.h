@@ -226,6 +226,36 @@ void Contract(
   Contract(pa, &cplx_b, axes_set, pc);
 }
 
+template<typename QNT>
+void Contract(
+    const QLTensor<QLTEN_Float, QNT> *pa,
+    const QLTensor<QLTEN_ComplexFloat, QNT> *pb,
+    const std::vector<std::vector<size_t>> &axes_set,
+    QLTensor<QLTEN_ComplexFloat, QNT> *pc
+) {
+  auto cplx_a = ToComplex(*pa);
+  Contract(&cplx_a, pb, axes_set, pc);
+}
+
+/**
+ * @brief Mixed-precision contraction (complex result).
+ * @tparam QNT Quantum number type.
+ * @param pa Real-valued tensor A.
+ * @param pb Complex-valued tensor B.
+ * @param axes_set Contraction axes as in the primary overload.
+ * @param pc Complex-valued result tensor (default on entry).
+ */
+template<typename QNT>
+void Contract(
+    const QLTensor<QLTEN_ComplexFloat, QNT> *pa,
+    const QLTensor<QLTEN_Float, QNT> *pb,
+    const std::vector<std::vector<size_t>> &axes_set,
+    QLTensor<QLTEN_ComplexFloat, QNT> *pc
+) {
+  auto cplx_b = ToComplex(*pb);
+  Contract(pa, &cplx_b, axes_set, pc);
+}
+
 template<typename TenElemT1, typename TenElemT2, typename TenElemT3, typename QNT>
 void Contract(
     const QLTensor<TenElemT1, QNT> *pa,

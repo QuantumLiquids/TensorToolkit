@@ -101,14 +101,14 @@ TensorLinearCombinationExecutor<TenElemT, QNT>::TensorLinearCombinationExecutor(
   actual_res_ = TenT(tens_[0]->GetIndexes());
 
   // Deal with input result tensor and its coefficient beta
-  if (beta_ != 0.0) {
+  if (beta_ != TenElemT(0)) {
     assert(!pres_->IsDefault());
     coefs_.push_back(beta_);
     tens_.push_back(pres_);
   }
   std::unordered_set<size_t> res_data_blk_idx_set;
   for (size_t i = 0; i < coefs_.size(); ++i) {
-    if (coefs_[i] != 0.0) {
+    if (coefs_[i] != TenElemT(0)) {
       ten_idx_ten_lin_cmb_data_copy_tasks_map_[i] =
           GenTenLinearCombineDataCopyTasks(
               coefs_[i],
@@ -211,12 +211,33 @@ inline std::vector<QLTEN_Complex> ToCplxVec(
   return cplx_v;
 }
 
+inline std::vector<QLTEN_ComplexFloat> ToCplxVec(
+    const std::vector<QLTEN_Float> &real_v
+) {
+  std::vector<QLTEN_ComplexFloat> cplx_v;
+  cplx_v.reserve(real_v.size());
+  for (auto &e : real_v) {
+    cplx_v.emplace_back(e);
+  }
+  return cplx_v;
+}
+
 template<typename QNT>
 void LinearCombine(
     const std::vector<QLTEN_Double> &coefs,
     const std::vector<QLTensor<QLTEN_Complex, QNT> *> &tens,
     const QLTEN_Complex beta,
     QLTensor<QLTEN_Complex, QNT> *pres
+) {
+  LinearCombine(ToCplxVec(coefs), tens, beta, pres);
+}
+
+template<typename QNT>
+void LinearCombine(
+    const std::vector<QLTEN_Float> &coefs,
+    const std::vector<QLTensor<QLTEN_ComplexFloat, QNT> *> &tens,
+    const QLTEN_ComplexFloat beta,
+    QLTensor<QLTEN_ComplexFloat, QNT> *pres
 ) {
   LinearCombine(ToCplxVec(coefs), tens, beta, pres);
 }
@@ -250,6 +271,23 @@ void LinearCombine(
   coefs.resize(size);
   std::copy_n(pcoefs, size, coefs.begin());
   std::vector<QLTensor<QLTEN_Complex, QNT> *> actual_tens;
+  actual_tens.resize(size);
+  std::copy_n(tens.begin(), size, actual_tens.begin());
+  LinearCombine(coefs, actual_tens, beta, pres);
+}
+
+template<typename QNT>
+void LinearCombine(
+    const size_t size,
+    const QLTEN_Float *pcoefs,
+    const std::vector<QLTensor<QLTEN_ComplexFloat, QNT> *> &tens,
+    const QLTEN_ComplexFloat beta,
+    QLTensor<QLTEN_ComplexFloat, QNT> *pres
+) {
+  std::vector<QLTEN_ComplexFloat> coefs;
+  coefs.resize(size);
+  std::copy_n(pcoefs, size, coefs.begin());
+  std::vector<QLTensor<QLTEN_ComplexFloat, QNT> *> actual_tens;
   actual_tens.resize(size);
   std::copy_n(tens.begin(), size, actual_tens.begin());
   LinearCombine(coefs, actual_tens, beta, pres);
