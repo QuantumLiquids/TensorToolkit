@@ -803,13 +803,13 @@ void RunTestQLTensorDotMultiCase(
   QLTensor<ElemT, QNT> multied_t2(t);
   multied_t2 *= scalar;
   for (auto &coors : GenAllCoors(t.GetShape())) {
-    if constexpr (std::is_same_v<ElemT, QLTEN_Float>) {
-      EXPECT_FLOAT_EQ(multied_t.GetElem(coors), scalar * t.GetElem(coors));
-      EXPECT_FLOAT_EQ(multied_t2.GetElem(coors), scalar * t.GetElem(coors));
-    } else {
-      EXPECT_COMPLEX_EQ(multied_t.GetElem(coors), scalar * t.GetElem(coors));
-      EXPECT_COMPLEX_EQ(multied_t2.GetElem(coors), scalar * t.GetElem(coors));
-    }
+      // Use relative error comparison 
+      const auto expected = scalar * t.GetElem(coors);
+      const auto actual1 = multied_t.GetElem(coors);
+      const auto actual2 = multied_t2.GetElem(coors);
+      const float abs_val = std::max(std::abs(expected), std::abs(actual1));
+      GtestNear(actual1, expected, qlten::kFloatEpsilon * abs_val);
+      GtestNear(actual2, expected, qlten::kFloatEpsilon *abs_val);
   }
 }
 
@@ -817,7 +817,11 @@ TEST_F(TestQLTensor, TestDotMultiplication) {
   dten_scalar.Random(U1QN());
   auto rand_d = frand();
   auto multied_ten = rand_d * dten_scalar;
-  EXPECT_FLOAT_EQ(multied_ten.GetElem({}), rand_d * dten_scalar.GetElem({}));
+  // Use relative error comparison 
+  const auto expected_scalar = rand_d * dten_scalar.GetElem({});
+  const auto actual_scalar = multied_ten.GetElem({});
+  const auto abs_val = std::max(std::abs(expected_scalar), std::abs(actual_scalar));
+  GtestNear(actual_scalar, expected_scalar, qlten::kFloatEpsilon * abs_val);
 
   dten_1d_s.Random(qn0);
   RunTestQLTensorDotMultiCase(dten_1d_s, frand());

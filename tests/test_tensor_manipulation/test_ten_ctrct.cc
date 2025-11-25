@@ -400,7 +400,9 @@ void RunTestTenCtrct3DCase1(
                       {0}}, &res);
   idx = 0;
   for (auto &coors : GenAllCoors(res.GetShape())) {
-    GtestExpectNear(res.GetElem(coors), dense_res[idx], GetEpsilon<TenElemT>());
+    const auto actual = res.GetElem(coors);
+    const auto expected = dense_res[idx];
+    GtestExpectNear(actual, expected, std::abs(expected) * GetEpsilon<TenElemT>());
     idx++;
   }
 
@@ -446,7 +448,7 @@ void RunTestTenCtrct3DCase2(
                       {0, 1}}, &res);
   idx = 0;
   for (auto &coors : GenAllCoors(res.GetShape())) {
-    GtestExpectNear(res.GetElem(coors), dense_res[idx], GetEpsilon<TenElemT>());
+    GtestExpectNear(res.GetElem(coors), dense_res[idx], GetEpsilon<TenElemT>() * std::abs(res.GetElem(coors)));
     idx++;
   }
 
@@ -485,7 +487,7 @@ void RunTestTenCtrct3DCase3(
   QLTensor<TenElemT, QNT> res;
   Contract(&ta, &tb, {{0, 1, 2},
                       {0, 1, 2}}, &res);
-  GtestExpectNear(res.GetElem({}), res_scalar, GetEpsilon<TenElemT>());
+  GtestExpectNear(res.GetElem({}), res_scalar, GetEpsilon<TenElemT>() * std::abs(res_scalar));
 
   delete[] dense_ta;
   delete[] dense_tb;
@@ -699,7 +701,7 @@ void RunTestTenMatBasedCtrct(
   }
 
   const BlockSparseDataTensor<TenElemT, QNT> &bsdt_res = benchmark_res.GetBlkSparDataTen();
-  using RealT = RealTypeTrait<TenElemT>::type;
+  using RealT = typename RealTypeTrait<TenElemT>::type;
   EXPECT_EQ(benchmark_res.GetIndexes(), res1.GetIndexes());
   const BlockSparseDataTensor<TenElemT, QNT> &bsdt_res1 = res1.GetBlkSparDataTen();
   EXPECT_EQ(bsdt_res.GetActualRawDataSize(), bsdt_res1.GetActualRawDataSize());

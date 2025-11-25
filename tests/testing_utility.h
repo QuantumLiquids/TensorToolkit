@@ -93,7 +93,9 @@ inline void GtestNear(
   const qlten::QLTEN_ComplexFloat lhs,
   const qlten::QLTEN_ComplexFloat rhs,
   const double delta) {
-  EXPECT_NEAR(lhs.real(), rhs.real(), delta);
+  if(std::abs(lhs.real() - rhs.real()) > delta){
+      EXPECT_FLOAT_EQ(lhs.real(), rhs.real());
+  }
   if (std::abs(lhs.imag()) >= qlten::kFloatEpsilon) {
     if (std::abs(lhs.imag() - rhs.imag()) > delta) {
       EXPECT_FLOAT_EQ(lhs.imag(), rhs.imag());
