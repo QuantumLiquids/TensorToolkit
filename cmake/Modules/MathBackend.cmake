@@ -79,6 +79,13 @@ elseif (HP_NUMERIC_USE_OPENBLAS)
         set(LAPACK_ROOT "/opt/homebrew/opt/lapack")
         set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${OpenBLAS_ROOT} ${LAPACK_ROOT})
         set(BLAS_INCLUDE_DIRS "${OpenBLAS_ROOT}/include" CACHE STRING "" FORCE)
+    elseif (UNIX AND NOT APPLE) # use for github action
+        # On Linux (e.g. Ubuntu), OpenBLAS headers are usually in /usr/include/openblas or /usr/include
+        if (EXISTS "/usr/include/openblas/cblas.h")
+            set(BLAS_INCLUDE_DIRS "/usr/include/openblas" CACHE STRING "" FORCE)
+        elseif (EXISTS "/usr/include/cblas.h")
+            set(BLAS_INCLUDE_DIRS "/usr/include" CACHE STRING "" FORCE)
+        endif()
     endif ()
 endif ()
 

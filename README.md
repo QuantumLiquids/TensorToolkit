@@ -29,7 +29,7 @@ while HPTT only requires a basic C++ compiler and CMake.
 To build test cases or develop programs like *TRG*, *DMRG* or *TDVP* based on TensorToolkit, the following are required:
 
 - **C++ Compiler:** C++17 or later
-- **Build System:** CMake 3.12 or newer
+- **Build System:** CMake 3.27 or newer
 - **Math Libraries:** BLAS and LAPACK
 - **Parallelization:** MPI
 - **GPU Acceleration (optional):** CUDA compiler, CUDA toolkit (cuBLAS, cuSolver, cuTensor2)

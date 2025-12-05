@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Test on Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    
+    env:
+      OMP_NUM_THREADS: 2
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          g++-14 \
+          libopenblas-dev \
+          liblapack-dev \
+          liblapacke-dev \
+          libopenmpi-dev \
+          openmpi-bin \
+          libgtest-dev \
+          libbenchmark-dev
+
+    - name: Configure CMake (Step 1 - Build HPTT)
+      run: |
+        mkdir build
+        cd build
+        cmake .. \
+          -DCMAKE_CXX_COMPILER=g++-14 \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DHP_NUMERIC_USE_OPENBLAS=ON \
+          -DQLTEN_COMPILE_HPTT_LIB=ON \
+          -DQLTEN_BUILD_UNITTEST=OFF \
+          -DQLTEN_BUILD_EXAMPLES=OFF
+
+    - name: Build HPTT
+      run: |
+        cd build
+        make -j4
+
+    - name: Configure CMake (Step 2 - Enable Unit Tests)
+      run: |
+        cd build
+        cmake .. \
+          -DCMAKE_CXX_COMPILER=g++-14 \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DHP_NUMERIC_USE_OPENBLAS=ON \
+          -DCMAKE_CXX_STANDARD_LIBRARIES="-llapacke" \
+          -DQLTEN_COMPILE_HPTT_LIB=ON \
+          -DQLTEN_BUILD_UNITTEST=ON \
+          -DQLTEN_BUILD_EXAMPLES=OFF
+        # explicily link lapacke because ubuntu splits openblas and lapacke
+    - name: Build Project and Tests
+      run: |
+        cd build
+        make -j4
+
+    - name: Run Tests
+      run: |
+        cd build
+        export OMPI_MCA_rmaps_base_oversubscribe=1
+        ctest --output-on-failure
+
