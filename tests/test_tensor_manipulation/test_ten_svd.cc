@@ -697,6 +697,23 @@ TEST_F(TestSvd, 3DCaseFloat) {
       &qn0);
 }
 
+// Test that SVD throws when input tensor has no data blocks
+TEST_F(TestSvd, EmptySVDResultThrows) {
+  // Create a tensor without any data blocks (not initialized with Random)
+  DQLTensor empty_tensor({idx_in_s, idx_out_s});
+  // Don't call Random() - tensor has structure but no actual data blocks
+
+  DQLTensor u, vt;
+  QLTensor<QLTEN_Double, U1QN> s;
+  QLTEN_Double trunc_err;
+  size_t D;
+
+  EXPECT_THROW(
+      SVD(&empty_tensor, 1, qn0, 0.0, 1, 100, &u, &s, &vt, &trunc_err, &D),
+      std::runtime_error
+  );
+}
+
 struct TestSvdOmpParallel : public testing::Test {
   std::string qn_nm = "qn";
 };

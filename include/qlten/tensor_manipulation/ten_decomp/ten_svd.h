@@ -13,8 +13,9 @@
 #ifndef QLTEN_TENSOR_MANIPULATION_TEN_DECOMP_TEN_SVD_H
 #define QLTEN_TENSOR_MANIPULATION_TEN_DECOMP_TEN_SVD_H
 
-#include <cassert>     // assert
-#include <utility>    // pair
+#include <cassert>      // assert
+#include <utility>      // pair
+#include <stdexcept>    // runtime_error
 
 #include "qlten/framework/bases/executor.h"                           // Executor
 #include "qlten/qltensor_all.h"
@@ -192,6 +193,16 @@ void TensorSVDExecutor<TenElemT, QNT>::Execute(void) {
       idx_ten_decomp_data_blk_mat_map_
   );
   auto kept_sv_info = CalcTruncedSVInfo_(idx_raw_data_svd_res);
+
+  // Empty SVD result: input tensor has no valid blocks for this QN configuration
+  if (kept_sv_info.empty()) {
+    DeleteDataBlkMatSvdResMap(idx_raw_data_svd_res);
+    throw std::runtime_error(
+        "SVD failed: empty result. The input tensor has no data blocks "
+        "compatible with the specified quantum number divergence (lqndiv)."
+    );
+  }
+
   ConstructSVDResTens_(kept_sv_info, idx_raw_data_svd_res);
   DeleteDataBlkMatSvdResMap(idx_raw_data_svd_res);
 
