@@ -133,7 +133,6 @@ inline void SVDTensRestore(
 template<typename ElemT, typename QNT>
 void CheckIsIdTen(const QLTensor<ElemT, QNT> &t) {
   double epsilon = kEpsilon;
-  using TenT = QLTensor<ElemT, QNT>;
   if constexpr (std::is_same_v<ElemT, float> || std::is_same_v<ElemT, std::complex<float>> 
 #ifdef USE_GPU
       || std::is_same_v<ElemT, cuda::std::complex<float>>

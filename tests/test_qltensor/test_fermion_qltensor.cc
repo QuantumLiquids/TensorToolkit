@@ -242,9 +242,8 @@ void RunTestQLTensorFillCase(
     // Elements in other blocks should be zero
     for (auto &coors: GenAllCoors(t.GetShape())) {
       ElemT elem = t.GetElem(coors);
-      // For simplicity, we just check that the tensor has the expected number of blocks
-      // and that the divergence is correct. The actual element values are tested
-      // by checking that the tensor is not all zeros when we expect it to have data.
+      // Each element should be either the fill value or zero
+      EXPECT_TRUE(elem == value || elem == ElemT(0));
     }
     
       // Additional check: verify that the tensor has the expected quantum number divergence
@@ -879,7 +878,7 @@ void RunTestQLTensorQuasi2NormCase(const QLTensorT &t) {
   // For fermionic tensors, Quasi2Norm should be different from Get2Norm
   // Quasi2Norm always uses RawDataNorm_() regardless of fermionic nature
   auto quasi_norm = t.GetQuasi2Norm();
-  auto norm = t.Get2Norm();
+  (void)t.Get2Norm();  // Call to ensure it works, but not used in this test
   
   // Verify that Quasi2Norm is the square root of sum of element squares
   double expected_norm = 0.0;
@@ -1217,6 +1216,7 @@ TEST_F(TestQLTensor, ElementWiseClipTo) {
   // Test scalar tensor
   dten_scalar.Random(fU1QN());
   auto original_val = dten_scalar.GetElem({});
+  (void)original_val;
   double limit = 0.5;
   dten_scalar.ElementWiseClipTo(limit);
   EXPECT_LE(std::abs(dten_scalar.GetElem({})), limit);

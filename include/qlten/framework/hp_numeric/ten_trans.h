@@ -59,16 +59,16 @@ void TensorTranspose(
     const std::vector<size_t> &transed_shape,
     const double alpha  //scale factor, for boson tensor alpha = 1; for Fermion tensor additional minus sign may require
 ) {
-  const int dim = ten_rank;
-  int perm[dim];
-  for (int i = 0; i < dim; ++i) { perm[i] = transed_order[i]; }
-  int sizeA[dim];
-  for (int i = 0; i < dim; ++i) { sizeA[i] = original_shape[i]; }
-  int outerSizeB[dim];
-  for (int i = 0; i < dim; ++i) { outerSizeB[i] = transed_shape[i]; }
-  auto tentrans_plan = hptt::create_plan(perm, dim,
-                                         alpha, original_data, sizeA, sizeA,
-                                         0.0, transed_data, outerSizeB,
+  const int dim = static_cast<int>(ten_rank);
+  std::vector<int> perm(dim);
+  for (int i = 0; i < dim; ++i) { perm[i] = static_cast<int>(transed_order[i]); }
+  std::vector<int> sizeA(dim);
+  for (int i = 0; i < dim; ++i) { sizeA[i] = static_cast<int>(original_shape[i]); }
+  std::vector<int> outerSizeB(dim);
+  for (int i = 0; i < dim; ++i) { outerSizeB[i] = static_cast<int>(transed_shape[i]); }
+  auto tentrans_plan = hptt::create_plan(perm.data(), dim,
+                                         alpha, original_data, sizeA.data(), sizeA.data(),
+                                         0.0, transed_data, outerSizeB.data(),
                                          hptt::ESTIMATE,
                                          tensor_transpose_num_threads, {},
                                          true
@@ -97,11 +97,11 @@ void TensorTranspose(
     const std::vector<int> &transed_shape,
     const double alpha //scale factor, for boson tensor alpha = 1; for Fermion tensor additional minus sign may require
 ) {
-  const int dim = ten_rank;
-  int sizeA[dim];
-  for (int i = 0; i < dim; ++i) { sizeA[i] = original_shape[i]; }
+  const int dim = static_cast<int>(ten_rank);
+  std::vector<int> sizeA(dim);
+  for (int i = 0; i < dim; ++i) { sizeA[i] = static_cast<int>(original_shape[i]); }
   auto tentrans_plan = hptt::create_plan(transed_order.data(), dim,
-                                         alpha, original_data, sizeA, sizeA,
+                                         alpha, original_data, sizeA.data(), sizeA.data(),
                                          0.0, transed_data, transed_shape.data(),
                                          hptt::ESTIMATE,
                                          tensor_transpose_num_threads, {},

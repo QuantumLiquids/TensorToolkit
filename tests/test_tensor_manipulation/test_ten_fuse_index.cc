@@ -134,3 +134,28 @@ TEST(TESTFuseIndexRandom, 4DCase) {
   t1.Random(qn0);
   RunTestTenFuseIndexBenchMarkByIndexCombinerCase(t1, 1, 2);
 }
+
+// Test that FuseInfo is correctly returned and contains valid information
+TEST(TestFuseInfo, BasicTest) {
+  DQLTensor ten0 = DQLTensor({idx_out0_2, idx_out0_2, idx_in0});
+  ten0({0, 0, 0}) = 0.5;
+  ten0({0, 1, 0}) = 0.7;
+  ten0({1, 0, 0}) = 0.2;
+  ten0({1, 1, 0}) = 1.2;
+
+  // Get FuseInfo from FuseIndex
+  FuseInfo<U1QN> fuse_info = ten0.FuseIndex(0, 1);
+
+  // Verify FuseInfo contains correct original indices
+  EXPECT_EQ(fuse_info.original_idx1, idx_out0_2);
+  EXPECT_EQ(fuse_info.original_idx2, idx_out0_2);
+
+  // Verify fused index has correct dimension
+  EXPECT_EQ(fuse_info.fused_idx.dim(), idx_out0_2.dim() * idx_out0_2.dim());
+
+  // Verify fused index direction matches original
+  EXPECT_EQ(fuse_info.fused_idx.GetDir(), idx_out0_2.GetDir());
+
+  // Verify tensor has the fused index
+  EXPECT_EQ(ten0.GetIndexes()[0], fuse_info.fused_idx);
+}

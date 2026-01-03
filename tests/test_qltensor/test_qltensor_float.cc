@@ -1100,6 +1100,7 @@ TEST_F(TestQLTensor, ElementWiseClipTo) {
   // Test scalar tensor
   dten_scalar.Random(U1QN());
   auto original_val = dten_scalar.GetElem({});
+  (void)original_val;
   float limit = 0.5;
   dten_scalar.ElementWiseClipTo(limit);
   EXPECT_LE(std::abs(dten_scalar.GetElem({})), limit);

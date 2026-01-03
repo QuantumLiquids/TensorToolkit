@@ -22,7 +22,12 @@
 
 #include <vector>       // vector
 #include <iostream>     // istream, ostream
+
 namespace qlten {
+
+// Forward declaration for FuseInfo (defined in ten_fuse_index.h)
+template<typename QNT>
+struct FuseInfo;
 
 /**
  * Symmetry-blocked sparse tensor.
@@ -253,11 +258,21 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   void Transpose(const std::vector<size_t> &);
 
   /**
-   * @brief Fuse two adjacent indices in-place.
-   * @param left_axis The left index position to fuse.
-   * @param right_axis The right index position to fuse.
+   * @brief Fuse two indices in-place and return fusion information.
+   *
+   * Fuses the indices at positions `idx1` and `idx2` into a single combined
+   * index placed at position 0. Both indices must have the same direction.
+   *
+   * @param idx1 Position of the first index to fuse (must be < idx2).
+   * @param idx2 Position of the second index to fuse.
+   * @return FuseInfo<QNT> containing information needed for potential SplitIndex.
+   *
+   * @note For fermionic tensors, the fermion exchange sign is correctly handled
+   *       during the internal transpose step.
+   *
+   * @see FuseInfo, ten_fuse_index.h for detailed documentation.
    */
-  void FuseIndex(const size_t, const size_t);
+  FuseInfo<QNT> FuseIndex(const size_t, const size_t);
 
   /** @brief 2-norm of the tensor.
    *
