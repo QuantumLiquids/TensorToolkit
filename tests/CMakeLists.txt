@@ -225,6 +225,11 @@ add_unittest(test_ten_qr
         "test_tensor_manipulation/test_ten_qr.cc"
         "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
 )
+# Test tensor LQ.
+add_unittest(test_ten_lq
+        "test_tensor_manipulation/test_ten_lq.cc"
+        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+)
 # Test tensor index combination.
 add_unittest(test_index_combine
         "test_tensor_manipulation/test_index_combine.cc"
