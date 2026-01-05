@@ -15,6 +15,7 @@
 
 #include <vector>     // vector
 #include <cassert>     // assert
+#include <iostream>    // std::cerr
 
 #include "qlten/framework/bases/executor.h"                 // Executor
 #include "qlten/qltensor_all.h"
@@ -25,6 +26,104 @@
 #endif
 
 namespace qlten {
+
+#ifndef NDEBUG
+/**
+ * @brief Helper function to print detailed index mismatch debug info.
+ *
+ * This function prints comprehensive debug information when a contraction
+ * index mismatch is detected, including:
+ * - Which contraction axis has the mismatch
+ * - Tensor ranks and Div values
+ * - Index directions (IN/OUT)
+ * - QNSector details (QN values and degeneracy)
+ *
+ * @param pa Pointer to tensor A
+ * @param pb Pointer to tensor B
+ * @param axes_set The contraction axes specification
+ * @param mismatch_idx The index of the mismatched contraction axis
+ */
+template<typename TenElemT, typename QNT>
+void PrintIndexMismatchDebugInfo(
+    const QLTensor<TenElemT, QNT> *pa,
+    const QLTensor<TenElemT, QNT> *pb,
+    const std::vector<std::vector<size_t>> &axes_set,
+    size_t mismatch_idx
+) {
+  using std::cerr;
+  using std::endl;
+
+  cerr << "\n========== CONTRACTION INDEX MISMATCH DEBUG INFO ==========" << endl;
+  cerr << "Mismatch at contraction axis " << mismatch_idx
+       << " (A[" << axes_set[0][mismatch_idx] << "] vs B[" << axes_set[1][mismatch_idx] << "])" << endl;
+
+  cerr << "\n--- Tensor A Info ---" << endl;
+  cerr << "  Rank: " << pa->Rank() << endl;
+  if (!pa->IsDefault()) {
+    cerr << "  Div: ";
+    pa->Div().Show(0);
+  }
+
+  cerr << "\n--- Tensor B Info ---" << endl;
+  cerr << "  Rank: " << pb->Rank() << endl;
+  if (!pb->IsDefault()) {
+    cerr << "  Div: ";
+    pb->Div().Show(0);
+  }
+
+  auto &indexesa = pa->GetIndexes();
+  auto &indexesb = pb->GetIndexes();
+
+  size_t idx_a = axes_set[0][mismatch_idx];
+  size_t idx_b = axes_set[1][mismatch_idx];
+  const auto &index_a = indexesa[idx_a];
+  const auto &index_b = indexesb[idx_b];
+  auto inv_index_b = InverseIndex(index_b);
+
+  cerr << "\n--- Mismatched Index Details ---" << endl;
+  cerr << "Index A[" << idx_a << "]:" << endl;
+  index_a.Show(1);
+
+  cerr << "\nIndex B[" << idx_b << "] (original):" << endl;
+  index_b.Show(1);
+
+  cerr << "\nInverseIndex(B[" << idx_b << "]) (should match A[" << idx_a << "]):" << endl;
+  inv_index_b.Show(1);
+
+  cerr << "\n--- All Contraction Axes ---" << endl;
+  for (size_t i = 0; i < axes_set[0].size(); ++i) {
+    bool is_mismatch = (indexesa[axes_set[0][i]] != InverseIndex(indexesb[axes_set[1][i]]));
+    cerr << "  [" << i << "] A[" << axes_set[0][i] << "] <-> B[" << axes_set[1][i] << "]";
+    if (is_mismatch) {
+      cerr << " <-- MISMATCH";
+    }
+    cerr << endl;
+  }
+  cerr << "============================================================\n" << endl;
+}
+
+/**
+ * @brief Check contraction index matching with detailed debug output.
+ *
+ * @return true if all indices match, false otherwise (after printing debug info)
+ */
+template<typename TenElemT, typename QNT>
+bool CheckContractionIndicesMatch(
+    const QLTensor<TenElemT, QNT> *pa,
+    const QLTensor<TenElemT, QNT> *pb,
+    const std::vector<std::vector<size_t>> &axes_set
+) {
+  auto &indexesa = pa->GetIndexes();
+  auto &indexesb = pb->GetIndexes();
+  for (size_t i = 0; i < axes_set[0].size(); ++i) {
+    if (indexesa[axes_set[0][i]] != InverseIndex(indexesb[axes_set[1][i]])) {
+      PrintIndexMismatchDebugInfo(pa, pb, axes_set, i);
+      return false;
+    }
+  }
+  return true;
+}
+#endif // NDEBUG
 
 // Forward declarations
 template<typename TenElemT, typename QNT>
@@ -86,13 +185,10 @@ TensorContractionExecutor<TenElemT, QNT>::TensorContractionExecutor(
     QLTensor<TenElemT, QNT> *pc
 ) : pa_(pa), pb_(pb), pc_(pc), axes_set_(axes_set) {
   assert(pc_->IsDefault());    // Only empty tensor can take the result
-  // Check indexes matching
+  // Check indexes matching with detailed debug output
 #ifndef NDEBUG
-  auto &indexesa = pa->GetIndexes();
-  auto &indexesb = pb->GetIndexes();
-  for (size_t i = 0; i < axes_set[0].size(); ++i) {
-    assert(indexesa[axes_set[0][i]] == InverseIndex(indexesb[axes_set[1][i]]));
-  }
+  assert(CheckContractionIndicesMatch(pa, pb, axes_set) &&
+         "Contraction index mismatch! See debug output above for details.");
 #endif
   std::vector<std::vector<size_t> > saved_axes_set = TenCtrctGenSavedAxesSet(
       pa->Rank(),

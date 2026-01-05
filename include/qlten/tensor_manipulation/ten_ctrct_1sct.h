@@ -23,6 +23,7 @@
 #include "qlten/framework/bases/executor.h"                 // Executor
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/basic_operations.h"     // ToComplex
+#include "qlten/tensor_manipulation/ten_ctrct.h"            // TenCtrctInitResTen, CheckContractionIndicesMatch
 #include "qlten/qltensor/blk_spar_data_ten/data_blk_operator_seperate_ctrct.h"
 
 #ifdef Release
@@ -30,17 +31,6 @@
 #endif
 
 namespace qlten {
-
-/// Forward declarations.
-/// TenCtrctInitResTen only gives the Indexes of QLTensor *pc,
-/// pointer to BSDT = nullptr.
-template<typename TenElemT, typename QNT>
-void TenCtrctInitResTen(
-    const QLTensor<TenElemT, QNT> *,
-    const QLTensor<TenElemT, QNT> *,
-    const std::vector<std::vector<size_t>> &,
-    QLTensor<TenElemT, QNT> *
-);
 
 /**
 Tensor contraction executor.
@@ -149,12 +139,9 @@ TensorContraction1SectorExecutor<TenElemT, QNT>::TensorContraction1SectorExecuto
     pb_(pb), pc_(pc), axes_set_(axes_set) {
   assert(pc_->IsDefault());    // Only empty tensor can take the result
 #ifndef NDEBUG
-  // Check indexes matching
-  auto indexesa = pa->GetIndexes();
-  auto indexesb = pb->GetIndexes();
-  for (size_t i = 0; i < axes_set[0].size(); ++i) {
-    assert(indexesa[axes_set[0][i]] == InverseIndex(indexesb[axes_set[1][i]]));
-  }
+  // Check indexes matching with detailed debug output
+  assert(CheckContractionIndicesMatch(pa, pb, axes_set) &&
+         "Contraction index mismatch! See debug output above for details.");
   // Check if idx_a_ is in the outer legs
   auto iter = find(axes_set[0].begin(), axes_set[0].end(), idx_a);
   assert(iter == axes_set[0].cend());

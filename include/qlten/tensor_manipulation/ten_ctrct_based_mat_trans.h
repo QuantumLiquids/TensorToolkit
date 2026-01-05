@@ -28,6 +28,7 @@
 
 #include "qlten/framework/bases/executor.h"
 #include "qlten/qltensor_all.h"
+#include "qlten/tensor_manipulation/ten_ctrct.h"  // CheckContractionIndicesMatch
 
 namespace qlten {
 
@@ -156,11 +157,8 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_h
     saved_axes_set_[1].push_back((b_ctrct_axes_end_ + i) % b_rank);
   }
 #ifndef NDEBUG
-  auto &indexesa = pa_->GetIndexes();
-  auto &indexesb = pb_->GetIndexes();
-  for (size_t i = 0; i < ctrct_axes_size_; ++i) {
-    assert(indexesa[ctrct_axes_set[0][i]] == InverseIndex(indexesb[ctrct_axes_set[1][i]]));
-  }
+  assert(CheckContractionIndicesMatch(pa_, pb_, ctrct_axes_set) &&
+         "Contraction index mismatch! See debug output above for details.");
 #endif
 
   TenCtrctInitResTen(pa_, pb_, saved_axes_set_, pc_);  //note the order of saved_axes_set_
