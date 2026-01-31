@@ -343,6 +343,12 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   /** @brief In-place element-wise square. */
   void ElementWiseSquare(void);
 
+  /** @brief In-place element-wise squared norm (|z|^2 for each element).
+   * For real types this is identical to ElementWiseSquare (x^2).
+   * For complex types this stores the squared magnitude a^2+b^2 (as a real-valued complex).
+   */
+  void ElementWiseSquaredNorm(void);
+
   /** @brief In-place element-wise sign extraction.
    * For real elements: returns -1, 0, or 1 based on sign.
    * For complex elements: returns (±1 or 0, ±1 or 0) based on signs of real and imaginary parts separately.

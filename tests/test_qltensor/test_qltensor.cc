@@ -888,6 +888,7 @@ void RunTestQLTensorElementWiseOperationCase(QLTensorT t, bool real_ten = true) 
   t.ElementWiseInv(1e-13);
   t.ElementWiseSqrt();
   t.ElementWiseSquare();
+  t.ElementWiseSquaredNorm();
   if (real_ten) {
     t.ElementWiseSign();
   }
@@ -1082,6 +1083,76 @@ TEST_F(TestQLTensor, ElementWiseSquare) {
   DQLTensor dten_copy_test(dten_1d_s);
   dten_copy_test.Random(qn0);
   auto result = ElementWiseSquare(dten_copy_test);
+  EXPECT_NE(result.GetActualDataSize(), 0);
+  EXPECT_EQ(result.Rank(), dten_copy_test.Rank());
+  EXPECT_EQ(result.GetShape(), dten_copy_test.GetShape());
+}
+
+TEST_F(TestQLTensor, ElementWiseSquaredNorm) {
+  // Test real scalar tensor: should be identical to ElementWiseSquare
+  dten_scalar.Random(U1QN());
+  auto original_val = dten_scalar.GetElem({});
+  dten_scalar.ElementWiseSquaredNorm();
+  EXPECT_NEAR(dten_scalar.GetElem({}), original_val * original_val, 1e-10);
+
+  // Test real 1D tensor
+  DQLTensor dten_1d_test(dten_1d_s);
+  dten_1d_test.Random(qn0);
+  std::vector<QLTEN_Double> original_vals;
+  for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
+    original_vals.push_back(dten_1d_test.GetElem({i}));
+  }
+  dten_1d_test.ElementWiseSquaredNorm();
+  for (size_t i = 0; i < dten_1d_test.GetShape()[0]; ++i) {
+    EXPECT_NEAR(dten_1d_test.GetElem({i}), original_vals[i] * original_vals[i], 1e-10);
+  }
+
+  // Test real 2D tensor
+  DQLTensor dten_2d_test(dten_2d_s);
+  dten_2d_test.Random(qn0);
+  std::vector<std::vector<QLTEN_Double>> original_vals_2d;
+  for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
+    original_vals_2d.emplace_back();
+    for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
+      original_vals_2d[i].push_back(dten_2d_test.GetElem({i, j}));
+    }
+  }
+  dten_2d_test.ElementWiseSquaredNorm();
+  for (size_t i = 0; i < dten_2d_test.GetShape()[0]; ++i) {
+    for (size_t j = 0; j < dten_2d_test.GetShape()[1]; ++j) {
+      EXPECT_NEAR(dten_2d_test.GetElem({i, j}),
+                  original_vals_2d[i][j] * original_vals_2d[i][j], 1e-10);
+    }
+  }
+
+  // Test complex scalar tensor: should compute |z|^2 = a^2 + b^2
+  zten_scalar.Random(U1QN());
+  auto original_zval = zten_scalar.GetElem({});
+  zten_scalar.ElementWiseSquaredNorm();
+  double expected_norm2 = original_zval.real() * original_zval.real()
+                        + original_zval.imag() * original_zval.imag();
+  EXPECT_NEAR(zten_scalar.GetElem({}).real(), expected_norm2, 1e-10);
+  EXPECT_NEAR(zten_scalar.GetElem({}).imag(), 0.0, 1e-10);
+
+  // Test complex 1D tensor
+  ZQLTensor zten_1d_test(zten_1d_s);
+  zten_1d_test.Random(qn0);
+  std::vector<QLTEN_Complex> original_zvals;
+  for (size_t i = 0; i < zten_1d_test.GetShape()[0]; ++i) {
+    original_zvals.push_back(zten_1d_test.GetElem({i}));
+  }
+  zten_1d_test.ElementWiseSquaredNorm();
+  for (size_t i = 0; i < zten_1d_test.GetShape()[0]; ++i) {
+    double expected = original_zvals[i].real() * original_zvals[i].real()
+                    + original_zvals[i].imag() * original_zvals[i].imag();
+    EXPECT_NEAR(zten_1d_test.GetElem({i}).real(), expected, 1e-10);
+    EXPECT_NEAR(zten_1d_test.GetElem({i}).imag(), 0.0, 1e-10);
+  }
+
+  // Test free function
+  DQLTensor dten_copy_test(dten_1d_s);
+  dten_copy_test.Random(qn0);
+  auto result = ElementWiseSquaredNorm(dten_copy_test);
   EXPECT_NE(result.GetActualDataSize(), 0);
   EXPECT_EQ(result.Rank(), dten_copy_test.Rank());
   EXPECT_EQ(result.GetShape(), dten_copy_test.GetShape());

@@ -625,6 +625,13 @@ QLTensor<ElemT, QNT> ElementWiseSquare(const QLTensor<ElemT, QNT> &tensor) {
   return res;
 }
 
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> ElementWiseSquaredNorm(const QLTensor<ElemT, QNT> &tensor) {
+  QLTensor<ElemT, QNT> res(tensor);
+  res.ElementWiseSquaredNorm();
+  return res;
+}
+
 /**
 Element-wise multiplication of two tensors.
 The two tensors must have exactly the same indices.
@@ -1063,6 +1070,11 @@ void QLTensor<ElemT, QNT>::ElementWiseSqrt(void) {
 template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::ElementWiseSquare(void) {
   pblk_spar_data_ten_->ElementWiseSquare();
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseSquaredNorm(void) {
+  pblk_spar_data_ten_->ElementWiseSquaredNorm();
 }
 
 template<typename ElemT, typename QNT>

@@ -282,6 +282,8 @@ class BlockSparseDataTensor : public Streamable {
 
   void ElementWiseSquare(void);
 
+  void ElementWiseSquaredNorm(void);
+
   void ElementWiseSign(void);
 
   void ElementWiseClipTo(typename RealTypeTrait<ElemT>::type limit);

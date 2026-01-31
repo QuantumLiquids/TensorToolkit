@@ -705,6 +705,18 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSquare(void) {
   }
 }
 
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSquaredNorm(void) {
+  int ompth = hp_numeric::tensor_manipulation_num_threads;
+#pragma omp parallel for default(none) \
+                shared(pactual_raw_data_, actual_raw_data_size_)\
+                num_threads(ompth)\
+                schedule(static)
+  for (size_t i = 0; i < actual_raw_data_size_; i++) {
+    *(pactual_raw_data_ + i) = ElemT(std::norm(*(pactual_raw_data_ + i)));
+  }
+}
+
 /**
 Element-wise multiplication of raw data with another tensor's raw data.
 This function multiplies elements from the current tensor with elements from rhs_data.
@@ -958,6 +970,27 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSquare() {
 
   // Launch kernel
   ElementWiseSquareKernel<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_);
+
+  // Synchronize device
+  cudaDeviceSynchronize();
+}
+
+template<typename ElemT>
+__global__
+inline void ElementWiseSquaredNormKernel(ElemT *data, size_t size) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = ElemT(qlten::norm(data[idx]));
+  }
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSquaredNorm() {
+  const int threadsPerBlock = 256;
+  const int blocks = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
+
+  // Launch kernel
+  ElementWiseSquaredNormKernel<<<blocks, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_);
 
   // Synchronize device
   cudaDeviceSynchronize();

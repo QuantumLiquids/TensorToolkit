@@ -60,3 +60,5 @@ run/
 
 # Doxygen generated files
 *.tag
+/.cache
+CLAUDE.md
