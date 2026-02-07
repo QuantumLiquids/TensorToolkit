@@ -16,6 +16,9 @@
 #include <cmath>        // sqrt
 #include <cstdlib>      // malloc, free, calloc
 #include <cstring>      // memcpy, memset
+#include <limits>       // numeric_limits
+#include <stdexcept>    // runtime_error
+#include <string>       // to_string
 #include <omp.h>
 #include <cassert>     // assert
 
@@ -243,11 +246,30 @@ template<typename ElemT, typename QNT>
 auto BlockSparseDataTensor<ElemT, QNT>::RawDataFermionNorm_(
     const std::vector<RawDataFermionNormTask> &tasks) {
   typename RealTypeTrait<ElemT>::type sum_square = typename RealTypeTrait<ElemT>::type(0.0);
+  typename RealTypeTrait<ElemT>::type abs_sum_square = typename RealTypeTrait<ElemT>::type(0.0);
   for (auto &task : tasks) {
-    sum_square += task.sign * hp_numeric::VectorSumSquares(pactual_raw_data_ + task.data_offset, task.data_size);
+    auto ss = hp_numeric::VectorSumSquares(pactual_raw_data_ + task.data_offset, task.data_size);
+    abs_sum_square += ss;
+    sum_square += task.sign * ss;
   }
-  if (sum_square < 0) {
-    std::cerr << "warning : Norm^2 < 0." << std::endl;
+
+  // For graded (fermionic) tensors, the "norm^2" is an even-minus-odd quantity
+  // and can become negative. Returning sqrt(negative) produces NaN and tends to
+  // hide the root cause, so we throw unless the negativity is explainable as
+  // a tiny floating-point round-off artifact.
+  if (sum_square < typename RealTypeTrait<ElemT>::type(0.0)) {
+    using RealT = typename RealTypeTrait<ElemT>::type;
+    const RealT tol = RealT(128) * std::numeric_limits<RealT>::epsilon() *
+                      std::max(RealT(1.0), abs_sum_square);
+    if (sum_square < -tol) {
+      throw std::runtime_error(
+          "Fermionic graded 2-norm is ill-defined: Norm^2 < 0 ("
+          "sum_square=" + std::to_string(sum_square) +
+          ", abs_sum_square=" + std::to_string(abs_sum_square) + "). "
+          "Use GetQuasi2Norm() for a conventional non-negative magnitude."
+      );
+    }
+    sum_square = RealT(0.0);
   }
   return std::sqrt(sum_square);
 }

@@ -288,6 +288,7 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
    * This definition is consistent with `sqrt(Contract(A, A.Dag()))`.
    * @note For fermionic tensors, prefer `GetQuasi2Norm()` or `QuasiNormalize()` when you
    *       need a conventional non-negative norm.
+   * @throws std::runtime_error if the graded \f$\|A\|_{2,\mathrm{graded}}^2\f$ is negative.
    */
   auto Get2Norm(void) const;
 
@@ -302,8 +303,8 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
    * @brief Normalize tensor by its 2-norm, returning the original norm.
    * @return Norm before normalization.
    * @note The definition of 2-norm of fermionic tensors refer to Get2Norm().
-   *       If the graded norm is ill-defined (negative under the square root), 
-   *       the result may be NaN. In such cases prefer QuasiNormalize().
+   *       If the graded norm is ill-defined (negative under the square root),
+   *       Normalize() throws. In such cases prefer QuasiNormalize().
    */
   auto Normalize(void);
 

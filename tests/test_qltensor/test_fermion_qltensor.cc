@@ -6,6 +6,7 @@
 * Description: QuantumLiquids/tensor project. Unittests for Fermionic QLTensor object.
 */
 
+#include <stdexcept>  // runtime_error
 #include <fstream>    // ifstream, ofstream
 #include "gtest/gtest.h"
 
@@ -878,7 +879,12 @@ void RunTestQLTensorQuasi2NormCase(const QLTensorT &t) {
   // For fermionic tensors, Quasi2Norm should be different from Get2Norm
   // Quasi2Norm always uses RawDataNorm_() regardless of fermionic nature
   auto quasi_norm = t.GetQuasi2Norm();
-  (void)t.Get2Norm();  // Call to ensure it works, but not used in this test
+  // Get2Norm() can be ill-defined for graded norms (Norm^2 < 0). It should
+  // either succeed or throw; both are acceptable here.
+  try {
+    (void)t.Get2Norm();
+  } catch (const std::runtime_error &) {
+  }
   
   // Verify that Quasi2Norm is the square root of sum of element squares
   double expected_norm = 0.0;
@@ -1532,5 +1538,3 @@ TEST_F(TestQLTensor, ElementWiseMultiply) {
                 original_copy_vals1[i] * original_copy_vals2[i], 1e-10);
   }
 }
-
-
