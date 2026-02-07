@@ -19,6 +19,14 @@ if ! command -v doxygen &> /dev/null; then
     exit 1
 fi
 
+# Graphviz is optional, but recommended for diagrams (HAVE_DOT=YES in Doxyfile).
+if ! command -v dot &> /dev/null; then
+    echo "Warning: Graphviz 'dot' not found. Diagrams will be skipped."
+    echo "  macOS: brew install graphviz"
+    echo "  Ubuntu/Debian: sudo apt-get install graphviz"
+    echo "  CentOS/RHEL: sudo yum install graphviz"
+fi
+
 # Create build directory if it doesn't exist
 mkdir -p build
 

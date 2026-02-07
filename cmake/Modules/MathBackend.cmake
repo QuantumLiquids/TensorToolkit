@@ -64,7 +64,7 @@ if (HP_NUMERIC_USE_MKL)
     set(BLAS_INCLUDE_DIRS "$ENV{MKLROOT}/include" CACHE STRING "" FORCE)
 elseif (HP_NUMERIC_USE_AOCL)
     if (NOT DEFINED ENV{AOCL_ROOT} OR "$ENV{AOCL_ROOT}" STREQUAL "")
-        message(FATAL_ERROR "HP_NUMERIC_USE_AOCL is ON but AOCL_ROOT is not defined. Source ~/myenv.sh or export AOCL_ROOT before configuring.")
+        message(FATAL_ERROR "HP_NUMERIC_USE_AOCL is ON but AOCL_ROOT is not defined. Export AOCL_ROOT (or source your AOCL vendor environment script) before configuring.")
     endif ()
 
     add_definitions(-DHP_NUMERIC_BACKEND_AOCL)
@@ -92,4 +92,3 @@ endif ()
 if (BLAS_INCLUDE_DIRS)
     message(STATUS "HP numeric headers: ${BLAS_INCLUDE_DIRS}")
 endif ()
-

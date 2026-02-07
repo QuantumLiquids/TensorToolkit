@@ -87,7 +87,7 @@ if (QLTEN_USE_GPU)
                 PRIVATE GTest::GTest GTest::Main
                 "${LINK_LIBS}"
                 PRIVATE "${LINK_LIB_FLAGS}"
-        ) #remove MPI dependence since GPU code not support MPI upto now
+        ) # GPU tests do not link MPI::MPI_CXX, but MPI package/header discovery is still required by this CMake.
 
         add_test(
                 NAME ${TEST_NAME}

@@ -1,51 +1,40 @@
 # Developer Documentation
 
-Welcome to the TensorToolkit developer documentation. This section is for developers who want to contribute to TensorToolkit or understand its internal architecture.
+This section targets contributors and maintainers. It is organized by document
+**type** and by **module**.
 
-## For Contributors
+## Assumed background
 
-### Getting Started
-- **[Contributing Guidelines](../contributing.html)** - How to contribute to TensorToolkit
-- **[Development Setup](../dev_setup.html)** - Setting up a development environment
-- **[Code Style Guide](../code_style.html)** - C++ coding standards and conventions
+These docs assume familiarity with:
 
-### Architecture & Design
-- **[System Architecture](../architecture.html)** - High-level system design and components
-- **[Data Structures](../data_structures.html)** - Core data structure implementations
-- **[Backend System](../backends.html)** - CPU/GPU backend abstraction layer
-- **[Fermion Design](./fermion_design.md)** - Z2 graded tensor network math and implementation
-- **[Global Random Seed Scope](./random_seed_scope.md)** - Where `SetRandomSeed` applies and how to extend
+- Modern C++ (C++17, templates, and header-only libraries)
+- Basic tensor-network concepts (indices, quantum numbers, and block sparsity):
+  - [docs/user/en/explanation/indices-and-quantum-numbers.md](../user/en/explanation/indices-and-quantum-numbers.md)
+  - [docs/user/en/explanation/symmetry-and-block-sparsity.md](../user/en/explanation/symmetry-and-block-sparsity.md)
+- CMake-based C++ builds and linking against HPC libraries (BLAS/LAPACK, MPI):
+  - [docs/dev/guides/dev-setup.md](guides/dev-setup.md)
+  - [docs/user/en/reference/runtime-environment.md](../user/en/reference/runtime-environment.md)
+- Fermionic/Z2-graded conventions if you touch fermion code paths:
+  - [docs/user/en/explanation/z2-graded-fermions.md](../user/en/explanation/z2-graded-fermions.md)
+  - [docs/dev/design/fermion-design.md](design/fermion-design.md)
 
-### Testing & Quality
-- **[Testing Framework](../testing.html)** - How to run tests and write new ones
-- **[Performance Benchmarks](../benchmarks.html)** - Performance testing and optimization
-- **[Code Coverage](../coverage.html)** - Test coverage reports and metrics
+## By document type
+- Architecture and design: `docs/dev/design/`
+- Guides: `docs/dev/guides/`
+- Testing: `docs/dev/testing/`
+- Practices and standards: `docs/dev/practices/`
+- Module index: `docs/dev/modules/`
+- Reference: `docs/dev/reference/`
 
-## For Library Users
+## By module
 
-### API Reference
-- **[Class Documentation](../api/classes.html)** - Complete class reference
-- **[Function Reference](../api/functions.html)** - Function documentation
-- **[Examples](../examples.html)** - Code examples and use cases
+- [QLTensor core](modules/qltensor.md)
+- [Tensor manipulation](modules/tensor_manipulation.md)
+- [MPI tensor manipulation](modules/mpi_tensor_manipulation.md)
 
-### Advanced Topics
-- **[Memory Management](../memory.html)** - Memory allocation and optimization
-- **[Threading Model](../threading.html)** - Multi-threading and parallel execution
-- **[Error Handling](../errors.html)** - Error codes and exception handling
+## Start here
 
-## Development Tools
-
-- **Build System**: CMake-based build configuration
-- **Testing**: Google Test framework integration
-- **Documentation**: Doxygen for API documentation
-- **CI/CD**: GitHub Actions for automated testing
-
-## Getting Help
-
-- **GitHub Issues**: Report bugs and request features
-- **Discussions**: Ask questions and share ideas
-- **Code Review**: Submit pull requests for review
-
----
-
-*This documentation is maintained by the TensorToolkit development team.*
+- [Architecture overview](design/architecture-overview.md)
+- [Developer setup](guides/dev-setup.md)
+- [Coding standards](practices/coding-standards.md)
+- [Testing strategy](testing/testing-strategy.md)

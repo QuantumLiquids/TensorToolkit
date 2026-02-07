@@ -1,6 +1,6 @@
 # QuantumLiquids/TensorToolkit
 
-TensorToolit is a high-performance tensor basic operation library written in C++.
+TensorToolkit is a high-performance tensor operations library written in C++.
 It serves as the foundation for tensor network algorithms (like Density Matrix Renormalization Group,
 Project Entanglement Pair State)
 and provides essential functionalities such as tensor contraction, transpose, and more.
@@ -9,12 +9,20 @@ ___
 
 ## Functionality
 
-TensorToolit offers the following key features:
+TensorToolkit offers the following key features:
 
 - [x] Abelian Quantum Numbers
 - [x] MPI Parallelization
 - [x] Grassmann Tensor network
 - [x] CUDA Single Card
+
+---
+
+## Documentation
+
+- User docs: `docs/user/en/README.md`
+- Developer docs: `docs/dev/index.md`
+- Doxygen landing page: `docs/mainpage.md`
 
 ## To-Do List
 - [ ] CUDA Multi-Card Support
@@ -22,17 +30,18 @@ TensorToolit offers the following key features:
 ---
 
 ## Dependencies
-TensorToolkit itself is header-only and requires no installation dependencies. To install the CPU code,
-It needs to compile the [HPTT](https://github.com/springer13/hptt.git) for CPU-based tensor transpose operation, 
-while HPTT only requires a basic C++ compiler and CMake. 
+TensorToolkit is primarily header-only (no binary installation step is required to use the headers).
+This repo's CMake project can optionally build/install the bundled
+[HPTT](https://github.com/springer13/hptt.git) library for fast CPU tensor transpose.
 
-To build test cases or develop programs like *TRG*, *DMRG* or *TDVP* based on TensorToolkit, the following are required:
+Many common workflows (tests, decompositions, contractions, and MPI/GPU variants) require external
+dependencies:
 
 - **C++ Compiler:** C++17 or later
 - **Build System:** CMake 3.27 or newer
-- **Math Libraries:** BLAS and LAPACK
-- **Parallelization:** MPI
-- **GPU Acceleration (optional):** CUDA compiler, CUDA toolkit (cuBLAS, cuSolver, cuTensor2)
+- **Parallelization:** MPI (headers required; tests link `MPI::MPI_CXX`)
+- **Math Libraries:** BLAS and LAPACK (required for tensor manipulation and tests)
+- **GPU Acceleration (optional):** CUDA compiler + CUDA toolkit (cuBLAS, cuSOLVER) + cuTENSOR
 - **Testing Framework (optional):** GoogleTest
 
 ---
@@ -62,24 +71,39 @@ This installs TensorToolkit headers and HPTT into the given prefix. If you prefe
 
 To build and run the unit tests:
 
-1. From the `build` directory:
+1. CPU test build (from `build` directory):
     ```bash
-    cmake .. -DQLTEN_BUILD_UNITTEST=ON \
+    cmake .. \
+             -DQLTEN_BUILD_UNITTEST=ON \
              -DGTest_DIR=/path/to/googletest \
-             -DQLTEN_USE_GPU=ON/OFF \
-             -DCUTENSOR_ROOT=/path/to/cutensor/if/using/cuda
+             -DHP_NUMERIC_USE_OPENBLAS=ON \
+             -DQLTEN_USE_GPU=OFF
     make -j16
     ```
+
+2. GPU test build (from `build` directory):
+    ```bash
+    cmake .. \
+             -DQLTEN_BUILD_UNITTEST=ON \
+             -DGTest_DIR=/path/to/googletest \
+             -DHP_NUMERIC_USE_OPENBLAS=ON \
+             -DQLTEN_USE_GPU=ON \
+             -DCUTENSOR_ROOT=/path/to/cutensor
+    make -j16
+    ```
+    Notes:
+    - Select exactly one BLAS backend: `-DHP_NUMERIC_USE_OPENBLAS=ON` (or `..._MKL` / `..._AOCL`).
+    - CMake test configuration requires MPI to be discoverable (`FindMPI`) for both CPU/GPU configurations.
     Tip: Use `${HOME}` instead of `~` when defining CMAKE path variables.
 
-2. Run the tests:
+3. Run the tests:
     ```bash
     ctest
     ```
 
 ### 4) Build documentation
 
-Install Doxygen and Graphviz (macOS):
+Install Doxygen (required) and Graphviz (optional, for diagrams) (macOS):
 
 ```bash
 brew install doxygen graphviz
@@ -93,12 +117,13 @@ doxygen Doxyfile
 open build/html/index.html
 ```
 
-The high-level user guides are under `docs/tutorials/` and appear in the generated HTML as "Tutorials".
+User-facing docs live under `docs/user/en/` (tutorials, how-to, explanation, reference).
+Developer docs live under `docs/dev/`, and the Doxygen landing page is `docs/mainpage.md`.
 
 The documentation includes:
-- **User Tutorials**: Progressive learning path from installation to advanced features
-- **Developer Guide**: Architecture, design, and contribution guidelines  
-- **API Reference**: Complete class and function documentation
+- **User docs**: tutorials, how-to guides, explanations, and reference pages
+- **Developer docs**: architecture, design, setup, testing, and practices
+- **API reference**: complete class and function documentation in Doxygen
 
 All documentation is generated in `docs/build/html/` and can be viewed by opening `index.html`.
 
@@ -113,22 +138,22 @@ you can reach out to Hao-Xin via email at wanghaoxin1996@gmail.com.
 ---
 ## Acknowledgments
 
-TensorToolit is built upon the foundation laid by the [GraceQ/tensor](https://tensor.gracequantum.org) project.
+TensorToolkit is built upon the foundation laid by the [GraceQ/tensor](https://tensor.gracequantum.org) project.
 While initially inspired by GraceQ/tensor,
-TensorToolit expands upon its capabilities by adding additional basic tensor operations, improving performance, and most
+TensorToolkit expands upon its capabilities by adding additional basic tensor operations, improving performance, and most
 importantly, introducing support for MPI parallelization.
 We would like to express our gratitude to the following individuals for their contributions and guidance:
 
 - Rong-Yang Sun, the author of [GraceQ/tensor](https://tensor.gracequantum.org), for creating the initial framework that
-  served as the basis for TensorToolit.
+  served as the basis for TensorToolkit.
 - Yi-Fan Jiang, providing me with extensive help and guidance in writing parallel DMRG
 - Hong Yao, my PhD advisor. His encouragement and continuous support
-  of computational resources played crucial roles in the implementation of parallel DMRG in TensorToolit.
+  of computational resources played crucial roles in the implementation of parallel DMRG in TensorToolkit.
 - Zhen-Cheng Gu, my postdoc advisor, one of the pioneers in the field of tensor network.
 
-Their expertise and support have been invaluable in the development of TensorToolit.
+Their expertise and support have been invaluable in the development of TensorToolkit.
 
 ---
 ## License
 
-TensorToolit is released under the LGPL3 License. Please see the LICENSE file for more details.
+TensorToolkit is released under the LGPL3 License. Please see the LICENSE file for more details.
