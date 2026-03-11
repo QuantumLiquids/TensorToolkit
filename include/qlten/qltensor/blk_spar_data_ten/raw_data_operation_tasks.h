@@ -348,5 +348,37 @@ void DeleteDataBlkMatQrResMap(
     qr_res.r = nullptr;
   }
 }
+template<typename ElemT>
+struct DataBlkMatLqRes {
+  size_t m = 0;
+  size_t n = 0;
+  size_t k = 0;
+  ElemT *l = nullptr;
+  ElemT *q = nullptr;
+
+  DataBlkMatLqRes(void) = default;
+
+  DataBlkMatLqRes(
+      const size_t m,
+      const size_t n,
+      const size_t k,
+      ElemT *l,
+      ElemT *q
+  ) : m(m), n(n), k(k), l(l), q(q) {}
+};
+
+template<typename ElemT>
+void DeleteDataBlkMatLqResMap(
+    std::map<size_t, DataBlkMatLqRes<ElemT>>
+    &idx_lq_res_map
+) {
+  for (auto &idx_lq_res: idx_lq_res_map) {
+    auto lq_res = idx_lq_res.second;
+    qlten::QLFree(lq_res.l);
+    lq_res.l = nullptr;
+    qlten::QLFree(lq_res.q);
+    lq_res.q = nullptr;
+  }
+}
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATION_TASKS_H */

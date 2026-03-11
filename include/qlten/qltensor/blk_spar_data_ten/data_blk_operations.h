@@ -1034,6 +1034,63 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopyQRRdata(
 }
 
 /**
+LQ decomposition.
+*/
+template<typename ElemT, typename QNT>
+std::map<size_t, DataBlkMatLqRes<ElemT>>
+BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompLQ(
+    const IdxDataBlkMatMap<QNT> &idx_data_blk_mat_map
+) const {
+  std::map<size_t, DataBlkMatLqRes<ElemT>> idx_lq_res_map;
+  for (auto &idx_data_blk_mat : idx_data_blk_mat_map) {
+    auto idx = idx_data_blk_mat.first;
+    auto data_blk_mat = idx_data_blk_mat.second;
+    ElemT *mat = RawDataGenDenseDataBlkMat_(data_blk_mat);
+    ElemT *l = nullptr;
+    ElemT *q = nullptr;
+    size_t m = data_blk_mat.rows;
+    size_t n = data_blk_mat.cols;
+    size_t k = m > n ? n : m;
+    hp_numeric::MatLQ(mat, m, n, l, q);
+    qlten::QLFree(mat);
+    idx_lq_res_map[idx] = DataBlkMatLqRes<ElemT>(m, n, k, l, q);
+  }
+  return idx_lq_res_map;
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopyLQLdata(
+    const CoorsT &blk_coors, const size_t mat_m, const size_t mat_n,
+    const size_t row_offset,
+    const ElemT *l, const size_t l_m, const size_t l_n
+) {
+  assert(mat_n == l_n);
+  auto blk_idx = BlkCoorsToBlkIdx(blk_coors);
+  auto &data_blk = blk_idx_data_blk_map_.at(blk_idx);
+  assert(data_blk.size == (mat_m * mat_n));
+  auto data = pactual_raw_data_ + data_blk.data_offset;
+  qlten::QLMemcpy(data, l + (row_offset * l_n), data_blk.size * sizeof(ElemT));
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopyLQQdata(
+    const CoorsT &blk_coors, const size_t mat_m, const size_t mat_n,
+    const size_t col_offset,
+    const ElemT *q, const size_t q_m, const size_t q_n
+) {
+  assert(mat_m == q_m);
+  auto blk_idx = BlkCoorsToBlkIdx(blk_coors);
+  auto data = pactual_raw_data_ + blk_idx_data_blk_map_.at(blk_idx).data_offset;
+  for (size_t i = 0; i < mat_m; ++i) {
+    qlten::QLMemcpy(
+        data + (i * mat_n),
+        q + (i * q_n + col_offset),
+        mat_n * sizeof(ElemT)
+    );
+  }
+}
+
+/**
 Clear data blocks and reset raw_data_size_.
 */
 template<typename ElemT, typename QNT>

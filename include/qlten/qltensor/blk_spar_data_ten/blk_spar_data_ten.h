@@ -183,6 +183,22 @@ class BlockSparseDataTensor : public Streamable {
       const ElemT *, const size_t, const size_t
   );
 
+  std::map<size_t, DataBlkMatLqRes<ElemT>> DataBlkDecompLQ(
+      const IdxDataBlkMatMap<QNT> &
+  ) const;
+
+  void DataBlkCopyLQLdata(
+      const CoorsT &, const size_t, const size_t,
+      const size_t,
+      const ElemT *, const size_t, const size_t
+  );
+
+  void DataBlkCopyLQQdata(
+      const CoorsT &, const size_t, const size_t,
+      const size_t,
+      const ElemT *, const size_t, const size_t
+  );
+
   // Global level operations
   void Clear(void);
 

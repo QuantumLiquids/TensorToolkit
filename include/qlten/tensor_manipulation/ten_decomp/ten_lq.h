@@ -11,7 +11,7 @@
 @brief LQ decomposition for a symmetric QLTensor.
 
 LQ decomposition factorizes a tensor T into L * Q:
-  T[i0, ..., i_{n-k-1}, i_{n-k}, ..., i_{n-1}] 
+  T[i0, ..., i_{n-k-1}, i_{n-k}, ..., i_{n-1}]
     = L[i0, ..., i_{n-k-1}, m(OUT)] * Q[m(IN), i_{n-k}, ..., i_{n-1}]
 
 where:
@@ -19,139 +19,131 @@ where:
 - Q is right-orthonormal (rows form an orthonormal set): Q * Q† = I
 - L's last index has direction OUT, Q's first index has direction IN
 - These two middle indices are InverseIndex of each other
-
-This is complementary to QR decomposition which gives left-orthonormal Q:
-- QR: T = Q * R, where Q is left-orthonormal (columns orthonormal): Q† * Q = I  
-- LQ: T = L * Q, where Q is right-orthonormal (rows orthonormal): Q * Q† = I
-
-Implementation uses the mathematical relationship:
-  If T† = Q' * R' (QR decomposition), then T = R'† * Q'† = L * Q
 */
 #ifndef QLTEN_TENSOR_MANIPULATION_TEN_DECOMP_TEN_LQ_H
 #define QLTEN_TENSOR_MANIPULATION_TEN_DECOMP_TEN_LQ_H
 
-#include "qlten/qltensor_all.h"
-#include "qlten/tensor_manipulation/basic_operations.h"    // Dag
-#include "qlten/tensor_manipulation/ten_decomp/ten_qr.h"   // QR
 
-#include <vector>
-#include <numeric>    // iota
+#include "qlten/framework/bases/executor.h"     // Executor
+#include "qlten/qltensor_all.h"
+#include "qlten/tensor_manipulation/ten_decomp/ten_decomp_basic.h"    // GenIdxTenDecompDataBlkMats
+#include "qlten/tensor_manipulation/ten_decomp/ten_qr.h"    // GenMidQNSects, QRDataBlkInfo
+
+#include <algorithm>    // min
 
 #ifdef Release
   #define NDEBUG
 #endif
-#include <cassert>
+#include <cassert>     // assert
 
 
 namespace qlten {
 
 
-/**
-Generate transpose axes to move the last rdims indices to the front.
+using LQDataBlkInfo = QRDataBlkInfo;
+using LQDataBlkInfoVec = std::vector<LQDataBlkInfo>;
+using LQDataBlkInfoVecPair = std::pair<LQDataBlkInfoVec, LQDataBlkInfoVec>;
 
-@param rank Total number of indices.
-@param rdims Number of right indices to move to front.
-@return Transpose axes vector.
+
+/**
+Tensor LQ executor.
 */
-inline std::vector<size_t> GenLQPreTransposeAxes(
-    const size_t rank,
-    const size_t rdims
-) {
-  std::vector<size_t> axes(rank);
-  size_t ldims = rank - rdims;
-  // Put right indices first: [ldims, ldims+1, ..., rank-1, 0, 1, ..., ldims-1]
-  for (size_t i = 0; i < rdims; ++i) {
-    axes[i] = ldims + i;
-  }
-  for (size_t i = 0; i < ldims; ++i) {
-    axes[rdims + i] = i;
-  }
-  return axes;
+template <typename TenElemT, typename QNT>
+class TensorLQExecutor : public Executor {
+public:
+  TensorLQExecutor(
+      const QLTensor<TenElemT, QNT> *,
+      const size_t,
+      const QNT &,
+      QLTensor<TenElemT, QNT> *,
+      QLTensor<TenElemT, QNT> *
+  );
+
+  ~TensorLQExecutor(void) = default;
+
+  void Execute(void) override;
+
+private:
+  const QLTensor<TenElemT, QNT> *pt_;
+  const size_t ldims_;
+  const QNT &lqndiv_;
+  QLTensor<TenElemT, QNT> *pl_;
+  QLTensor<TenElemT, QNT> *pq_;
+  IdxDataBlkMatMap<QNT> idx_ten_decomp_data_blk_mat_map_;
+  void ConstructLQResTens_(const std::map<size_t, DataBlkMatLqRes<TenElemT>> &);
+  LQDataBlkInfoVecPair CreatLQResTens_(void);
+  void FillLQResTens_(
+      const std::map<size_t, DataBlkMatLqRes<TenElemT>> &,
+      const LQDataBlkInfoVecPair &
+  );
+};
+
+
+/**
+Initialize a tensor LQ executor.
+
+@tparam TenElemT The element type of the tensors.
+@tparam QNT The quantum number type of the tensors.
+
+@param pt A pointer to to-be LQ decomposed tensor \f$ T \f$.
+@param ldims Number of indices on the left hand side of the decomposition.
+@param lqndiv Quantum number divergence of the result \f$ L \f$ tensor.
+@param pl A pointer to result \f$ L \f$ tensor.
+@param pq A pointer to result \f$ Q \f$ tensor.
+*/
+template <typename TenElemT, typename QNT>
+TensorLQExecutor<TenElemT, QNT>::TensorLQExecutor(
+    const QLTensor<TenElemT, QNT> *pt,
+    const size_t ldims,
+    const QNT &lqndiv,
+    QLTensor<TenElemT, QNT> *pl,
+    QLTensor<TenElemT, QNT> *pq
+) : pt_(pt), ldims_(ldims), lqndiv_(lqndiv), pl_(pl), pq_(pq) {
+  assert(pt_->Rank() >= 2);
+  assert(ldims_ < pt_->Rank());
+  assert(pl_->IsDefault());
+  assert(pq_->IsDefault());
+
+  idx_ten_decomp_data_blk_mat_map_ = GenIdxTenDecompDataBlkMats(
+                                         *pt_,
+                                         ldims_,
+                                         lqndiv_
+                                     );
+
+  SetStatus(ExecutorStatus::INITED);
 }
 
 
 /**
-Generate transpose axes to restore Q from QR result.
-Q' has shape [right_indices..., m], need to get [m, right_indices...]
-
-@param rdims Number of right indices (excluding m).
-@return Transpose axes vector.
+Execute tensor LQ decomposition calculation.
 */
-inline std::vector<size_t> GenLQQTransposeAxes(const size_t rdims) {
-  std::vector<size_t> axes(rdims + 1);
-  // Move last index (m) to first position
-  axes[0] = rdims;
-  for (size_t i = 0; i < rdims; ++i) {
-    axes[i + 1] = i;
-  }
-  return axes;
-}
+template <typename TenElemT, typename QNT>
+void TensorLQExecutor<TenElemT, QNT>::Execute(void) {
+  SetStatus(ExecutorStatus::EXEING);
 
+  auto idx_raw_data_lq_res = pt_->GetBlkSparDataTen().DataBlkDecompLQ(
+                                 idx_ten_decomp_data_blk_mat_map_
+                             );
+  ConstructLQResTens_(idx_raw_data_lq_res);
+  DeleteDataBlkMatLqResMap(idx_raw_data_lq_res);
 
-/**
-Generate transpose axes to restore L from QR result.
-L' has shape [m, left_indices...], need to get [left_indices..., m]
-
-@param ldims Number of left indices (excluding m).
-@return Transpose axes vector.
-*/
-inline std::vector<size_t> GenLQLTransposeAxes(const size_t ldims) {
-  std::vector<size_t> axes(ldims + 1);
-  // Move first index (m) to last position
-  for (size_t i = 0; i < ldims; ++i) {
-    axes[i] = i + 1;
-  }
-  axes[ldims] = 0;
-  return axes;
+  SetStatus(ExecutorStatus::FINISH);
 }
 
 
 /**
 LQ decomposition for a QLTensor.
 
-Decomposes tensor T into L * Q where Q is right-orthonormal:
-  T[i0, ..., i_{n-k-1}, i_{n-k}, ..., i_{n-1}]
-    = L[i0, ..., i_{n-k-1}, m(OUT)] * Q[m(IN), i_{n-k}, ..., i_{n-1}]
-
 @tparam TenElemT The element type of the tensors.
 @tparam QNT The quantum number type of the tensors.
 
-@param pt A pointer to the to-be LQ decomposed tensor \f$ T \f$. The rank of 
+@param pt A pointer to the to-be LQ decomposed tensor \f$ T \f$. The rank of
        \f$ T \f$ should be larger than 1.
-@param rdims Number of indices on the right hand side that Q retains. 
+@param rdims Number of indices on the right hand side that Q retains.
        Must satisfy 0 < rdims < pt->Rank().
 @param rqndiv Quantum number divergence of the result \f$ Q \f$ tensor.
 @param pl A pointer to result \f$ L \f$ tensor (lower triangular factor).
 @param pq A pointer to result \f$ Q \f$ tensor (right-orthonormal factor).
-
-@note The decomposition satisfies:
-  - Contract(pl, pq, {{ldims}, {0}}) ≈ T (up to numerical precision)
-  - Contract(pq, Dag(pq), {right_axes, right_axes}) ≈ Identity
-  - L's last index is OUT, Q's first index is IN (they are InverseIndex)
-  - Div(L) + Div(Q) = Div(T), and Div(Q) = rqndiv
-
-@par Implementation
-Uses the mathematical relationship between LQ and QR:
-  1. Transpose T to move right indices to front
-  2. Compute Dag (invert directions, conjugate elements)  
-  3. Apply QR decomposition
-  4. Dag both results to restore original structure
-  5. Transpose to final index order
-
-@par Example
-@code
-using qlten::special_qn::U1QN;
-QLTensor<QLTEN_Double, U1QN> T(...);  // 3-index tensor [i, j, k]
-QLTensor<QLTEN_Double, U1QN> L, Q;
-
-// Decompose T = L * Q where Q has 1 right index
-LQ(&T, 1, U1QN(0), &L, &Q);
-// Result: L[i, j, m], Q[m, k]
-
-// Verify: L * Q ≈ T
-QLTensor<QLTEN_Double, U1QN> T_restored;
-Contract(&L, &Q, {{2}, {0}}, &T_restored);
-@endcode
 */
 template <typename TenElemT, typename QNT>
 void LQ(
@@ -166,47 +158,125 @@ void LQ(
   assert(pl->IsDefault());
   assert(pq->IsDefault());
 
-  const size_t rank = pt->Rank();
-  const size_t ldims = rank - rdims;
+  const size_t ldims = pt->Rank() - rdims;
+  QNT lqndiv = Div(*pt) - rqndiv;
 
-  // Step 1: Transpose T to move right rdims indices to front
-  // T[i0, ..., i_{ldims-1}, i_{ldims}, ..., i_{n-1}]
-  //   -> T'[i_{ldims}, ..., i_{n-1}, i0, ..., i_{ldims-1}]
-  auto pre_transpose_axes = GenLQPreTransposeAxes(rank, rdims);
-  QLTensor<TenElemT, QNT> t_transposed(*pt);
-  t_transposed.Transpose(pre_transpose_axes);
-
-  // Step 2: Compute Dag of transposed tensor
-  // This inverts all index directions and conjugates elements
-  auto t_dag = Dag(t_transposed);
-
-  // Step 3: QR decomposition
-  // T†[right†, left†] = Q'[right†, m(OUT)] * R'[m(IN), left†]
-  // 
-  // The qndiv for QR: since Q_final = Dag(Q'), we have Div(Q) = -Div(Q')
-  // We want Div(Q) = rqndiv, so Div(Q') = -rqndiv
-  QLTensor<TenElemT, QNT> q_prime, r_prime;
-  QNT lqndiv_for_qr = -rqndiv;
-  QR(&t_dag, rdims, lqndiv_for_qr, &q_prime, &r_prime);
-
-  // Step 4: Dag both results to restore original index directions
-  // Q'' = Dag(Q') has [right_indices, m(IN)]
-  // L'' = Dag(R') has [m(OUT), left_indices]
-  auto q_dag = Dag(q_prime);
-  auto l_dag = Dag(r_prime);
-
-  // Step 5: Transpose Q to [m(IN), right_indices]
-  auto q_transpose_axes = GenLQQTransposeAxes(rdims);
-  q_dag.Transpose(q_transpose_axes);
-  *pq = std::move(q_dag);
-
-  // Step 6: Transpose L to [left_indices, m(OUT)]
-  auto l_transpose_axes = GenLQLTransposeAxes(ldims);
-  l_dag.Transpose(l_transpose_axes);
-  *pl = std::move(l_dag);
+  TensorLQExecutor<TenElemT, QNT> executor(pt, ldims, lqndiv, pl, pq);
+  executor.Execute();
 }
 
 
+/**
+Construct LQ result tensors.
+*/
+template <typename TenElemT, typename QNT>
+void TensorLQExecutor<TenElemT, QNT>::ConstructLQResTens_(
+    const std::map<size_t, DataBlkMatLqRes<TenElemT>> &idx_raw_data_lq_res
+) {
+  auto l_q_data_blks_info = CreatLQResTens_();
+  FillLQResTens_(idx_raw_data_lq_res, l_q_data_blks_info);
+}
+
+
+template <typename TenElemT, typename QNT>
+LQDataBlkInfoVecPair TensorLQExecutor<TenElemT, QNT>::CreatLQResTens_(void) {
+  // Initialize l, q tensors
+  auto mid_qnscts = GenMidQNSects(idx_ten_decomp_data_blk_mat_map_);
+  auto mid_index_out = Index<QNT>(mid_qnscts, TenIndexDirType::OUT);
+  auto mid_index_in = InverseIndex(mid_index_out);
+  auto t_indexes = pt_->GetIndexes();
+
+  // L gets [left_indices..., mid_index_out]
+  IndexVec<QNT> l_indexes(t_indexes.begin(), t_indexes.begin() + ldims_);
+  l_indexes.push_back(mid_index_out);
+  (*pl_) = QLTensor<TenElemT, QNT>(std::move(l_indexes));
+
+  // Q gets [mid_index_in, right_indices...]
+  IndexVec<QNT> q_indexes{mid_index_in};
+  q_indexes.insert(
+      q_indexes.end(),
+      t_indexes.begin() + ldims_, t_indexes.end()
+  );
+  (*pq_) = QLTensor<TenElemT, QNT>(std::move(q_indexes));
+
+  // Insert empty data blocks
+  LQDataBlkInfoVec l_data_blks_info, q_data_blks_info;
+  size_t mid_blk_coor = 0;
+  for (
+      auto &[data_blk_mat_idx, data_blk_mat] : idx_ten_decomp_data_blk_mat_map_
+  ) {
+    auto k = std::min(data_blk_mat.rows, data_blk_mat.cols);
+
+    // L blocks: [left_block_coors..., mid_blk_coor], shape (row_dim, k)
+    for (auto &row_sct : data_blk_mat.row_scts) {
+      CoorsT l_data_blk_coors(std::get<0>(row_sct));
+      l_data_blk_coors.push_back(mid_blk_coor);
+      pl_->GetBlkSparDataTen().DataBlkInsert(l_data_blk_coors, false);
+      l_data_blks_info.push_back(
+          LQDataBlkInfo(
+              l_data_blk_coors,
+              data_blk_mat_idx, std::get<1>(row_sct),
+              std::get<2>(row_sct), k
+          )
+      );
+    }
+
+    // Q blocks: [mid_blk_coor, right_block_coors...], shape (k, col_dim)
+    for (auto &col_sct : data_blk_mat.col_scts) {
+      CoorsT q_data_blk_coors{mid_blk_coor};
+      auto rpart_blk_coors = std::get<0>(col_sct);
+      q_data_blk_coors.insert(
+          q_data_blk_coors.end(),
+          rpart_blk_coors.begin(), rpart_blk_coors.end()
+      );
+      pq_->GetBlkSparDataTen().DataBlkInsert(q_data_blk_coors, false);
+      q_data_blks_info.push_back(
+          LQDataBlkInfo(
+              q_data_blk_coors,
+              data_blk_mat_idx, std::get<1>(col_sct),
+              k, std::get<2>(col_sct)
+          )
+      );
+    }
+
+    mid_blk_coor++;
+  }
+  return std::make_pair(l_data_blks_info, q_data_blks_info);
+}
+
+
+template <typename TenElemT, typename QNT>
+void TensorLQExecutor<TenElemT, QNT>::FillLQResTens_(
+    const std::map<size_t, DataBlkMatLqRes<TenElemT>> &idx_lq_res_map,
+    const LQDataBlkInfoVecPair &l_q_data_blks_info
+) {
+  // Fill L tensor (left factor, row offset pattern like QR's Q)
+  pl_->GetBlkSparDataTen().Allocate();
+  auto l_data_blks_info = l_q_data_blks_info.first;
+  for (auto &l_data_blk_info : l_data_blks_info) {
+    auto lq_res = idx_lq_res_map.at(l_data_blk_info.data_blk_mat_idx);
+    pl_->GetBlkSparDataTen().DataBlkCopyLQLdata(
+        l_data_blk_info.blk_coors,
+        l_data_blk_info.m,
+        l_data_blk_info.n,
+        l_data_blk_info.offset,
+        lq_res.l, lq_res.m, lq_res.k
+    );
+  }
+
+  // Fill Q tensor (right factor, col offset pattern like QR's R)
+  pq_->GetBlkSparDataTen().Allocate();
+  auto q_data_blks_info = l_q_data_blks_info.second;
+  for (auto &q_data_blk_info : q_data_blks_info) {
+    auto lq_res = idx_lq_res_map.at(q_data_blk_info.data_blk_mat_idx);
+    pq_->GetBlkSparDataTen().DataBlkCopyLQQdata(
+        q_data_blk_info.blk_coors,
+        q_data_blk_info.m,
+        q_data_blk_info.n,
+        q_data_blk_info.offset,
+        lq_res.q, lq_res.k, lq_res.n
+    );
+  }
+}
 } /* qlten */
 #endif /* ifndef QLTEN_TENSOR_MANIPULATION_TEN_DECOMP_TEN_LQ_H */
-

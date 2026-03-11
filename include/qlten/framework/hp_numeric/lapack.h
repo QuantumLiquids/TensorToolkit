@@ -487,6 +487,142 @@ inline void MatQR(
   // roughly estimate for complex number
 #endif
 }
+// LQ decomposition overloads
+
+inline void MatLQ(
+    QLTEN_Double *mat,
+    const size_t m, const size_t n,
+    QLTEN_Double *&l,
+    QLTEN_Double *&q
+) {
+  auto k = std::min(m, n);
+  size_t elem_type_size = sizeof(QLTEN_Double);
+  auto tau = (QLTEN_Double *) malloc(k * elem_type_size);
+  LAPACKE_dgelqf(LAPACK_ROW_MAJOR, m, n, mat, n, tau);
+
+  // Extract L matrix (m × k, lower triangular)
+  l = (QLTEN_Double *) malloc((m * k) * elem_type_size);
+  for (size_t i = 0; i < m; ++i) {
+    auto copy_len = std::min(i + 1, k);
+    memcpy(l + i * k, mat + i * n, copy_len * elem_type_size);
+    if (copy_len < k) {
+      memset(l + i * k + copy_len, 0, (k - copy_len) * elem_type_size);
+    }
+  }
+
+  // Generate Q matrix (k × n)
+  LAPACKE_dorglq(LAPACK_ROW_MAJOR, k, n, k, mat, n, tau);
+  free(tau);
+  q = (QLTEN_Double *) malloc((k * n) * elem_type_size);
+  memcpy(q, mat, (k * n) * elem_type_size);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 2 * m * n * n - 2 * n * n * n / 3;
+#endif
+}
+
+inline void MatLQ(
+    QLTEN_Complex *mat,
+    const size_t m, const size_t n,
+    QLTEN_Complex *&l,
+    QLTEN_Complex *&q
+) {
+  auto k = std::min(m, n);
+  size_t elem_type_size = sizeof(QLTEN_Complex);
+  auto tau = (QLTEN_Complex *) malloc(k * elem_type_size);
+
+  LAPACKE_zgelqf(LAPACK_ROW_MAJOR, m, n,
+                 reinterpret_cast<lapack_complex_double *>(mat),
+                 n, reinterpret_cast<lapack_complex_double *>(tau));
+
+  // Extract L matrix (m × k, lower triangular)
+  l = (QLTEN_Complex *) malloc((m * k) * elem_type_size);
+  for (size_t i = 0; i < m; ++i) {
+    auto copy_len = std::min(i + 1, k);
+    memcpy(l + i * k, mat + i * n, copy_len * elem_type_size);
+    if (copy_len < k) {
+      memset(l + i * k + copy_len, 0, (k - copy_len) * elem_type_size);
+    }
+  }
+
+  // Generate Q matrix (k × n)
+  LAPACKE_zunglq(LAPACK_ROW_MAJOR, k, n, k,
+                 reinterpret_cast<lapack_complex_double *>(mat),
+                 n, reinterpret_cast<lapack_complex_double *>(tau));
+  free(tau);
+  q = (QLTEN_Complex *) malloc((k * n) * elem_type_size);
+  memcpy(q, mat, (k * n) * elem_type_size);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 8 * m * n * n - 8 * n * n * n / 3;
+#endif
+}
+
+inline void MatLQ(
+    QLTEN_Float *mat,
+    const size_t m, const size_t n,
+    QLTEN_Float *&l,
+    QLTEN_Float *&q
+) {
+  auto k = std::min(m, n);
+  size_t elem_type_size = sizeof(QLTEN_Float);
+  auto tau = (QLTEN_Float *) malloc(k * elem_type_size);
+  LAPACKE_sgelqf(LAPACK_ROW_MAJOR, m, n, mat, n, tau);
+
+  // Extract L matrix (m × k, lower triangular)
+  l = (QLTEN_Float *) malloc((m * k) * elem_type_size);
+  for (size_t i = 0; i < m; ++i) {
+    auto copy_len = std::min(i + 1, k);
+    memcpy(l + i * k, mat + i * n, copy_len * elem_type_size);
+    if (copy_len < k) {
+      memset(l + i * k + copy_len, 0, (k - copy_len) * elem_type_size);
+    }
+  }
+
+  // Generate Q matrix (k × n)
+  LAPACKE_sorglq(LAPACK_ROW_MAJOR, k, n, k, mat, n, tau);
+  free(tau);
+  q = (QLTEN_Float *) malloc((k * n) * elem_type_size);
+  memcpy(q, mat, (k * n) * elem_type_size);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 2 * m * n * n - 2 * n * n * n / 3;
+#endif
+}
+
+inline void MatLQ(
+    QLTEN_ComplexFloat *mat,
+    const size_t m, const size_t n,
+    QLTEN_ComplexFloat *&l,
+    QLTEN_ComplexFloat *&q
+) {
+  auto k = std::min(m, n);
+  size_t elem_type_size = sizeof(QLTEN_ComplexFloat);
+  auto tau = (QLTEN_ComplexFloat *) malloc(k * elem_type_size);
+
+  LAPACKE_cgelqf(LAPACK_ROW_MAJOR, m, n,
+                 reinterpret_cast<lapack_complex_float *>(mat),
+                 n, reinterpret_cast<lapack_complex_float *>(tau));
+
+  // Extract L matrix (m × k, lower triangular)
+  l = (QLTEN_ComplexFloat *) malloc((m * k) * elem_type_size);
+  for (size_t i = 0; i < m; ++i) {
+    auto copy_len = std::min(i + 1, k);
+    memcpy(l + i * k, mat + i * n, copy_len * elem_type_size);
+    if (copy_len < k) {
+      memset(l + i * k + copy_len, 0, (k - copy_len) * elem_type_size);
+    }
+  }
+
+  // Generate Q matrix (k × n)
+  LAPACKE_cunglq(LAPACK_ROW_MAJOR, k, n, k,
+                 reinterpret_cast<lapack_complex_float *>(mat),
+                 n, reinterpret_cast<lapack_complex_float *>(tau));
+  free(tau);
+  q = (QLTEN_ComplexFloat *) malloc((k * n) * elem_type_size);
+  memcpy(q, mat, (k * n) * elem_type_size);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 8 * m * n * n - 8 * n * n * n / 3;
+#endif
+}
+
 #else // define USE_GPU
 
 #ifndef  NDEBUG
@@ -1769,6 +1905,245 @@ inline void MatQR(
               reinterpret_cast<cuDoubleComplex *>(q), k);
 
   // Cleanup
+  cudaFree(d_A);
+  cudaFree(d_tau);
+  cudaFree(workspace);
+  cudaFree(devInfo);
+}
+
+// GPU LQ decomposition overloads
+// Strategy: row-major A(m×n) = column-major A^T(n×m).
+// Do column-major QR on A^T: A^T = Q'(n×k)*R'(k×m)
+// Then A = R'^T(m×k) * Q'^T(k×n) = L * Q
+// This avoids needing cusolverDnDorglq which cuSOLVER does not provide.
+
+inline void MatLQ(
+    QLTEN_Double *mat,
+    const size_t m, const size_t n,
+    QLTEN_Double *&l,
+    QLTEN_Double *&q
+) {
+  cusolverDnHandle_t handle = CusolverHandleManager::GetHandle();
+  auto cublas_handle = CublasHandleManager::GetHandle();
+  auto k = std::min(m, n);
+  const QLTEN_Double alpha = 1.0, beta = 0.0;
+
+  // Copy mat to d_A. Row-major A(m×n) = column-major A^T(n×m) with lda=n
+  QLTEN_Double *d_A;
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_A, sizeof(QLTEN_Double) * m * n));
+  HANDLE_CUDA_ERROR(cudaMemcpy(d_A, mat, sizeof(QLTEN_Double) * m * n, cudaMemcpyDeviceToDevice));
+
+  // QR factorization of A^T(n×m) in column-major with lda=n
+  QLTEN_Double *d_tau;
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_tau, sizeof(QLTEN_Double) * k));
+
+  int workspace_size_geqrf(0), workspace_size_orgqr(0);
+  HANDLE_CUSOLVER_ERROR(cusolverDnDgeqrf_bufferSize(handle, n, m, d_A, n, &workspace_size_geqrf));
+  HANDLE_CUSOLVER_ERROR(cusolverDnDorgqr_bufferSize(handle, n, k, k, d_A, n, d_tau, &workspace_size_orgqr));
+  int lwork = std::max(workspace_size_geqrf, workspace_size_orgqr);
+  QLTEN_Double *workspace;
+  HANDLE_CUDA_ERROR(cudaMalloc(&workspace, sizeof(QLTEN_Double) * lwork));
+
+  int *devInfo;
+  HANDLE_CUDA_ERROR(cudaMalloc(&devInfo, sizeof(int)));
+  HANDLE_CUSOLVER_ERROR(cusolverDnDgeqrf(handle, n, m, d_A, n, d_tau, workspace, lwork, devInfo));
+
+#ifndef NDEBUG
+  int info;
+  cudaMemcpy(&info, devInfo, sizeof(int), cudaMemcpyDeviceToHost);
+  assert(0 == info);
+#endif
+
+  // Extract R'(k×m) from d_A (column-major, lda=n).
+  // Column-major R'(k×m) with lda=k has same memory layout as row-major L(m×k).
+  HANDLE_CUDA_ERROR(cudaMalloc(&l, sizeof(QLTEN_Double) * m * k));
+  HANDLE_CUDA_ERROR(cudaMemcpy2D(l, k * sizeof(QLTEN_Double),
+                                 d_A, n * sizeof(QLTEN_Double),
+                                 k * sizeof(QLTEN_Double), m,
+                                 cudaMemcpyDeviceToDevice));
+  // Zero upper triangular part of L (row-major m×k, lower triangular)
+  for (size_t i = 0; i < k; ++i) {
+    if (i + 1 < k) {
+      HANDLE_CUDA_ERROR(cudaMemset(l + i * k + i + 1, 0, sizeof(QLTEN_Double) * (k - i - 1)));
+    }
+  }
+
+  // Generate Q'(n×k) from QR factorization
+  HANDLE_CUSOLVER_ERROR(cusolverDnDorgqr(handle, n, k, k, d_A, n, d_tau, workspace, lwork, devInfo));
+
+#ifndef NDEBUG
+  cudaMemcpy(&info, devInfo, sizeof(int), cudaMemcpyDeviceToHost);
+  assert(0 == info);
+#endif
+
+  // Column-major Q'(n×k) with lda=n has same memory layout as row-major Q(k×n)
+  HANDLE_CUDA_ERROR(cudaMalloc(&q, sizeof(QLTEN_Double) * k * n));
+  HANDLE_CUDA_ERROR(cudaMemcpy(q, d_A, sizeof(QLTEN_Double) * k * n, cudaMemcpyDeviceToDevice));
+
+  cudaFree(d_A);
+  cudaFree(d_tau);
+  cudaFree(workspace);
+  cudaFree(devInfo);
+}
+
+inline void MatLQ(
+    QLTEN_Float *mat,
+    const size_t m, const size_t n,
+    QLTEN_Float *&l,
+    QLTEN_Float *&q
+) {
+  cusolverDnHandle_t handle = CusolverHandleManager::GetHandle();
+  auto cublas_handle = CublasHandleManager::GetHandle();
+  auto k = std::min(m, n);
+  const QLTEN_Float alpha = 1.0f, beta = 0.0f;
+
+  QLTEN_Float *d_A;
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_A, sizeof(QLTEN_Float) * m * n));
+  HANDLE_CUDA_ERROR(cudaMemcpy(d_A, mat, sizeof(QLTEN_Float) * m * n, cudaMemcpyDeviceToDevice));
+
+  QLTEN_Float *d_tau;
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_tau, sizeof(QLTEN_Float) * k));
+
+  int workspace_size_geqrf(0), workspace_size_orgqr(0);
+  HANDLE_CUSOLVER_ERROR(cusolverDnSgeqrf_bufferSize(handle, n, m, d_A, n, &workspace_size_geqrf));
+  HANDLE_CUSOLVER_ERROR(cusolverDnSorgqr_bufferSize(handle, n, k, k, d_A, n, d_tau, &workspace_size_orgqr));
+  int lwork = std::max(workspace_size_geqrf, workspace_size_orgqr);
+  QLTEN_Float *workspace;
+  HANDLE_CUDA_ERROR(cudaMalloc(&workspace, sizeof(QLTEN_Float) * lwork));
+
+  int *devInfo;
+  HANDLE_CUDA_ERROR(cudaMalloc(&devInfo, sizeof(int)));
+  HANDLE_CUSOLVER_ERROR(cusolverDnSgeqrf(handle, n, m, d_A, n, d_tau, workspace, lwork, devInfo));
+
+#ifndef NDEBUG
+  int info;
+  cudaMemcpy(&info, devInfo, sizeof(int), cudaMemcpyDeviceToHost);
+  assert(0 == info);
+#endif
+
+  HANDLE_CUDA_ERROR(cudaMalloc(&l, sizeof(QLTEN_Float) * m * k));
+  HANDLE_CUDA_ERROR(cudaMemcpy2D(l, k * sizeof(QLTEN_Float),
+                                 d_A, n * sizeof(QLTEN_Float),
+                                 k * sizeof(QLTEN_Float), m,
+                                 cudaMemcpyDeviceToDevice));
+  for (size_t i = 0; i < k; ++i) {
+    if (i + 1 < k) {
+      HANDLE_CUDA_ERROR(cudaMemset(l + i * k + i + 1, 0, sizeof(QLTEN_Float) * (k - i - 1)));
+    }
+  }
+
+  HANDLE_CUSOLVER_ERROR(cusolverDnSorgqr(handle, n, k, k, d_A, n, d_tau, workspace, lwork, devInfo));
+
+#ifndef NDEBUG
+  cudaMemcpy(&info, devInfo, sizeof(int), cudaMemcpyDeviceToHost);
+  assert(0 == info);
+#endif
+
+  HANDLE_CUDA_ERROR(cudaMalloc(&q, sizeof(QLTEN_Float) * k * n));
+  HANDLE_CUDA_ERROR(cudaMemcpy(q, d_A, sizeof(QLTEN_Float) * k * n, cudaMemcpyDeviceToDevice));
+
+  cudaFree(d_A);
+  cudaFree(d_tau);
+  cudaFree(workspace);
+  cudaFree(devInfo);
+}
+
+inline void MatLQ(
+    QLTEN_ComplexFloat *mat,
+    const size_t m, const size_t n,
+    QLTEN_ComplexFloat *&l,
+    QLTEN_ComplexFloat *&q
+) {
+  cusolverDnHandle_t handle = CusolverHandleManager::GetHandle();
+  auto cublas_handle = CublasHandleManager::GetHandle();
+  auto k = std::min(m, n);
+  const cuComplex alpha = {1.0f, 0.0f}, beta = {0.0f, 0.0f};
+
+  cuComplex *d_A;
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_A, sizeof(cuComplex) * m * n));
+  HANDLE_CUDA_ERROR(cudaMemcpy(d_A, mat, sizeof(cuComplex) * m * n, cudaMemcpyDeviceToDevice));
+
+  cuComplex *d_tau;
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_tau, sizeof(cuComplex) * k));
+
+  int workspace_size_geqrf, workspace_size_ungqr;
+  HANDLE_CUSOLVER_ERROR(cusolverDnCgeqrf_bufferSize(handle, n, m, d_A, n, &workspace_size_geqrf));
+  HANDLE_CUSOLVER_ERROR(cusolverDnCungqr_bufferSize(handle, n, k, k, d_A, n, d_tau, &workspace_size_ungqr));
+  int lwork = std::max(workspace_size_geqrf, workspace_size_ungqr);
+  cuComplex *workspace;
+  HANDLE_CUDA_ERROR(cudaMalloc(&workspace, sizeof(cuComplex) * lwork));
+
+  int *devInfo;
+  HANDLE_CUDA_ERROR(cudaMalloc(&devInfo, sizeof(int)));
+  HANDLE_CUSOLVER_ERROR(cusolverDnCgeqrf(handle, n, m, d_A, n, d_tau, workspace, lwork, devInfo));
+
+  HANDLE_CUDA_ERROR(cudaMalloc(&l, sizeof(QLTEN_ComplexFloat) * m * k));
+  HANDLE_CUDA_ERROR(cudaMemcpy2D(l, k * sizeof(QLTEN_ComplexFloat),
+                                 d_A, n * sizeof(cuComplex),
+                                 k * sizeof(QLTEN_ComplexFloat), m,
+                                 cudaMemcpyDeviceToDevice));
+  for (size_t i = 0; i < k; ++i) {
+    if (i + 1 < k) {
+      HANDLE_CUDA_ERROR(cudaMemset(l + i * k + i + 1, 0, sizeof(QLTEN_ComplexFloat) * (k - i - 1)));
+    }
+  }
+
+  HANDLE_CUSOLVER_ERROR(cusolverDnCungqr(handle, n, k, k, d_A, n, d_tau, workspace, lwork, devInfo));
+
+  HANDLE_CUDA_ERROR(cudaMalloc(&q, sizeof(QLTEN_ComplexFloat) * k * n));
+  HANDLE_CUDA_ERROR(cudaMemcpy(q, d_A, sizeof(QLTEN_ComplexFloat) * k * n, cudaMemcpyDeviceToDevice));
+
+  cudaFree(d_A);
+  cudaFree(d_tau);
+  cudaFree(workspace);
+  cudaFree(devInfo);
+}
+
+inline void MatLQ(
+    QLTEN_Complex *mat,
+    const size_t m, const size_t n,
+    QLTEN_Complex *&l,
+    QLTEN_Complex *&q
+) {
+  cusolverDnHandle_t handle = CusolverHandleManager::GetHandle();
+  auto cublas_handle = CublasHandleManager::GetHandle();
+  auto k = std::min(m, n);
+  const cuDoubleComplex alpha = {1.0, 0.0}, beta = {0.0, 0.0};
+
+  cuDoubleComplex *d_A;
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_A, sizeof(cuDoubleComplex) * m * n));
+  HANDLE_CUDA_ERROR(cudaMemcpy(d_A, mat, sizeof(cuDoubleComplex) * m * n, cudaMemcpyDeviceToDevice));
+
+  cuDoubleComplex *d_tau;
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_tau, sizeof(cuDoubleComplex) * k));
+
+  int workspace_size_geqrf, workspace_size_ungqr;
+  HANDLE_CUSOLVER_ERROR(cusolverDnZgeqrf_bufferSize(handle, n, m, d_A, n, &workspace_size_geqrf));
+  HANDLE_CUSOLVER_ERROR(cusolverDnZungqr_bufferSize(handle, n, k, k, d_A, n, d_tau, &workspace_size_ungqr));
+  int lwork = std::max(workspace_size_geqrf, workspace_size_ungqr);
+  cuDoubleComplex *workspace;
+  HANDLE_CUDA_ERROR(cudaMalloc(&workspace, sizeof(cuDoubleComplex) * lwork));
+
+  int *devInfo;
+  HANDLE_CUDA_ERROR(cudaMalloc(&devInfo, sizeof(int)));
+  HANDLE_CUSOLVER_ERROR(cusolverDnZgeqrf(handle, n, m, d_A, n, d_tau, workspace, lwork, devInfo));
+
+  HANDLE_CUDA_ERROR(cudaMalloc(&l, sizeof(QLTEN_Complex) * m * k));
+  HANDLE_CUDA_ERROR(cudaMemcpy2D(l, k * sizeof(QLTEN_Complex),
+                                 d_A, n * sizeof(cuDoubleComplex),
+                                 k * sizeof(QLTEN_Complex), m,
+                                 cudaMemcpyDeviceToDevice));
+  for (size_t i = 0; i < k; ++i) {
+    if (i + 1 < k) {
+      HANDLE_CUDA_ERROR(cudaMemset(l + i * k + i + 1, 0, sizeof(QLTEN_Complex) * (k - i - 1)));
+    }
+  }
+
+  HANDLE_CUSOLVER_ERROR(cusolverDnZungqr(handle, n, k, k, d_A, n, d_tau, workspace, lwork, devInfo));
+
+  HANDLE_CUDA_ERROR(cudaMalloc(&q, sizeof(QLTEN_Complex) * k * n));
+  HANDLE_CUDA_ERROR(cudaMemcpy(q, d_A, sizeof(QLTEN_Complex) * k * n, cudaMemcpyDeviceToDevice));
+
   cudaFree(d_A);
   cudaFree(d_tau);
   cudaFree(workspace);
