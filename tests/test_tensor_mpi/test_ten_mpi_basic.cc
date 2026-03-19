@@ -11,6 +11,9 @@
 #include "qlten/qlten.h"                  // QLTensor, Index, QN, U1QNVal, QNSectorVec
 #include "qlten/utility/utils_inl.h"      // GenAllCoors
 #include "qlten/utility/timer.h"
+#include <cstdint>
+#include <cstring>
+#include <vector>
 
 using namespace qlten;
 
@@ -58,6 +61,127 @@ ZQLTensor zten_2d_s = ZQLTensor({idx_in_s, idx_out_s});
 ZQLTensor zten_2d_l = ZQLTensor({idx_in_l, idx_out_l});
 ZQLTensor zten_3d_s = ZQLTensor({idx_in_s, idx_out_s, idx_out_s});
 ZQLTensor zten_3d_l = ZQLTensor({idx_in_l, idx_out_l, idx_out_l});
+
+template<typename T>
+void AppendPod(std::vector<char> &buffer, const T &value) {
+  static_assert(std::is_trivially_copyable_v<T>);
+  const char *ptr = reinterpret_cast<const char *>(&value);
+  buffer.insert(buffer.end(), ptr, ptr + sizeof(T));
+}
+
+inline uint64_t LoadU64(const std::vector<char> &buffer, const size_t offset) {
+  uint64_t value = 0;
+  std::memcpy(&value, buffer.data() + offset, sizeof(value));
+  return value;
+}
+
+inline void StoreU64(std::vector<char> &buffer, const size_t offset, const uint64_t value) {
+  std::memcpy(buffer.data() + offset, &value, sizeof(value));
+}
+
+template<typename Tensor>
+Tensor MakeDeterministicTensor(const unsigned long long seed) {
+  Tensor tensor({idx_in_s, idx_out_s});
+  qlten::SetRandomSeed(seed);
+  tensor.Random(qn0);
+  return tensor;
+}
+
+template<typename Tensor>
+void ExpectPackedRoundTrip(const Tensor &tensor) {
+  std::vector<char> buffer;
+  tensor.PackForMPI(buffer);
+
+  Tensor unpacked;
+  const char *cursor = buffer.data();
+  const char *end = cursor + buffer.size();
+  ASSERT_NO_THROW(unpacked.UnpackForMPI(cursor, end));
+  EXPECT_EQ(cursor, end);
+  EXPECT_EQ(unpacked, tensor);
+}
+
+template<typename Tensor>
+void ExpectPackedUnpackThrows(const std::vector<char> &buffer) {
+  Tensor unpacked;
+  const char *cursor = buffer.data();
+  const char *end = cursor + buffer.size();
+  EXPECT_THROW(unpacked.UnpackForMPI(cursor, end), std::runtime_error);
+}
+
+template<typename Tensor>
+void ExpectPackedShellRoundTrip(
+    const Tensor &tensor,
+    const size_t expected_unpacked_data_size
+) {
+  std::vector<char> buffer;
+  tensor.PackShellForMPI(buffer);
+
+  Tensor unpacked;
+  const char *cursor = buffer.data();
+  const char *end = cursor + buffer.size();
+  ASSERT_NO_THROW(unpacked.UnpackShellForMPI(cursor, end));
+  EXPECT_EQ(cursor, end);
+
+  EXPECT_EQ(unpacked.IsDefault(), tensor.IsDefault());
+  EXPECT_EQ(unpacked.Rank(), tensor.Rank());
+  EXPECT_EQ(unpacked.GetShape(), tensor.GetShape());
+  EXPECT_EQ(unpacked.GetIndexes(), tensor.GetIndexes());
+  if (tensor.IsDefault()) { return; }
+
+  EXPECT_EQ(unpacked.IsScalar(), tensor.IsScalar());
+  EXPECT_EQ(unpacked.GetQNBlkNum(), tensor.GetQNBlkNum());
+  EXPECT_EQ(unpacked.GetActualDataSize(), expected_unpacked_data_size);
+}
+
+template<typename Tensor>
+void ExpectPackedShellUnpackThrows(const std::vector<char> &buffer) {
+  Tensor unpacked;
+  const char *cursor = buffer.data();
+  const char *end = cursor + buffer.size();
+  EXPECT_THROW(unpacked.UnpackShellForMPI(cursor, end), std::runtime_error);
+}
+
+template<typename Tensor>
+void TestPackedShellRawDataBcast(const Tensor &expected, const MPI_Comm &comm) {
+  int rank;
+  MPI_Comm_rank(comm, &rank);
+
+  std::vector<char> shell_buffer;
+  uint64_t shell_buffer_size = 0;
+  Tensor tensor;
+  if (rank == hp_numeric::kMPIMasterRank) {
+    tensor = expected;
+    tensor.PackShellForMPI(shell_buffer);
+    shell_buffer_size = static_cast<uint64_t>(shell_buffer.size());
+  }
+
+  HANDLE_MPI_ERROR(::MPI_Bcast(
+      &shell_buffer_size,
+      1,
+      MPI_UINT64_T,
+      hp_numeric::kMPIMasterRank,
+      comm));
+  if (rank != hp_numeric::kMPIMasterRank) {
+    shell_buffer.resize(static_cast<size_t>(shell_buffer_size));
+  }
+  hp_numeric::MPI_Bcast(
+      shell_buffer.data(),
+      static_cast<size_t>(shell_buffer_size),
+      hp_numeric::kMPIMasterRank,
+      comm);
+
+  if (rank != hp_numeric::kMPIMasterRank) {
+    const char *cursor = shell_buffer.data();
+    const char *end = cursor + shell_buffer.size();
+    ASSERT_NO_THROW(tensor.UnpackShellForMPI(cursor, end));
+    ASSERT_EQ(cursor, end);
+  }
+
+  if (!tensor.IsDefault()) {
+    tensor.GetBlkSparDataTen().RawDataMPIBcast(comm, hp_numeric::kMPIMasterRank);
+  }
+  EXPECT_EQ(tensor, expected);
+}
 
 //helper
 IndexT RandIndex(const unsigned qn_sct_num,  //how many quantum number sectors?
@@ -133,6 +257,122 @@ TEST_F(TestMPITenData, Serialization) {
     TestTensorSerialization(zten2);
   }
 }
+
+TEST_F(TestMPITenData, PackedWireFormatRoundTrip) {
+  ExpectPackedRoundTrip(DQLTensor());
+  ExpectPackedRoundTrip(ZQLTensor());
+  ExpectPackedRoundTrip(DQLTensor(IndexVec<U1QN>{}));
+  ExpectPackedRoundTrip(ZQLTensor(IndexVec<U1QN>{}));
+  ExpectPackedRoundTrip(MakeDeterministicTensor<DQLTensor>(123456ULL));
+  ExpectPackedRoundTrip(MakeDeterministicTensor<ZQLTensor>(789012ULL));
+}
+
+TEST_F(TestMPITenData, PackedShellWireFormatRoundTrip) {
+  ExpectPackedShellRoundTrip(DQLTensor(), 0);
+  ExpectPackedShellRoundTrip(ZQLTensor(), 0);
+
+  DQLTensor dscalar(IndexVec<U1QN>{});
+  ZQLTensor zscalar(IndexVec<U1QN>{});
+  ExpectPackedShellRoundTrip(dscalar, 1);
+  ExpectPackedShellRoundTrip(zscalar, 1);
+
+  auto dten = MakeDeterministicTensor<DQLTensor>(123456ULL);
+  auto zten = MakeDeterministicTensor<ZQLTensor>(789012ULL);
+  ExpectPackedShellRoundTrip(dten, dten.GetActualDataSize());
+  ExpectPackedShellRoundTrip(zten, zten.GetActualDataSize());
+}
+
+TEST_F(TestMPITenData, PackedWireFormatRejectsMalformedBuffers) {
+  std::vector<char> mismatched_count_buffer;
+  MakeDeterministicTensor<DQLTensor>(123456ULL).PackForMPI(mismatched_count_buffer);
+  const uint64_t shell_size = LoadU64(mismatched_count_buffer, 1);
+  const size_t raw_count_offset = 1 + sizeof(uint64_t) + static_cast<size_t>(shell_size);
+  StoreU64(
+      mismatched_count_buffer,
+      raw_count_offset,
+      LoadU64(mismatched_count_buffer, raw_count_offset) + 1);
+  ExpectPackedUnpackThrows<DQLTensor>(mismatched_count_buffer);
+
+  std::vector<char> truncated_shell_buffer;
+  MakeDeterministicTensor<DQLTensor>(123456ULL).PackForMPI(truncated_shell_buffer);
+  const uint64_t shell_size_for_truncation = LoadU64(truncated_shell_buffer, 1);
+  ASSERT_GT(shell_size_for_truncation, 0u);
+  truncated_shell_buffer.resize(
+      1 + sizeof(uint64_t) + static_cast<size_t>(shell_size_for_truncation) - 1);
+  ExpectPackedUnpackThrows<DQLTensor>(truncated_shell_buffer);
+
+  std::vector<char> truncated_raw_buffer;
+  MakeDeterministicTensor<DQLTensor>(123456ULL).PackForMPI(truncated_raw_buffer);
+  ASSERT_FALSE(truncated_raw_buffer.empty());
+  truncated_raw_buffer.pop_back();
+  ExpectPackedUnpackThrows<DQLTensor>(truncated_raw_buffer);
+
+  std::vector<char> invalid_default_shell_buffer;
+  AppendPod<uint8_t>(invalid_default_shell_buffer, 1);
+  AppendPod<uint64_t>(invalid_default_shell_buffer, 1);
+  AppendPod<uint64_t>(invalid_default_shell_buffer, 0);
+  ExpectPackedUnpackThrows<DQLTensor>(invalid_default_shell_buffer);
+
+  std::vector<char> invalid_default_data_buffer;
+  AppendPod<uint8_t>(invalid_default_data_buffer, 1);
+  AppendPod<uint64_t>(invalid_default_data_buffer, 0);
+  AppendPod<uint64_t>(invalid_default_data_buffer, 1);
+  ExpectPackedUnpackThrows<DQLTensor>(invalid_default_data_buffer);
+}
+
+TEST_F(TestMPITenData, PackedShellWireFormatRejectsMalformedBuffers) {
+  std::vector<char> mismatched_count_buffer;
+  MakeDeterministicTensor<DQLTensor>(123456ULL).PackShellForMPI(mismatched_count_buffer);
+  const uint64_t shell_size = LoadU64(mismatched_count_buffer, 1);
+  const size_t raw_count_offset = 1 + sizeof(uint64_t) + static_cast<size_t>(shell_size);
+  StoreU64(
+      mismatched_count_buffer,
+      raw_count_offset,
+      LoadU64(mismatched_count_buffer, raw_count_offset) + 1);
+  ExpectPackedShellUnpackThrows<DQLTensor>(mismatched_count_buffer);
+
+  std::vector<char> truncated_shell_buffer;
+  MakeDeterministicTensor<DQLTensor>(123456ULL).PackShellForMPI(truncated_shell_buffer);
+  const uint64_t shell_size_for_truncation = LoadU64(truncated_shell_buffer, 1);
+  ASSERT_GT(shell_size_for_truncation, 0u);
+  truncated_shell_buffer.resize(
+      1 + sizeof(uint64_t) + static_cast<size_t>(shell_size_for_truncation) - 1);
+  ExpectPackedShellUnpackThrows<DQLTensor>(truncated_shell_buffer);
+
+  std::vector<char> invalid_default_shell_buffer;
+  AppendPod<uint8_t>(invalid_default_shell_buffer, 1);
+  AppendPod<uint64_t>(invalid_default_shell_buffer, 1);
+  AppendPod<uint64_t>(invalid_default_shell_buffer, 0);
+  ExpectPackedShellUnpackThrows<DQLTensor>(invalid_default_shell_buffer);
+
+  std::vector<char> invalid_default_data_buffer;
+  AppendPod<uint8_t>(invalid_default_data_buffer, 1);
+  AppendPod<uint64_t>(invalid_default_data_buffer, 0);
+  AppendPod<uint64_t>(invalid_default_data_buffer, 1);
+  ExpectPackedShellUnpackThrows<DQLTensor>(invalid_default_data_buffer);
+}
+
+TEST_F(TestMPITenData, PackedShellWireFormatSupportsRawDataMPIBcast) {
+  TestPackedShellRawDataBcast(MakeDeterministicTensor<DQLTensor>(123456ULL), comm);
+  TestPackedShellRawDataBcast(MakeDeterministicTensor<ZQLTensor>(789012ULL), comm);
+}
+
+TEST_F(TestMPITenData, PackedShellWireFormatSupportsEmptyScalarRawDataMPIBcast) {
+  TestPackedShellRawDataBcast(DQLTensor(IndexVec<U1QN>{}), comm);
+  TestPackedShellRawDataBcast(ZQLTensor(IndexVec<U1QN>{}), comm);
+}
+
+#ifdef USE_GPU
+TEST_F(TestMPITenData, PackedWireFormatRejectsGPUBuilds) {
+  std::vector<char> buffer;
+  auto tensor = MakeDeterministicTensor<DQLTensor>(123456ULL);
+  EXPECT_THROW(tensor.PackForMPI(buffer), std::runtime_error);
+
+  DQLTensor unpacked;
+  const char *cursor = nullptr;
+  EXPECT_THROW(unpacked.UnpackForMPI(cursor, cursor), std::runtime_error);
+}
+#endif
 
 ///< only master has the tensor
 template<typename ElemT, typename QNT>

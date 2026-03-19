@@ -17,6 +17,9 @@
 #include <iostream>     // cout, endl, istream, ostream
 #include <iterator>     // next
 #include <algorithm>    // is_sorted
+#include <cstring>      // memcpy
+#include <cstdint>      // uint8_t, uint64_t
+#include <stdexcept>    // runtime_error
 
 #include "qlten/framework/hp_numeric/mpi_fun.h"
 
@@ -1050,6 +1053,191 @@ void QLTensor<ElemT, QNT>::MPI_Bcast(const int root, const MPI_Comm &comm) {
 template<typename ElemT, typename QNT>
 void MPI_Bcast(QLTensor<ElemT, QNT> &qlten, const int root, const MPI_Comm &comm) {
   qlten.MPI_Bcast(root, comm);
+}
+
+// ============================================================
+// Packed MPI wire-format serialization
+// ============================================================
+
+namespace detail {
+
+template<typename T>
+void AppendPod(std::vector<char> &buf, const T &value) {
+  static_assert(std::is_trivially_copyable_v<T>);
+  const char *ptr = reinterpret_cast<const char *>(&value);
+  buf.insert(buf.end(), ptr, ptr + sizeof(T));
+}
+
+template<typename T>
+T ReadPod(const char *&cur, const char *end, const char *what) {
+  static_assert(std::is_trivially_copyable_v<T>);
+  if (static_cast<size_t>(end - cur) < sizeof(T)) {
+    throw std::runtime_error(std::string("truncated MPI tensor field: ") + what);
+  }
+  T value;
+  std::memcpy(&value, cur, sizeof(T));
+  cur += sizeof(T);
+  return value;
+}
+
+}  // namespace detail
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::PackForMPI(std::vector<char> &buf) const {
+#ifdef USE_GPU
+  (void) buf;
+  throw std::runtime_error(
+      "QLTensor::PackForMPI is not supported when USE_GPU is enabled");
+#endif
+  const uint8_t is_def = IsDefault() ? 1 : 0;
+  detail::AppendPod(buf, is_def);
+  if (is_def) {
+    detail::AppendPod<uint64_t>(buf, 0);  // shell_size
+    detail::AppendPod<uint64_t>(buf, 0);  // raw_data_elem_count
+    return;
+  }
+
+  const std::string shell = SerializeShell();
+  detail::AppendPod(buf, static_cast<uint64_t>(shell.size()));
+  buf.insert(buf.end(), shell.data(), shell.data() + shell.size());
+
+  const uint64_t data_count = GetBlkSparDataTen().GetActualRawDataSize();
+  detail::AppendPod(buf, data_count);
+  const char *raw = reinterpret_cast<const char *>(
+      GetBlkSparDataTen().GetActualRawDataPtr());
+  buf.insert(buf.end(), raw, raw + data_count * sizeof(ElemT));
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::UnpackForMPI(const char *&cur, const char *end) {
+#ifdef USE_GPU
+  (void) cur;
+  (void) end;
+  throw std::runtime_error(
+      "QLTensor::UnpackForMPI is not supported when USE_GPU is enabled");
+#endif
+  if (!IsDefault()) {
+    throw std::runtime_error("QLTensor::UnpackForMPI requires a default tensor");
+  }
+
+  const uint8_t is_def = detail::ReadPod<uint8_t>(cur, end, "is_default");
+  const uint64_t shell_size = detail::ReadPod<uint64_t>(cur, end, "shell_size");
+
+  if (is_def) {
+    const uint64_t data_count =
+        detail::ReadPod<uint64_t>(cur, end, "raw_data_elem_count");
+    if (shell_size != 0 || data_count != 0) {
+      throw std::runtime_error(
+          "default tensor MPI record must carry zero shell/data sizes");
+    }
+    return;
+  }
+
+  if (static_cast<uint64_t>(end - cur) < shell_size) {
+    throw std::runtime_error("truncated MPI tensor shell");
+  }
+  std::string shell(cur, cur + shell_size);
+  cur += shell_size;
+  DeserializeShell(shell);
+
+  const uint64_t data_count =
+      detail::ReadPod<uint64_t>(cur, end, "raw_data_elem_count");
+  if (IsScalar() && data_count == 0) {
+    delete pblk_spar_data_ten_;
+    pblk_spar_data_ten_ = new BlockSparseDataTensor<ElemT, QNT>(&indexes_);
+    return;
+  }
+  const uint64_t expected_count = GetBlkSparDataTen().GetActualRawDataSize();
+  if (data_count != expected_count) {
+    throw std::runtime_error(
+        "MPI tensor raw-data count does not match the deserialized shell");
+  }
+
+  const size_t data_bytes = static_cast<size_t>(data_count) * sizeof(ElemT);
+  if (data_count != 0 &&
+      data_bytes / sizeof(ElemT) != static_cast<size_t>(data_count)) {
+    throw std::runtime_error("MPI tensor raw-data byte count overflow");
+  }
+  if (static_cast<size_t>(end - cur) < data_bytes) {
+    throw std::runtime_error("truncated MPI tensor raw data");
+  }
+
+  std::memcpy(GetBlkSparDataTen().GetActualRawDataPtr(), cur, data_bytes);
+  cur += data_bytes;
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::PackShellForMPI(std::vector<char> &buf) const {
+#ifdef USE_GPU
+  (void) buf;
+  throw std::runtime_error(
+      "QLTensor::PackShellForMPI is not supported when USE_GPU is enabled");
+#endif
+  const uint8_t is_def = IsDefault() ? 1 : 0;
+  detail::AppendPod(buf, is_def);
+  if (is_def) {
+    detail::AppendPod<uint64_t>(buf, 0);  // shell_size
+    detail::AppendPod<uint64_t>(buf, 0);  // raw_data_elem_count
+    return;
+  }
+
+  const std::string shell = SerializeShell();
+  detail::AppendPod(buf, static_cast<uint64_t>(shell.size()));
+  buf.insert(buf.end(), shell.data(), shell.data() + shell.size());
+
+  const uint64_t data_count = GetBlkSparDataTen().GetActualRawDataSize();
+  detail::AppendPod(buf, data_count);
+  // No raw data bytes — caller broadcasts raw data separately
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::UnpackShellForMPI(const char *&cur, const char *end) {
+#ifdef USE_GPU
+  (void) cur;
+  (void) end;
+  throw std::runtime_error(
+      "QLTensor::UnpackShellForMPI is not supported when USE_GPU is enabled");
+#endif
+  if (!IsDefault()) {
+    throw std::runtime_error("QLTensor::UnpackShellForMPI requires a default tensor");
+  }
+
+  const uint8_t is_def = detail::ReadPod<uint8_t>(cur, end, "is_default");
+  const uint64_t shell_size = detail::ReadPod<uint64_t>(cur, end, "shell_size");
+
+  if (is_def) {
+    const uint64_t data_count =
+        detail::ReadPod<uint64_t>(cur, end, "raw_data_elem_count");
+    if (shell_size != 0 || data_count != 0) {
+      throw std::runtime_error(
+          "default tensor MPI record must carry zero shell/data sizes");
+    }
+    return;
+  }
+
+  if (static_cast<uint64_t>(end - cur) < shell_size) {
+    throw std::runtime_error("truncated MPI tensor shell");
+  }
+  std::string shell(cur, cur + shell_size);
+  cur += shell_size;
+  DeserializeShell(shell);
+
+  const uint64_t data_count =
+      detail::ReadPod<uint64_t>(cur, end, "raw_data_elem_count");
+  if (IsScalar() && data_count == 0) {
+    // Keep the scalar scratch allocation created by DeserializeShell().
+    // The shell-only API must remain ready for a follow-on RawDataMPIBcast
+    // (or RawDataMPIRecv), and empty scalar transport uses one synthetic
+    // element even though the packed shell records a zero data count.
+    return;
+  }
+  const uint64_t expected_count = GetBlkSparDataTen().GetActualRawDataSize();
+  if (data_count != expected_count) {
+    throw std::runtime_error(
+        "MPI tensor raw-data count does not match the deserialized shell");
+  }
+  // Raw data buffer is allocated but uninitialized.
+  // Caller must follow with RawDataMPIBcast to populate it.
 }
 
 template<typename ElemT, typename QNT>

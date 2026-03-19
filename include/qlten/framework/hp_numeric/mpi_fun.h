@@ -55,6 +55,9 @@ inline MPI_Datatype GetMPIDataType<QLTEN_Complex>() { return MPI_CXX_DOUBLE_COMP
 template<>
 inline MPI_Datatype GetMPIDataType<QLTEN_ComplexFloat>() { return MPI_CXX_FLOAT_COMPLEX; }
 template<>
+inline MPI_Datatype GetMPIDataType<char>() { return MPI_CHAR; }
+
+template<>
 inline MPI_Datatype GetMPIDataType<size_t>() {
   static_assert(
       std::is_same_v<size_t, unsigned> ||

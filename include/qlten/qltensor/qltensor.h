@@ -440,6 +440,85 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   std::string SerializeShell() const;
   void DeserializeShell(const std::string &);
 
+  /**
+   * @brief Append this tensor to an MPI wire-format byte buffer.
+   *
+   * @note Unsupported when built with `USE_GPU`; this method throws
+   *       `std::runtime_error` if called in that configuration.
+   * @warning This routine appends both the tensor shell and the raw tensor
+   *          payload to `buffer`. The caller temporarily holds the original
+   *          tensor storage and the packed copy at the same time. For large
+   *          dense tensors or large operator payloads, this can noticeably
+   *          increase peak host memory usage.
+   * @warning When packing many tensors into one shared buffer, avoiding
+   *          repeated `std::vector<char>` reallocations requires a higher
+   *          layer to reserve the total payload size in advance. A per-call
+   *          reserve inside this function cannot fully eliminate cross-call
+   *          growth copies.
+   *
+   * Layout per tensor:
+   *   [uint8_t  is_default]           - 1 byte
+   *   [uint64_t shell_size]           - 8 bytes (0 if default)
+   *   [char[]   shell_data]           - shell_size bytes
+   *   [uint64_t raw_data_elem_count]  - 8 bytes (0 if default)
+   *   [ElemT[]  raw_data]             - raw_data_elem_count * sizeof(ElemT) bytes
+   *
+   * @param buffer Output buffer; data is appended.
+   */
+  void PackForMPI(std::vector<char> &buffer) const;
+
+  /**
+   * @brief Unpack this tensor from an MPI wire-format byte buffer.
+   *
+   * @pre The target tensor is default-constructed.
+   * @note Unsupported when built with `USE_GPU`; this method throws
+   *       `std::runtime_error` if called in that configuration.
+   * @warning This routine reads from a contiguous packed buffer and copies the
+   *          raw tensor payload into this tensor's storage. During unpack, the
+   *          receiver may temporarily hold both the packed bytes and the
+   *          reconstructed tensor data. For large dense tensors or operators,
+   *          account for this peak host memory overhead.
+   * @param cursor Pointer into buffer; advanced past consumed bytes.
+   * @param end One-past-end pointer for bounds checking.
+   * @throws std::runtime_error on malformed or truncated input.
+   */
+  void UnpackForMPI(const char *&cursor, const char *end);
+
+  /**
+   * @brief Append this tensor's shell metadata to an MPI wire-format byte buffer.
+   *
+   * Same header layout as PackForMPI but WITHOUT the trailing raw data bytes:
+   *   [uint8_t  is_default]           - 1 byte
+   *   [uint64_t shell_size]           - 8 bytes (0 if default)
+   *   [char[]   shell_data]           - shell_size bytes
+   *   [uint64_t raw_data_elem_count]  - 8 bytes (0 if default)
+   *
+   * raw_data_elem_count is included so the receiver can verify its allocation
+   * matches before a subsequent RawDataMPIBcast. Empty scalar tensors keep the
+   * legacy `0` count in the packed shell, and `UnpackShellForMPI` retains a
+   * one-element scratch allocation on the receiver so follow-on raw-data MPI
+   * calls still match the scalar transport convention.
+   *
+   * @param buffer Output buffer; data is appended.
+   */
+  void PackShellForMPI(std::vector<char> &buffer) const;
+
+  /**
+   * @brief Unpack this tensor's shell from an MPI wire-format byte buffer.
+   *
+   * Reconstructs the tensor shell and allocates raw data memory, but does NOT
+   * fill raw data. The caller must follow with RawDataMPIBcast (or equivalent)
+   * to populate the raw data buffer. Empty scalar tensors retain a one-element
+   * scratch allocation so that subsequent raw-data MPI calls match the sender's
+   * scalar transport convention.
+   *
+   * @pre The target tensor is default-constructed.
+   * @param cursor Pointer into buffer; advanced past consumed bytes.
+   * @param end One-past-end pointer for bounds checking.
+   * @throws std::runtime_error on malformed or truncated input.
+   */
+  void UnpackShellForMPI(const char *&cursor, const char *end);
+
   /** @brief Verbose human-readable print. */
   void Show(const size_t indent_level = 0) const override;
 
