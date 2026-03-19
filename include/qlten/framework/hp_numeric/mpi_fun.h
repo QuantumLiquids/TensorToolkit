@@ -14,6 +14,9 @@
 #ifndef QLTEN_FRAMEWORK_HP_NUMERIC_MPI_FUN_H
 #define QLTEN_FRAMEWORK_HP_NUMERIC_MPI_FUN_H
 
+#include <cstddef>                        // size_t
+#include <type_traits>                    // is_same_v
+
 #include "qlten/framework/value_t.h"      // QLTEN_Double, QLTEN_Complex
 #include "mpi.h"                          // MPI_Send, MPI_Recv, MPI_Bcast
 
@@ -51,13 +54,29 @@ template<>
 inline MPI_Datatype GetMPIDataType<QLTEN_Complex>() { return MPI_CXX_DOUBLE_COMPLEX; }
 template<>
 inline MPI_Datatype GetMPIDataType<QLTEN_ComplexFloat>() { return MPI_CXX_FLOAT_COMPLEX; }
+template<>
+inline MPI_Datatype GetMPIDataType<size_t>() {
+  static_assert(
+      std::is_same_v<size_t, unsigned> ||
+      std::is_same_v<size_t, unsigned long> ||
+      std::is_same_v<size_t, unsigned long long>,
+      "Unsupported size_t underlying type for MPI datatype mapping.");
+
+  if constexpr (std::is_same_v<size_t, unsigned>) {
+    return MPI_UNSIGNED;
+  } else if constexpr (std::is_same_v<size_t, unsigned long>) {
+    return MPI_UNSIGNED_LONG;
+  } else {
+    return MPI_UNSIGNED_LONG_LONG;
+  }
+}
 
 ///< Send a solely number with type of size_t
 inline void MPI_Send(const size_t n,
                      const int dest,
                      const int tag,
                      const MPI_Comm &comm) {
-  HANDLE_MPI_ERROR(::MPI_Send((const void *) (&n), 1, MPI_UNSIGNED_LONG_LONG, dest, tag, comm));
+  HANDLE_MPI_ERROR(::MPI_Send((const void *) (&n), 1, GetMPIDataType<size_t>(), dest, tag, comm));
 }
 
 inline ::MPI_Status MPI_Recv(size_t &n,
@@ -65,7 +84,7 @@ inline ::MPI_Status MPI_Recv(size_t &n,
                              const int tag,
                              const MPI_Comm &comm) {
   ::MPI_Status status;
-  HANDLE_MPI_ERROR(::MPI_Recv((void *) (&n), 1, MPI_UNSIGNED_LONG_LONG, source, tag, comm, &status));
+  HANDLE_MPI_ERROR(::MPI_Recv((void *) (&n), 1, GetMPIDataType<size_t>(), source, tag, comm, &status));
   return status;
 }
 

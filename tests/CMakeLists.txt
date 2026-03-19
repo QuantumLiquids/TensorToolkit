@@ -156,6 +156,7 @@ add_unittest(test_fz2u1qn "test_qltensor/test_special_qn/test_fz2u1qn.cc" "" "" 
 
 
 add_unittest(test_fermion_parity_exchange "test_utility/test_fermion_parity_exchange.cc" "" "" "")
+add_unittest(test_mpi_fun "test_utility/test_mpi_fun.cc" "" "" "")
 
 ## Test quantum number related objects
 # Test quantum number vaules
