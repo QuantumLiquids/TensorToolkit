@@ -6,4 +6,5 @@ Task-oriented guides:
 - [Build and run tests](build-and-run-tests.md)
 - [Use an external HPTT](use-external-hptt.md)
 - [Enable GPU support](enable-gpu.md)
+- [Install cuTENSOR without root](install-cutensor.md)
 - [Distributed SVD (MPI)](distributed-svd.md)

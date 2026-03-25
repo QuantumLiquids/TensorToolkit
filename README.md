@@ -87,13 +87,15 @@ To build and run the unit tests:
              -DQLTEN_BUILD_UNITTEST=ON \
              -DGTest_DIR=/path/to/googletest \
              -DHP_NUMERIC_USE_OPENBLAS=ON \
-             -DQLTEN_USE_GPU=ON \
-             -DCUTENSOR_ROOT=/path/to/cutensor
+             -DQLTEN_USE_GPU=ON
     make -j16
     ```
     Notes:
     - Select exactly one BLAS backend: `-DHP_NUMERIC_USE_OPENBLAS=ON` (or `..._MKL` / `..._AOCL`).
     - CMake test configuration requires MPI to be discoverable (`FindMPI`) for both CPU/GPU configurations.
+    - If CUDA/cuTENSOR are not in standard locations, set `CUDAToolkit_ROOT`, `CUTENSOR_ROOT`, or the exact pair `CUTENSOR_INCLUDE_DIR` + `CUTENSOR_LIBRARY`.
+    - On NVHPC clusters, cuTENSOR may already be available inside the NVIDIA HPC SDK tree; for user-local installs, a common hint is `-DCUTENSOR_ROOT=${HOME}/.local/usr`.
+    - To control GPU code generation explicitly, set `-DQLTEN_CUDA_ARCHITECTURES=90` (H200/Hopper) or another semicolon-separated list such as `90;100`. If unset, CMake/NVCC defaults apply and `CUDAARCHS` is honored.
     Tip: Use `${HOME}` instead of `~` when defining CMAKE path variables.
 
 3. Run the tests:

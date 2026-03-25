@@ -21,7 +21,8 @@ namespace tensor_random {
   inline unsigned long long g_seed = 0ULL;
 }
 
-// Set global seed. Affects CPU random helpers and GPU curand.
+// Set global seed. Affects CPU random helpers and seeds GPU curand as well,
+// but CPU and GPU backends do not guarantee identical random sequences.
 inline void SetRandomSeed(unsigned long long seed) {
   tensor_random::g_seed = seed;
   tensor_random::g_rng.seed(seed);

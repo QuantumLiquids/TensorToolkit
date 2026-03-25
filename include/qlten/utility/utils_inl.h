@@ -552,6 +552,14 @@ inline void ConjugateKernel(QLTEN_Complex *data, size_t size) {
   }
 }
 
+__global__
+inline void ConjugateKernel(QLTEN_ComplexFloat *data, size_t size) {
+  size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+  if (idx < size) {
+    data[idx] = cuda::std::conj(data[idx]);
+  }
+}
+
 #endif
 template<typename TenElemType>
 inline std::vector<TenElemType> SquareVec(const std::vector<TenElemType> &v) {

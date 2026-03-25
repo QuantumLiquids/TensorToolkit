@@ -27,3 +27,13 @@ tests/examples and by downstream projects that include the module.
 - If `QLTEN_USE_GPU=ON`, the build forces `QLTEN_COMPILE_HPTT_LIB=OFF`.
 - Examples hard-error if `QLTEN_USE_GPU=ON`.
 - The default build type is `Release` unless `CMAKE_BUILD_TYPE` is set.
+
+## Common cache variables for GPU discovery
+
+These are not top-level `option()` entries, but they are commonly used when
+configuring GPU builds:
+
+- `CUDAToolkit_ROOT` to point CMake at a non-standard CUDA toolkit location
+- `CUTENSOR_ROOT` to point CMake at a cuTENSOR prefix or target directory
+- `CUTENSOR_INCLUDE_DIR` and `CUTENSOR_LIBRARY` as exact-path overrides
+- `QLTEN_CUDA_ARCHITECTURES` to set explicit CUDA targets such as `90` or `90;100`

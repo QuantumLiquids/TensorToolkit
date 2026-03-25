@@ -16,8 +16,22 @@ if (QLTEN_USE_GPU)
     include_directories(${CUDAToolkit_INCLUDE_DIRS})
     message(STATUS "CUDA_INCLUDE_DIRS: '${CUDAToolkit_INCLUDE_DIRS}'")
 
-    # Set CUDA architectures
-    set(CMAKE_CUDA_ARCHITECTURES 70 80) # For V100 & A100, adjust if needed
+    set(_qlten_default_cuda_architectures "80")
+    if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "11.8")
+        set(_qlten_default_cuda_architectures "80;90")
+    endif ()
+
+    set(QLTEN_CUDA_ARCHITECTURES "" CACHE STRING
+        "Semicolon-separated CUDA architectures for GPU builds (for example 90 or 90;100). Empty uses CUDAARCHS if set; otherwise TensorToolkit defaults to 80 on CUDA 11.0-11.7 and 80;90 on CUDA 11.8+ for A100/H100/H200-compatible builds.")
+    if (QLTEN_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES "${QLTEN_CUDA_ARCHITECTURES}")
+        message(STATUS "Using explicit CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
+    elseif (DEFINED ENV{CUDAARCHS} AND NOT "$ENV{CUDAARCHS}" STREQUAL "")
+        message(STATUS "Using CUDA architectures from CUDAARCHS=$ENV{CUDAARCHS}")
+    else ()
+        set(CMAKE_CUDA_ARCHITECTURES "${_qlten_default_cuda_architectures}")
+        message(STATUS "QLTEN_CUDA_ARCHITECTURES not set; defaulting to CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}. Override with -DQLTEN_CUDA_ARCHITECTURES=<archs> or the CUDAARCHS environment variable.")
+    endif ()
 
     # Compiler flags
     set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -lineinfo -Xcompiler=-fPIC")
@@ -77,17 +91,17 @@ if (QLTEN_USE_GPU)
         target_include_directories(${TEST_NAME}
                 PRIVATE ${MATH_INCLUDE_DIR}
                 PRIVATE ${QLTEN_HEADER_PATH}
-                PRIVATE ${CUTENSOR_INCLUDE_DIR}
                 PRIVATE ${MPI_CXX_HEADER_DIR}
         )
         target_link_libraries(${TEST_NAME}
                 PRIVATE CUDA::cublas_static
                 PRIVATE CUDA::cusolver_static
-                PRIVATE ${CUTENSOR_LIBRARY}
+                PRIVATE CUTENSOR::CUTENSOR
+                PRIVATE MPI::MPI_CXX
                 PRIVATE GTest::GTest GTest::Main
                 "${LINK_LIBS}"
                 PRIVATE "${LINK_LIB_FLAGS}"
-        ) # GPU tests do not link MPI::MPI_CXX, but MPI package/header discovery is still required by this CMake.
+        ) # Some GPU tests include MPI wrappers and still require the MPI link interface.
 
         add_test(
                 NAME ${TEST_NAME}

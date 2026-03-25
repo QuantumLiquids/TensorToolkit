@@ -9,6 +9,7 @@
 #ifndef QLTEN_FRAMEWORK_VALUE_T_H
 #define QLTEN_FRAMEWORK_VALUE_T_H
 
+#include <cmath>      // sqrt
 #include <complex>    // complex
 #include <vector>     // vector
 #ifdef USE_GPU
@@ -25,7 +26,12 @@ using QLTEN_ComplexFloat = std::complex<QLTEN_Float>;
 using std::abs;
 using std::conj;
 using std::norm;
-using std::sqrt;
+// Keep the double overload bound to the global C math symbol so
+// `using namespace qlten;` does not introduce a second double `sqrt`
+// candidate into nvcc-generated host stubs.
+using ::sqrt;
+inline QLTEN_Complex sqrt(const QLTEN_Complex &z) { return std::sqrt(z); }
+inline QLTEN_ComplexFloat sqrt(const QLTEN_ComplexFloat &z) { return std::sqrt(z); }
 #if __cplusplus >= 201703L
 inline double arg(const QLTEN_Complex &z) { return std::arg(z); }
 inline float arg(const QLTEN_ComplexFloat &z) { return std::arg(z); }
@@ -38,7 +44,9 @@ using QLTEN_ComplexFloat = cuda::std::complex<QLTEN_Float>;
 using cuda::std::abs;
 using cuda::std::conj;
 using cuda::std::norm;
-using cuda::std::sqrt;
+using ::sqrt;
+__host__ __device__ inline QLTEN_Complex sqrt(const QLTEN_Complex &z) { return cuda::std::sqrt(z); }
+__host__ __device__ inline QLTEN_ComplexFloat sqrt(const QLTEN_ComplexFloat &z) { return cuda::std::sqrt(z); }
 
 // Provide arg/polar wrappers in qlten namespace for cuda::std::complex
 inline double arg(const QLTEN_Complex &z) { return cuda::std::arg(z); }

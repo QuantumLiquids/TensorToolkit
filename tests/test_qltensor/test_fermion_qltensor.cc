@@ -210,18 +210,17 @@ void RunTestQLTensorRandomCase(
     QLTensor<ElemT, QNT> &t,
     const QNT &div,
     const std::vector<std::vector<QNSector<QNT>>> &qnscts_set) {
-  std::vector<std::vector<QNSector<QNT>>> had_qnscts_set;
+  QLTensor<ElemT, QNT> expected(t.GetIndexes());
   qlten::SetRandomSeed(0);
   t.Random(div);
+  qlten::SetRandomSeed(0);
+  expected.Random(div);
 
   EXPECT_EQ(t.GetQNBlkNum(), qnscts_set.size());
   EXPECT_EQ(t.Div(), div);
-
-  if (t.IsScalar()) {
-    qlten::SetRandomSeed(0);
-    EXPECT_EQ(t.GetElem({}), RandT<ElemT>());
-  }
-  // TODO: Check each element in the random tensor.
+  // GPU random tensors are generated with curand, so compare same-seed
+  // reproducibility instead of matching the host RNG stream exactly.
+  EXPECT_EQ(t, expected);
 }
 
 template<typename ElemT, typename QNT>

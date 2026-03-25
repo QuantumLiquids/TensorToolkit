@@ -213,19 +213,17 @@ void RunTestQLTensorRandomCase(
     QLTensor<ElemT, QNT> &t,
     const QNT &div,
     const std::vector<std::vector<QNSector<QNT>>> &qnscts_set) {
-  std::vector<std::vector<QNSector<QNT>>> had_qnscts_set;
+  QLTensor<ElemT, QNT> expected(t.GetIndexes());
   qlten::SetRandomSeed(0);
   t.Random(div);
+  qlten::SetRandomSeed(0);
+  expected.Random(div);
 
   EXPECT_EQ(t.GetQNBlkNum(), qnscts_set.size());
   EXPECT_EQ(t.Div(), div);
-#ifndef  USE_GPU
-  if (t.IsScalar()) {
-    qlten::SetRandomSeed(0);
-    EXPECT_EQ(t.GetElem({}), RandT<ElemT>());
-  }
-#endif
-  // TODO: Check each element in the random tensor.
+  // GPU random tensors are generated with curand, so compare same-seed
+  // reproducibility instead of matching the host RNG stream exactly.
+  EXPECT_EQ(t, expected);
 }
 
 TEST_F(TestQLTensor, Random) {
@@ -807,7 +805,7 @@ void RunTestQLTensorDotMultiCase(
       const auto expected = scalar * t.GetElem(coors);
       const auto actual1 = multied_t.GetElem(coors);
       const auto actual2 = multied_t2.GetElem(coors);
-      const float abs_val = std::max(std::abs(expected), std::abs(actual1));
+      const float abs_val = std::max(qlten::abs(expected), qlten::abs(actual1));
       GtestNear(actual1, expected, qlten::kFloatEpsilon * abs_val);
       GtestNear(actual2, expected, qlten::kFloatEpsilon *abs_val);
   }
@@ -820,7 +818,7 @@ TEST_F(TestQLTensor, TestDotMultiplication) {
   // Use relative error comparison 
   const auto expected_scalar = rand_d * dten_scalar.GetElem({});
   const auto actual_scalar = multied_ten.GetElem({});
-  const auto abs_val = std::max(std::abs(expected_scalar), std::abs(actual_scalar));
+  const auto abs_val = std::max(qlten::abs(expected_scalar), qlten::abs(actual_scalar));
   GtestNear(actual_scalar, expected_scalar, qlten::kFloatEpsilon * abs_val);
 
   dten_1d_s.Random(qn0);
@@ -1446,4 +1444,3 @@ TEST_F(TestQLTensor, TestSetElemByQNSector) {
   dten_2d_s.SetElemByQNSector({qnm1, qnm1}, {1, 1}, val);
   EXPECT_EQ(dten_2d_s.GetElem({1, 1}), val);
 }
-

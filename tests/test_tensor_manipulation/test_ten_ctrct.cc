@@ -402,7 +402,7 @@ void RunTestTenCtrct3DCase1(
   for (auto &coors : GenAllCoors(res.GetShape())) {
     const auto actual = res.GetElem(coors);
     const auto expected = dense_res[idx];
-    GtestExpectNear(actual, expected, std::abs(expected) * GetEpsilon<TenElemT>());
+    GtestExpectNear(actual, expected, qlten::abs(expected) * GetEpsilon<TenElemT>());
     idx++;
   }
 
@@ -448,7 +448,7 @@ void RunTestTenCtrct3DCase2(
                       {0, 1}}, &res);
   idx = 0;
   for (auto &coors : GenAllCoors(res.GetShape())) {
-    GtestExpectNear(res.GetElem(coors), dense_res[idx], GetEpsilon<TenElemT>() * std::abs(res.GetElem(coors)));
+    GtestExpectNear(res.GetElem(coors), dense_res[idx], GetEpsilon<TenElemT>() * qlten::abs(res.GetElem(coors)));
     idx++;
   }
 
@@ -487,7 +487,7 @@ void RunTestTenCtrct3DCase3(
   QLTensor<TenElemT, QNT> res;
   Contract(&ta, &tb, {{0, 1, 2},
                       {0, 1, 2}}, &res);
-  GtestExpectNear(res.GetElem({}), res_scalar, GetEpsilon<TenElemT>() * std::abs(res_scalar));
+  GtestExpectNear(res.GetElem({}), res_scalar, GetEpsilon<TenElemT>() * qlten::abs(res_scalar));
 
   delete[] dense_ta;
   delete[] dense_tb;
@@ -857,4 +857,3 @@ TEST_F(TestContraction, MatBasedContract) {
   cften_3d_s4.Random(qnm1);
   RunTestTenMatBasedCtrct(cften_3d_s, {0, 1, 2}, cften_3d_s4, {0, 1, 2});
 }
-

@@ -329,10 +329,25 @@ inline void MatrixTransposeBatch(
 /**
  * Transpose row-major matrix with size m by n to another row-major matrix b
  */
+inline void MatrixTranspose(const float *mat_a, size_t m, size_t n, float *mat_b) {
+  auto handle = CublasHandleManager::GetHandle();
+  const float alpha = 1.0f, beta = 0.0f;
+  cublasSgeam(handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, &alpha, mat_a, n, &beta, nullptr, m, mat_b, m);
+}
+
 inline void MatrixTranspose(const double *mat_a, size_t m, size_t n, double *mat_b) {
   auto handle = CublasHandleManager::GetHandle();
   const double alpha = 1.0, beta = 0.0;
   cublasDgeam(handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, &alpha, mat_a, n, &beta, nullptr, m, mat_b, m);
+}
+
+inline void MatrixTranspose(const QLTEN_ComplexFloat *mat_a, size_t m, size_t n, QLTEN_ComplexFloat *mat_b) {
+  auto handle = CublasHandleManager::GetHandle();
+  const cuComplex alpha{1.0f, 0.0f}, beta = {0.0f, 0.0f};
+  cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, &alpha,
+              reinterpret_cast<const cuComplex *>(mat_a),
+              n, &beta, nullptr, m,
+              reinterpret_cast<cuComplex *>(mat_b), m);
 }
 
 inline void MatrixTranspose(const QLTEN_Complex *mat_a, size_t m, size_t n, QLTEN_Complex *mat_b) {

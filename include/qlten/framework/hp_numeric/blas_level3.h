@@ -676,6 +676,70 @@ inline void MatMultiply(
 ///< C = alpha * A * B + beta * C
 inline void MatMultiply(
     const double alpha,
+    const QLTEN_Float *a,
+    const QLTEN_Float *b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const QLTEN_Float beta,
+    QLTEN_Float *c) {
+
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+  const QLTEN_Float alpha_float = static_cast<QLTEN_Float>(alpha);
+
+  auto status = cublasSgemm(
+      handle,
+      CUBLAS_OP_N, CUBLAS_OP_N,
+      n, m, k,
+      &alpha_float,
+      b, n,
+      a, k,
+      &beta,
+      c, n
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasSgemm failed: " << cublasGetErrorString(status) << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 2 * m * n * k;
+#endif
+}
+
+///< C = alpha * A * B + beta * C
+inline void MatMultiply(
+    const double alpha,
+    const QLTEN_ComplexFloat *a,
+    const QLTEN_ComplexFloat *b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const QLTEN_ComplexFloat beta,
+    QLTEN_ComplexFloat *c) {
+
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+  const QLTEN_ComplexFloat alpha_complex(static_cast<QLTEN_Float>(alpha));
+
+  auto status = cublasCgemm(
+      handle,
+      CUBLAS_OP_N, CUBLAS_OP_N,
+      n, m, k,
+      reinterpret_cast<const cuComplex *>(&alpha_complex),
+      reinterpret_cast<const cuComplex *>(b), n,
+      reinterpret_cast<const cuComplex *>(a), k,
+      reinterpret_cast<const cuComplex *>(&beta),
+      reinterpret_cast<cuComplex *>(c), n
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasCgemm failed: " << cublasGetErrorString(status) << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * k * 8;
+#endif
+}
+
+///< C = alpha * A * B + beta * C
+inline void MatMultiply(
+    const double alpha,
     const QLTEN_Complex *a,
     const QLTEN_Complex *b,
     const size_t m,
@@ -701,6 +765,75 @@ inline void MatMultiply(
 
 #ifdef QLTEN_COUNT_FLOPS
   flop += m * n * k * 8;  // Adjust FLOP count based on operations
+#endif
+}
+
+inline void MatMultiply(
+    const double alpha,
+    const QLTEN_Float *a,
+    const cublasOperation_t cblas_transpose_a,
+    const QLTEN_Float *b,
+    const cublasOperation_t cblas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const size_t ldb,
+    const QLTEN_Float beta,
+    QLTEN_Float *c) {
+
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+  const QLTEN_Float alpha_float = static_cast<QLTEN_Float>(alpha);
+
+  auto status = cublasSgemm(
+      handle,
+      cblas_transpose_b, cblas_transpose_a,
+      n, m, k,
+      &alpha_float,
+      b, ldb,
+      a, lda,
+      &beta,
+      c, n
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasSgemm failed!" << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (2 * k + 2);
+#endif
+}
+
+inline void MatMultiply(
+    const double alpha,
+    const QLTEN_ComplexFloat *a,
+    const cublasOperation_t cblas_transpose_a,
+    const QLTEN_ComplexFloat *b,
+    const cublasOperation_t cblas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const size_t ldb,
+    const QLTEN_ComplexFloat beta,
+    QLTEN_ComplexFloat *c) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+  const QLTEN_ComplexFloat alpha_complex(static_cast<QLTEN_Float>(alpha));
+
+  auto status = cublasCgemm(
+      handle,
+      cblas_transpose_b, cblas_transpose_a,
+      n, m, k,
+      reinterpret_cast<const cuComplex *>(&alpha_complex),
+      reinterpret_cast<const cuComplex *>(b), ldb,
+      reinterpret_cast<const cuComplex *>(a), lda,
+      reinterpret_cast<const cuComplex *>(&beta),
+      reinterpret_cast<cuComplex *>(c), n
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasCgemm failed!" << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (8 * k + 8);
 #endif
 }
 

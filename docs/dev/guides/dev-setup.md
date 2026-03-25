@@ -124,7 +124,18 @@ If you enable `QLTEN_USE_GPU=ON`, CMake expects:
 - cuBLAS and cuSOLVER (bundled with CUDA)
 - cuTENSOR (separate package)
 
-Set `CUDAToolkit_ROOT` and `CUTENSOR_ROOT` if they are not in standard locations.
+TensorToolkit's cuTENSOR finder now supports both NVHPC-provided cuTENSOR and
+user-local installs. If auto-discovery fails, set one of:
+
+- `CUTENSOR_ROOT`
+- `CUTENSOR_INCLUDE_DIR` + `CUTENSOR_LIBRARY`
+- `CUDAToolkit_ROOT` for non-standard CUDA installations
+
+Examples:
+
+- NVHPC cluster: `CUTENSOR_ROOT=/opt/nvidia/hpc_sdk/.../math_libs/<cuda-version>/targets/x86_64-linux`
+- local install: `CUTENSOR_ROOT=$HOME/.local/usr`
+- GPU arch override: `QLTEN_CUDA_ARCHITECTURES=90` for H200/Hopper, or a semicolon-separated list for multi-target builds
 
 Notes:
 

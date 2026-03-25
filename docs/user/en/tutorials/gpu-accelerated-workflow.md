@@ -12,6 +12,14 @@ Ensure the following are available:
 - cuBLAS and cuSOLVER (bundled with CUDA)
 - cuTENSOR (separate package)
 
+There are two common deployment models:
+
+- NVHPC cluster: cuTENSOR already lives inside the NVIDIA HPC SDK tree
+- user-local install: cuTENSOR is unpacked under a home-directory prefix such as
+  `${HOME}/.local/usr`
+
+See [Install cuTENSOR without root](../howto/install-cutensor.md) for both flows.
+
 ## 2. Configure CMake
 
 ```bash
@@ -19,9 +27,17 @@ mkdir -p build
 cd build
 cmake .. \
   -DHP_NUMERIC_USE_OPENBLAS=ON \
-  -DQLTEN_USE_GPU=ON \
-  -DCUTENSOR_ROOT=/path/to/cutensor
+  -DQLTEN_USE_GPU=ON
 ```
+
+If you want to pin the generated GPU architectures explicitly, add for example:
+
+```bash
+-DQLTEN_CUDA_ARCHITECTURES=90
+```
+
+For H200/Hopper, `90` is the relevant target. On mixed or newer clusters, use a
+semicolon-separated list such as `90;100` when needed.
 
 The headers are gated by the compile-time macro `USE_GPU`. In this repo,
 `QLTEN_USE_GPU=ON` sets `-DUSE_GPU=1` for tests. If you integrate TensorToolkit

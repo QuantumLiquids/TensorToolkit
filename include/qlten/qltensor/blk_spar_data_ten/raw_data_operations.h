@@ -291,7 +291,8 @@ Complex conjugate for raw data.
 */
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::RawDataConj_(void) {
-  if constexpr (std::is_same<ElemT, QLTEN_Double>::value) {
+  if constexpr (std::is_same<ElemT, QLTEN_Double>::value ||
+                std::is_same<ElemT, QLTEN_Float>::value) {
     // Do nothing
   } else {
 #ifndef  USE_GPU
@@ -916,7 +917,7 @@ __global__
 inline void ElementWiseInvKernel(ElemT *data, size_t size) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
-    data[idx] = 1.0 / data[idx];
+    data[idx] = ElemT(1) / data[idx];
   }
 }
 
@@ -927,7 +928,7 @@ inline void ElementWiseInvKernelWithTolerance(ElemT *data, size_t size, double t
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     ElemT val = data[idx];
-    data[idx] = (qlten::abs(val) < tolerance) ? ElemT(0) : 1.0 / val;
+    data[idx] = (qlten::abs(val) < tolerance) ? ElemT(0) : ElemT(1) / val;
   }
 }
 
@@ -944,7 +945,8 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv() {
 }
 
 template<typename ElemT, typename QNT>
-void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv(double tolerance) {
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv(
+    typename RealTypeTrait<ElemT>::type tolerance) {
   const int threadsPerBlock = 256;
   const int blocks = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
 
@@ -1047,11 +1049,28 @@ inline void ElementWiseSignKernel(double *data, size_t size) {
 }
 
 __global__
+inline void ElementWiseSignKernel(float *data, size_t size) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx] = float(int(0 < data[idx]) - int(data[idx] < 0));
+  }
+}
+
+__global__
 inline void ElementWiseSignKernel(cuda::std::complex<double> *data, size_t size) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     data[idx].real((int(0 < data[idx].real()) - int(data[idx].real() < 0)));
     data[idx].imag((int(0 < data[idx].imag()) - int(data[idx].imag() < 0)));
+  }
+}
+
+__global__
+inline void ElementWiseSignKernel(cuda::std::complex<float> *data, size_t size) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    data[idx].real(float(int(0 < data[idx].real()) - int(data[idx].real() < 0)));
+    data[idx].imag(float(int(0 < data[idx].imag()) - int(data[idx].imag() < 0)));
   }
 }
 

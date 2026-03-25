@@ -18,13 +18,29 @@ test CMake (`find_package(MPI REQUIRED)` in `tests/CMakeLists.txt`).
 ```bash
 cmake .. \
   -DHP_NUMERIC_USE_OPENBLAS=ON \
-  -DQLTEN_USE_GPU=ON \
-  -DCUTENSOR_ROOT=/path/to/cutensor
+  -DQLTEN_USE_GPU=ON
 ```
 
-If your CUDA toolkit is not in a standard location, also set:
+If CUDA or cuTENSOR are not discoverable automatically, set one of:
 
 - `CUDAToolkit_ROOT=/path/to/cuda`
+- `CUTENSOR_ROOT=/path/to/cutensor/prefix`
+- `CUTENSOR_INCLUDE_DIR=/path/to/cutensor/include`
+- `CUTENSOR_LIBRARY=/path/to/libcutensor.so`
+- `QLTEN_CUDA_ARCHITECTURES=90` (or another semicolon-separated list) if you want explicit GPU code generation targets
+
+Typical `CUTENSOR_ROOT` values:
+
+- NVHPC cluster install:
+  `/opt/nvidia/hpc_sdk/.../math_libs/<cuda-version>/targets/x86_64-linux`
+- user-local install:
+  `${HOME}/.local/usr`
+
+See [Install cuTENSOR without root](install-cutensor.md) for cluster-specific examples.
+
+If `QLTEN_CUDA_ARCHITECTURES` is left empty, TensorToolkit defers to
+CMake/NVCC defaults. The `CUDAARCHS` environment variable is also honored by
+CMake.
 
 ## Build and test
 
