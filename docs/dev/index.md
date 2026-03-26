@@ -35,6 +35,8 @@ These docs assume familiarity with:
 ## Start here
 
 - [Architecture overview](design/architecture-overview.md)
+- [CMake package architecture](design/2026-03-25-cmake-package-architecture.md)
 - [Developer setup](guides/dev-setup.md)
+- [Downstream CMake package migration](guides/2026-03-25-downstream-cmake-package-migration.md)
 - [Coding standards](practices/coding-standards.md)
 - [Testing strategy](testing/testing-strategy.md)

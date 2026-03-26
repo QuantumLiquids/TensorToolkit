@@ -1,91 +1,158 @@
 # Build and Install
 
-TensorToolkit is header-only, but it can build and install the bundled HPTT
-library for CPU tensor transpose operations.
+TensorToolkit installs as a CMake package. Downstream projects should consume
+the installed package with `find_package(TensorToolkit CONFIG REQUIRED)` and
+link the imported target instead of manually propagating include directories or
+backend definitions.
 
 ## Prerequisites
 
 - C++17 compiler
 - CMake 3.27+
-- MPI headers (required to compile TensorToolkit headers today)
-- BLAS/LAPACK (required for tensor manipulation, decompositions, and tests)
+- MPI development files
+- One CPU BLAS/LAPACK backend for CPU installs, or the CUDA toolchain plus
+  cuTENSOR for GPU installs
 
-## Quick build and install
+On the cluster nodes used for this repository, source the production
+environment before configuring:
+
+```bash
+source ~/myenv.sh
+```
+
+That environment should provide compiler selection and dependency hints such as
+`CC`, `CXX`, `MKLROOT`, `AOCL_ROOT`, `CUDAToolkit_ROOT`, and cuTENSOR paths when
+needed.
+
+## Install a CPU package
+
+Use a dedicated install prefix for each variant. A CPU install should not share
+the same prefix as a GPU install.
 
 ```bash
 git clone https://github.com/QuantumLiquids/TensorToolkit.git
 cd TensorToolkit
-mkdir -p build
-cd build
 
-cmake .. \
-  -DCMAKE_INSTALL_PREFIX=/path/to/install
-make -j4
-make install
+cmake -S . -B build/package-cpu \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_INSTALL_PREFIX=/path/to/tensortoolkit-cpu \
+  -DQLTEN_USE_GPU=OFF \
+  -DQLTEN_COMPILE_HPTT_LIB=ON \
+  -DQLTEN_BUILD_UNITTEST=OFF \
+  -DQLTEN_BUILD_EXAMPLES=OFF \
+  -DHP_NUMERIC_USE_MKL=ON
+
+cmake --build build/package-cpu -j4
+cmake --install build/package-cpu
 ```
 
-This installs:
+If MKL is not available, replace `-DHP_NUMERIC_USE_MKL=ON` with
+`-DHP_NUMERIC_USE_AOCL=ON` or `-DHP_NUMERIC_USE_OPENBLAS=ON`.
 
-- TensorToolkit headers under `<prefix>/include/qlten/`
-- HPTT (if `QLTEN_COMPILE_HPTT_LIB=ON`, which is the default)
+When `QLTEN_COMPILE_HPTT_LIB=ON`, the CPU install also installs the bundled
+HPTT dependency into the same prefix.
 
-## Common CMake options
+## Install a GPU package
 
-- `-DQLTEN_COMPILE_HPTT_LIB=ON|OFF` to control building the bundled HPTT
-- `-DQLTEN_BUILD_UNITTEST=ON|OFF` to enable tests
-- `-DQLTEN_BUILD_EXAMPLES=ON|OFF` to build example programs
-- `-DQLTEN_USE_GPU=ON|OFF` to enable GPU support (tests/examples)
-
-See [CMake options](../reference/cmake-options.md) for the full list.
-
-## BLAS/LAPACK backend selection (hp_numeric)
-
-TensorToolkit routes BLAS/LAPACK calls through `backend_selector.h`, which
-requires exactly one of these compile definitions:
-
-- `HP_NUMERIC_BACKEND_MKL`
-- `HP_NUMERIC_BACKEND_AOCL`
-- `HP_NUMERIC_BACKEND_OPENBLAS`
-- `HP_NUMERIC_BACKEND_KML` (Huawei Kunpeng Math Library; supported in headers but not wired via a CMake option here)
-
-If you use this repo's CMake for tests or examples, include
-`cmake/Modules/MathBackend.cmake` and set exactly one of:
-
-- `-DHP_NUMERIC_USE_MKL=ON`
-- `-DHP_NUMERIC_USE_AOCL=ON`
-- `-DHP_NUMERIC_USE_OPENBLAS=ON`
-
-`MathBackend.cmake` sets the matching `HP_NUMERIC_BACKEND_*` define and BLAS
-include paths.
-
-If you only build/install headers and HPTT (no tests/examples), you do not need
-to select a backend. The backend macros are required when you compile code that
-uses TensorToolkit's BLAS/LAPACK wrappers (for example, tests, examples, or your
-own application code that includes tensor manipulation headers).
-
-If you enable tests/examples and do not set `HP_NUMERIC_USE_*`, the module will
-auto-select a backend based on CPU vendor. This can fail if MKL/AOCL environment
-variables are not set, so explicit selection (often OpenBLAS) is recommended.
-
-If you integrate TensorToolkit into your own project, define one
-`HP_NUMERIC_BACKEND_*` macro and ensure your BLAS/LAPACK headers and libraries
-are on the include/link paths.
-
-## macOS: OpenMP not found
-
-If CMake reports missing `OpenMP_CXX`, you are likely using Apple Clang.
-Install LLVM via Homebrew and configure CMake to use it:
+GPU installs export a different public dependency set, so they should use a
+different prefix.
 
 ```bash
-brew install llvm
+source ~/myenv.sh
 
-cmake .. \
-  -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm/bin/clang++
+cmake -S . -B build/package-gpu \
+  -DCMAKE_C_COMPILER="$CC" \
+  -DCMAKE_CXX_COMPILER="$CXX" \
+  -DCMAKE_CUDA_COMPILER="$(which nvcc)" \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_INSTALL_PREFIX=/path/to/tensortoolkit-gpu \
+  -DQLTEN_USE_GPU=ON \
+  -DQLTEN_BUILD_UNITTEST=OFF \
+  -DQLTEN_BUILD_EXAMPLES=OFF
+
+cmake --build build/package-gpu -j4
+cmake --install build/package-gpu
 ```
 
-If CMake still fails, rerun the exact same `cmake ..` command once.
+GPU installs require `CUDAToolkit` and `CUTENSOR`. In this mode
+`QLTEN_COMPILE_HPTT_LIB` is forced `OFF`.
+
+To verify the installed-package surface from the configured build tree, run:
+
+- CPU: `cmake --build build/package-cpu --target verify-package-cpu`
+- GPU: `cmake --build build/package-gpu --target verify-package-gpu`
+
+The GPU verifier configures, builds, and runs a downstream smoke consumer, so
+it should be executed on a real GPU node. GitHub CI currently automates only
+the CPU verifier.
+
+## Installed package layout
+
+The standard package metadata is installed under:
+
+```text
+<prefix>/${CMAKE_INSTALL_LIBDIR}/cmake/TensorToolkit
+```
+
+That directory contains `TensorToolkitConfig.cmake`,
+`TensorToolkitConfigVersion.cmake`, `TensorToolkitTargets.cmake`, the package
+dependency helper, and the copied `FindCUTENSOR.cmake` / `Findhptt.cmake`
+modules used by the installed package.
+
+Headers are installed under `<prefix>/include/qlten/`.
+
+## Consume the installed package
+
+Point CMake at the install prefix with `CMAKE_PREFIX_PATH`, or set
+`TensorToolkit_DIR` directly to the package-config directory.
+
+```cmake
+find_package(TensorToolkit CONFIG REQUIRED)
+
+add_executable(my_app main.cc)
+target_link_libraries(my_app PRIVATE TensorToolkit::TensorToolkit)
+```
+
+Example configure command:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_PREFIX_PATH=/path/to/tensortoolkit-cpu
+```
+
+The imported target carries the variant-specific public requirements:
+
+- MPI for all installs
+- CPU BLAS/LAPACK backend definitions and libraries for CPU installs
+- OpenMP when required by the selected CPU backend or bundled HPTT
+- external HPTT discovery when the package was installed with
+  `QLTEN_COMPILE_HPTT_LIB=OFF`
+- CUDA, cuBLAS, cuSOLVER, and cuTENSOR for GPU installs
+- `QLTEN_TIMING_MODE` and `QLTEN_MPI_TIMING_MODE` when those options were
+  enabled in the installed variant
+
+Because those timing macros affect public headers, they are part of the package
+variant properties and should not be toggled separately in downstream code.
+
+If a CPU package was installed with `QLTEN_COMPILE_HPTT_LIB=OFF`, downstream
+consumer configuration must also make HPTT discoverable, either by adding the
+HPTT prefix to `CMAKE_PREFIX_PATH` or by setting `hptt_INCLUDE_DIR` and
+`hptt_LIBRARY`.
+
+## Compatibility variables during migration
+
+The installed package also exposes temporary compatibility variables for
+downstream repos that have not finished migrating:
+
+- `QLTEN_HEADER_PATH`
+- `QLTEN_USE_GPU`
+- `TensorToolkit_USE_GPU`
+
+These shims are transitional only. New downstream code should use
+`TensorToolkit::TensorToolkit`.
 
 ## Next steps
 
 - [Build and run tests](build-and-run-tests.md)
+- [CMake options](../reference/cmake-options.md)
 - [Quick start tutorial](../tutorials/quick-start-trg.md)

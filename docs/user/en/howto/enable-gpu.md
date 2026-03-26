@@ -49,6 +49,12 @@ make -j4
 ctest --output-on-failure
 ```
 
+To verify the installed package surface itself from an existing build tree, run:
+
+```bash
+cmake --build . --target verify-package-gpu
+```
+
 If CMake cannot find MPI while configuring tests, set `MPI_CXX_COMPILER` (or
 adjust `CMAKE_PREFIX_PATH`) to your MPI installation.
 
@@ -56,10 +62,14 @@ adjust `CMAKE_PREFIX_PATH`) to your MPI installation.
 
 - When `QLTEN_USE_GPU=ON`, the bundled HPTT build is disabled automatically.
 - The headers are gated by the compile-time macro `USE_GPU`. In this repo,
-  `QLTEN_USE_GPU=ON` sets `-DUSE_GPU=1` for tests. If you integrate
-  TensorToolkit elsewhere, define `USE_GPU` yourself and link CUDA + cuTENSOR.
+  `QLTEN_USE_GPU=ON` sets `-DUSE_GPU=1` for tests. Downstream package consumers
+  should not define `USE_GPU` or wire CUDA/cuTENSOR manually; install the GPU
+  package and link `TensorToolkit::TensorToolkit` instead.
 - The examples CMake hard-errors if `QLTEN_USE_GPU=ON` (examples are CPU-only).
-- GPU test binaries currently do not link `MPI::MPI_CXX`, but test
-  configuration still requires MPI package/header discovery.
+- GPU test binaries link `MPI::MPI_CXX` because some GPU tests still include MPI
+  wrappers.
+- GitHub CI currently automates the CPU package verifier only. Run
+  `verify-package-gpu` on a real GPU node before treating GPU packaging changes
+  as validated.
 - Ensure your runtime environment can locate CUDA libraries (for example via
   `LD_LIBRARY_PATH` on Linux or `DYLD_LIBRARY_PATH` on macOS).

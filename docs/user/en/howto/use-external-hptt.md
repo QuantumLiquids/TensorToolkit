@@ -32,6 +32,21 @@ cmake .. \
 make -j4
 ```
 
+## Step 4: Consume the installed TensorToolkit package
+
+If you install TensorToolkit with `QLTEN_COMPILE_HPTT_LIB=OFF`, the installed
+package does not vendor HPTT into the TensorToolkit prefix. Downstream
+consumers must also make the external HPTT installation discoverable, for
+example by extending `CMAKE_PREFIX_PATH` with both prefixes:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_PREFIX_PATH="/path/to/tensortoolkit-cpu;/opt/hptt"
+```
+
+You can also continue to use `hptt_INCLUDE_DIR` and `hptt_LIBRARY` directly in
+the downstream configure step.
+
 ## Troubleshooting
 
 - If CMake cannot find HPTT, verify that `hptt.h` and `libhptt.*` exist in the paths you provide.

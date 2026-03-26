@@ -74,3 +74,8 @@ jobs:
         export OMPI_MCA_rmaps_base_oversubscribe=1
         ctest --output-on-failure
 
+    - name: Run CPU Package Verification
+      run: |
+        cd build
+        export OMPI_MCA_rmaps_base_oversubscribe=1
+        cmake --build . --target verify-package-cpu

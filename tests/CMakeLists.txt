@@ -43,31 +43,12 @@ if (QLTEN_USE_GPU)
     # Treat all .cc files in tests/ as CUDA files
     set_source_files_properties(${TEST_SOURCES} PROPERTIES LANGUAGE CUDA)
 else ()
-    if(QLTEN_COMPILE_HPTT_LIB)
-        set(hptt_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/external/hptt/include")
-        set(hptt_LIBRARY "${CMAKE_BINARY_DIR}/external/hptt/libhptt.a")
-    else()
-        find_package(hptt REQUIRED)
-    endif ()
 endif ()
 
 
-include(../cmake/Modules/MathBackend.cmake)
-FIND_PACKAGE(BLAS REQUIRED)
-FIND_PACKAGE(LAPACK REQUIRED)
-
-find_package(MPI REQUIRED)
-
-# Intel MKL multi-thread may conflict with other compiler's OpenMP
-# Close OpenMP if using MKL with other compiler
-# If one must use GCC OpenMP + MKL, one possible solution is to manually static link MKL
-# Relevant discussion : https://stackoverflow.com/questions/54699309/multithreaded-mkl-openmp-compiled-with-gcc
-if (NOT BLA_VENDOR STREQUAL "Intel10_64lp" OR CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
-    find_package(OpenMP REQUIRED)
-    link_libraries(OpenMP::OpenMP_CXX)
+if (QLTEN_USE_GPU)
+    find_package(MPI REQUIRED)
 endif ()
-
-set(MATH_LIB_LINK_FLAGS "BLAS::BLAS;LAPACK::LAPACK")
 
 
 option(TEST_ACTUAL_COMBAT "test the actual examples of mps tensors" OFF)
@@ -88,20 +69,12 @@ if (QLTEN_USE_GPU)
         add_executable(${TEST_NAME}
                 ${TEST_SRC})
 
-        target_include_directories(${TEST_NAME}
-                PRIVATE ${MATH_INCLUDE_DIR}
-                PRIVATE ${QLTEN_HEADER_PATH}
-                PRIVATE ${MPI_CXX_HEADER_DIR}
-        )
         target_link_libraries(${TEST_NAME}
-                PRIVATE CUDA::cublas_static
-                PRIVATE CUDA::cusolver_static
-                PRIVATE CUTENSOR::CUTENSOR
-                PRIVATE MPI::MPI_CXX
+                PRIVATE TensorToolkit::TensorToolkit
                 PRIVATE GTest::GTest GTest::Main
                 "${LINK_LIBS}"
                 PRIVATE "${LINK_LIB_FLAGS}"
-        ) # Some GPU tests include MPI wrappers and still require the MPI link interface.
+        )
 
         add_test(
                 NAME ${TEST_NAME}
@@ -115,14 +88,8 @@ else ()
         add_executable(${TEST_NAME}
                 ${TEST_SRC})
 
-        target_include_directories(${TEST_NAME}
-                PRIVATE ${MATH_INCLUDE_DIR}
-                PRIVATE ${QLTEN_HEADER_PATH}
-                PRIVATE ${hptt_INCLUDE_DIR}
-                PRIVATE ${MPI_CXX_HEADER_DIR})
         target_link_libraries(${TEST_NAME}
-                PRIVATE ${hptt_LIBRARY}
-                PRIVATE MPI::MPI_CXX
+                PRIVATE TensorToolkit::TensorToolkit
                 PRIVATE GTest::GTest GTest::Main
                 "${LINK_LIBS}"
                 PRIVATE "${LINK_LIB_FLAGS}"
@@ -142,15 +109,9 @@ macro(add_mpi_unittest
     add_executable(${TEST_NAME}
             ${TEST_SRC})
 
-    target_include_directories(${TEST_NAME}
-            PRIVATE ${MATH_INCLUDE_DIR}
-            PRIVATE ${QLTEN_HEADER_PATH}
-            PRIVATE ${hptt_INCLUDE_DIR}
-            PRIVATE ${MPI_CXX_HEADER_DIR})
     target_link_libraries(${TEST_NAME}
+            PRIVATE TensorToolkit::TensorToolkit
             PRIVATE GTest::GTest GTest::Main
-            PRIVATE ${hptt_LIBRARY}
-            PRIVATE MPI::MPI_CXX
             "${LINK_LIBS}"
             PRIVATE "${LINK_LIB_FLAGS}"
     )
@@ -171,6 +132,7 @@ add_unittest(test_fz2u1qn "test_qltensor/test_special_qn/test_fz2u1qn.cc" "" "" 
 
 add_unittest(test_fermion_parity_exchange "test_utility/test_fermion_parity_exchange.cc" "" "" "")
 add_unittest(test_mpi_fun "test_utility/test_mpi_fun.cc" "" "" "")
+add_unittest(test_version "test_utility/test_version.cc" "" "" "")
 
 ## Test quantum number related objects
 # Test quantum number vaules
@@ -187,97 +149,97 @@ add_unittest(test_index "test_qltensor/test_index.cc" "" "" "")
 ## Test symmetry-blocked sparse tensor, QLTensor.
 add_unittest(test_qltensor
         "test_qltensor/test_qltensor.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 
 add_unittest(test_qltensor_float
         "test_qltensor/test_qltensor_float.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 
 add_unittest(test_fermion_qltensor
         "test_qltensor/test_fermion_qltensor.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 
 ## Test tensor manipulation functions.
 # Test basic tensor operations.
 add_unittest(test_basic_operations
         "test_tensor_manipulation/test_basic_operations.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 # Test tensor linear combination.
 add_unittest(test_ten_linear_combine
         "test_tensor_manipulation/test_ten_linear_combine.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 # Test tensor contraction.
 add_unittest(test_ten_ctrct
         "test_tensor_manipulation/test_ten_ctrct.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 add_unittest(test_fermion_ten_ctrct
         "test_tensor_manipulation/test_fermion_ten_ctrct.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 #Test tensor restriction contract
 add_unittest(test_ten_ctrct_1sct
         "test_tensor_manipulation/test_ten_ctrct_1sct.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 # Test tensor SVD.
 add_unittest(test_ten_svd
         "test_tensor_manipulation/test_ten_svd.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 # EVD
 add_unittest(test_sym_mat_evd
         "test_tensor_manipulation/test_sym_mat_evd.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 # Test tensor QR.
 add_unittest(test_ten_qr
         "test_tensor_manipulation/test_ten_qr.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 # Test tensor LQ.
 add_unittest(test_ten_lq
         "test_tensor_manipulation/test_ten_lq.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 # Test tensor index combination.
 add_unittest(test_index_combine
         "test_tensor_manipulation/test_index_combine.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 # Test tensor expansion
 add_unittest(test_ten_expand
         "test_tensor_manipulation/test_ten_expand.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 
 # Test tensor fuse index
 add_unittest(test_ten_fuse_index
         "test_tensor_manipulation/test_ten_fuse_index.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 
 # Test tensor block expansion
 add_unittest(test_ten_blk_expand
         "test_tensor_manipulation/test_ten_block_expand.cc"
-        "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}"
+        "" "" ""
 )
 if (NOT QLTEN_USE_GPU)
     # Test tensor communication for mpi
     add_mpi_unittest(test_ten_mpi_basic
             "test_tensor_mpi/test_ten_mpi_basic.cc"
-            "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}" "2"
+            "" "" "" "2"
     )
 
 
     # Test mpi svd performance
     add_mpi_unittest(test_mpi_svd
             "test_tensor_mpi/test_mpi_svd.cc"
-            "${BLAS_INCLUDE_DIRS}" "" "${MATH_LIB_LINK_FLAGS}" "3"
+            "" "" "" "3"
     )
 endif ()

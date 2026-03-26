@@ -29,8 +29,7 @@ ctest --output-on-failure
 Notes:
 
 - `tests/` and `examples/` both call `find_package(MPI REQUIRED)`.
-- Examples and CPU tests link `MPI::MPI_CXX`; GPU tests currently do not link
-  `MPI::MPI_CXX`, but still require MPI package/header discovery.
+- Examples, CPU tests, and GPU tests all currently link `MPI::MPI_CXX`.
 - MPI headers are also required to compile `QLTensor` today, because
   `include/qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h` includes
   `include/qlten/framework/hp_numeric/mpi_fun.h`, which includes `mpi.h`.
@@ -140,9 +139,12 @@ Examples:
 Notes:
 
 - The headers are gated by the compile-time macro `USE_GPU`. In this repo,
-  `QLTEN_USE_GPU=ON` sets `-DUSE_GPU=1` for the test targets. If you integrate
-  TensorToolkit into another project, define `USE_GPU` yourself and link against
-  CUDA + cuTENSOR. See `docs/user/en/howto/enable-gpu.md`.
+  `QLTEN_USE_GPU=ON` sets `-DUSE_GPU=1` for the test targets. Downstream
+  projects should prefer the installed-package flow with
+  `find_package(TensorToolkit CONFIG REQUIRED)` and
+  `target_link_libraries(... PRIVATE TensorToolkit::TensorToolkit)` rather than
+  defining `USE_GPU` and wiring CUDA/cuTENSOR manually. See
+  `docs/user/en/howto/enable-gpu.md`.
 
 ## Where to look in the code
 

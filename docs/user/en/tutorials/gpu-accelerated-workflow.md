@@ -40,8 +40,16 @@ For H200/Hopper, `90` is the relevant target. On mixed or newer clusters, use a
 semicolon-separated list such as `90;100` when needed.
 
 The headers are gated by the compile-time macro `USE_GPU`. In this repo,
-`QLTEN_USE_GPU=ON` sets `-DUSE_GPU=1` for tests. If you integrate TensorToolkit
-elsewhere, define `USE_GPU` yourself and link CUDA + cuTENSOR.
+`QLTEN_USE_GPU=ON` sets `-DUSE_GPU=1` for tests. For downstream projects, prefer
+the installed-package flow:
+
+```cmake
+find_package(TensorToolkit CONFIG REQUIRED)
+target_link_libraries(my_target PRIVATE TensorToolkit::TensorToolkit)
+```
+
+The GPU package target carries the required CUDA/cuBLAS/cuSOLVER/cuTENSOR usage
+requirements for the installed variant.
 
 If your CUDA install is non-standard:
 
@@ -60,6 +68,12 @@ make -j4
 ctest --output-on-failure
 ```
 
+To verify the installed GPU package from the current build tree:
+
+```bash
+cmake --build . --target verify-package-gpu
+```
+
 ## 4. Validate performance
 
 For GPU-heavy workloads, compare GPU and CPU outputs on a small tensor first,
@@ -72,3 +86,5 @@ then scale up. This helps catch configuration issues early.
 - Make sure your runtime environment can locate CUDA libraries (for example via
   `LD_LIBRARY_PATH` on Linux or `DYLD_LIBRARY_PATH` on macOS).
 - If you are on a shared cluster, confirm which CUDA and cuTENSOR modules are supported.
+- GitHub CI currently automates only the CPU package verifier. GPU package
+  verification is expected to run on a real GPU node.

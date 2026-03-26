@@ -8,8 +8,7 @@
 #ifndef QLTEN_QLTEN_H
 #define QLTEN_QLTEN_H
 
-#define QLTEN_VERSION_MAJOR "0"
-#define QLTEN_VERSION_MINOR "1"
+#include "qlten/version.h"
 
 #include "qlten/framework/consts.h"
 #include "qlten/qltensor_all.h"

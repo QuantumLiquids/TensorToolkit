@@ -1,0 +1,283 @@
+set(_qlten_saved_cmake_module_path "${CMAKE_MODULE_PATH}")
+list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/modules")
+
+function(_qlten_reset_var _name _was_defined _value)
+  if (${_was_defined})
+    set(${_name} "${_value}" PARENT_SCOPE)
+  else ()
+    unset(${_name} PARENT_SCOPE)
+  endif ()
+endfunction()
+
+function(_qlten_collect_cpu_backend_details _vendor _include_out _lapacke_out)
+  set(_qlten_include_dirs "")
+  set(_qlten_search_roots "")
+
+  foreach(_qlten_lib IN LISTS BLAS_LIBRARIES LAPACK_LIBRARIES)
+    get_filename_component(_qlten_lib_dir "${_qlten_lib}" DIRECTORY)
+    if (_qlten_lib_dir)
+      get_filename_component(_qlten_prefix1 "${_qlten_lib_dir}/.." ABSOLUTE)
+      get_filename_component(_qlten_prefix2 "${_qlten_lib_dir}/../.." ABSOLUTE)
+      list(APPEND _qlten_search_roots
+        "${_qlten_lib_dir}"
+        "${_qlten_prefix1}"
+        "${_qlten_prefix2}")
+    endif ()
+  endforeach ()
+  list(REMOVE_DUPLICATES _qlten_search_roots)
+
+  if (_vendor STREQUAL "Intel10_64lp")
+    if (DEFINED ENV{MKLROOT} AND NOT "$ENV{MKLROOT}" STREQUAL "")
+      list(APPEND _qlten_search_roots "$ENV{MKLROOT}")
+    endif ()
+    find_path(_qlten_mkl_include_dir
+      NAMES mkl.h
+      HINTS ${_qlten_search_roots}
+      PATH_SUFFIXES include include/oneapi)
+    if (NOT _qlten_mkl_include_dir)
+      message(FATAL_ERROR "TensorToolkit requires mkl.h for the installed MKL-backed variant.")
+    endif ()
+    list(APPEND _qlten_include_dirs "${_qlten_mkl_include_dir}")
+  elseif (_vendor STREQUAL "AOCL_mt")
+    if (DEFINED ENV{AOCL_ROOT} AND NOT "$ENV{AOCL_ROOT}" STREQUAL "")
+      list(APPEND _qlten_search_roots "$ENV{AOCL_ROOT}")
+    endif ()
+  elseif (_vendor STREQUAL "OpenBLAS")
+    list(APPEND _qlten_search_roots
+      "$ENV{OpenBLAS_ROOT}"
+      "$ENV{LAPACK_ROOT}"
+      "/usr"
+      "/usr/local"
+      "/opt/homebrew/opt/openblas"
+      "/opt/homebrew/opt/lapack")
+  endif ()
+
+  if (NOT _vendor STREQUAL "Intel10_64lp")
+    find_path(_qlten_cblas_include_dir
+      NAMES cblas.h
+      HINTS ${_qlten_search_roots}
+      PATH_SUFFIXES include include/openblas)
+    find_path(_qlten_lapacke_include_dir
+      NAMES lapacke.h
+      HINTS ${_qlten_search_roots}
+      PATH_SUFFIXES include include/openblas)
+
+    if (NOT _qlten_cblas_include_dir OR NOT _qlten_lapacke_include_dir)
+      message(FATAL_ERROR
+        "TensorToolkit requires cblas.h and lapacke.h for the installed ${_vendor} variant.")
+    endif ()
+
+    list(APPEND _qlten_include_dirs
+      "${_qlten_cblas_include_dir}"
+      "${_qlten_lapacke_include_dir}")
+
+    unset(_qlten_lapacke_library CACHE)
+    unset(_qlten_lapacke_library)
+    find_library(_qlten_lapacke_library
+      NAMES lapacke
+      HINTS ${_qlten_search_roots}
+      PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu)
+    if (_vendor STREQUAL "OpenBLAS" AND NOT _qlten_lapacke_library)
+      message(FATAL_ERROR
+        "TensorToolkit requires a LAPACKE library for the installed OpenBLAS variant.")
+    endif ()
+  endif ()
+
+  list(REMOVE_DUPLICATES _qlten_include_dirs)
+  set(${_include_out} "${_qlten_include_dirs}" PARENT_SCOPE)
+  set(${_lapacke_out} "${_qlten_lapacke_library}" PARENT_SCOPE)
+endfunction()
+
+function(_qlten_find_mpi_probe _out_var)
+  set(_qlten_mpi_probe "")
+
+  if (DEFINED MPI_CXX_COMPILER AND NOT MPI_CXX_COMPILER STREQUAL "")
+    set(_qlten_mpi_probe "${MPI_CXX_COMPILER}")
+  elseif (NOT "@MPI_CXX_COMPILER@" STREQUAL "" AND EXISTS "@MPI_CXX_COMPILER@")
+    set(_qlten_mpi_probe "@MPI_CXX_COMPILER@")
+  else ()
+    find_program(_qlten_mpi_probe
+      NAMES mpicxx mpic++
+      HINTS "$ENV{MPI_HOME}" "$ENV{OMPI_HOME}"
+      PATH_SUFFIXES bin)
+  endif ()
+
+  set(${_out_var} "${_qlten_mpi_probe}" PARENT_SCOPE)
+endfunction()
+
+function(_qlten_prepare_mpi_discovery)
+  if (NOT MPI_CXX_COMPILER)
+    _qlten_find_mpi_probe(_qlten_mpi_wrapper)
+    if (_qlten_mpi_wrapper)
+      set(MPI_CXX_COMPILER "${_qlten_mpi_wrapper}" CACHE FILEPATH
+        "MPI C++ wrapper compiler" FORCE)
+    endif ()
+  endif ()
+
+  if (NOT MPI_CXX_HEADER_DIR)
+    _qlten_find_mpi_probe(_qlten_mpi_probe)
+    if (_qlten_mpi_probe)
+      execute_process(
+        COMMAND "${_qlten_mpi_probe}" --showme:compile
+        OUTPUT_VARIABLE _qlten_mpi_compile_flags
+        RESULT_VARIABLE _qlten_mpi_probe_result
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+      )
+      if (_qlten_mpi_probe_result EQUAL 0
+          AND _qlten_mpi_compile_flags MATCHES "(^| )-I([^ ]+)")
+        set(MPI_CXX_HEADER_DIR "${CMAKE_MATCH_2}" CACHE PATH
+          "MPI header directory" FORCE)
+      endif ()
+    endif ()
+  endif ()
+endfunction()
+
+function(_qlten_find_nvhpc_pgmath _out_var)
+  set(_qlten_pgmath_library "")
+  set(_qlten_pgmath_hints "")
+
+  if (NOT "@QLTEN_NVHPC_PGMATH_LIBRARY@" STREQUAL "")
+    if (EXISTS "@QLTEN_NVHPC_PGMATH_LIBRARY@")
+      set(_qlten_pgmath_library "@QLTEN_NVHPC_PGMATH_LIBRARY@")
+    else ()
+      get_filename_component(_qlten_recorded_pgmath_dir "@QLTEN_NVHPC_PGMATH_LIBRARY@" DIRECTORY)
+      list(APPEND _qlten_pgmath_hints "${_qlten_recorded_pgmath_dir}")
+    endif ()
+  endif ()
+
+  if (NOT _qlten_pgmath_library)
+    foreach(_qlten_env_hint IN ITEMS NVHPC_ROOT NVHPCSDK NVHPC)
+      if (DEFINED ENV{${_qlten_env_hint}} AND NOT "$ENV{${_qlten_env_hint}}" STREQUAL "")
+        list(APPEND _qlten_pgmath_hints "$ENV{${_qlten_env_hint}}")
+      endif ()
+    endforeach ()
+
+    if (CMAKE_CXX_COMPILER)
+      get_filename_component(_qlten_cxx_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+      get_filename_component(_qlten_cxx_root1 "${_qlten_cxx_bin_dir}/.." ABSOLUTE)
+      get_filename_component(_qlten_cxx_root2 "${_qlten_cxx_bin_dir}/../.." ABSOLUTE)
+      list(APPEND _qlten_pgmath_hints "${_qlten_cxx_root1}" "${_qlten_cxx_root2}")
+    endif ()
+
+    list(REMOVE_DUPLICATES _qlten_pgmath_hints)
+
+    find_file(_qlten_pgmath_static
+      NAMES libpgmath.a
+      HINTS ${_qlten_pgmath_hints}
+      PATH_SUFFIXES lib compilers/lib)
+    if (_qlten_pgmath_static)
+      set(_qlten_pgmath_library "${_qlten_pgmath_static}")
+    else ()
+      find_library(_qlten_pgmath_library
+        NAMES pgmath
+        HINTS ${_qlten_pgmath_hints}
+        PATH_SUFFIXES lib compilers/lib)
+    endif ()
+  endif ()
+
+  set(${_out_var} "${_qlten_pgmath_library}" PARENT_SCOPE)
+endfunction()
+
+_qlten_prepare_mpi_discovery()
+find_dependency(MPI REQUIRED)
+
+set(_qlten_package_bla_vendor "@QLTEN_HP_NUMERIC_BLA_VENDOR@")
+if (_qlten_package_bla_vendor)
+  set(_qlten_had_bla_vendor FALSE)
+  set(_qlten_saved_bla_vendor "")
+  if (DEFINED BLA_VENDOR)
+    set(_qlten_had_bla_vendor TRUE)
+    set(_qlten_saved_bla_vendor "${BLA_VENDOR}")
+  endif ()
+
+  if (_qlten_package_bla_vendor)
+    if (_qlten_had_bla_vendor
+        AND NOT _qlten_saved_bla_vendor STREQUAL ""
+        AND NOT _qlten_saved_bla_vendor STREQUAL "${_qlten_package_bla_vendor}")
+      message(FATAL_ERROR
+        "TensorToolkit was built with BLA_VENDOR='${_qlten_package_bla_vendor}', "
+        "but the consumer requested BLA_VENDOR='${_qlten_saved_bla_vendor}'.")
+    endif ()
+    set(BLA_VENDOR "${_qlten_package_bla_vendor}")
+  endif ()
+
+  find_dependency(BLAS REQUIRED)
+  find_dependency(LAPACK REQUIRED)
+
+  _qlten_reset_var(BLA_VENDOR _qlten_had_bla_vendor "${_qlten_saved_bla_vendor}")
+
+  if (NOT TARGET BLAS::BLAS)
+    add_library(BLAS::BLAS INTERFACE IMPORTED)
+    set_target_properties(BLAS::BLAS PROPERTIES
+      INTERFACE_LINK_LIBRARIES "${BLAS_LIBRARIES}")
+  endif ()
+
+  if (NOT TARGET LAPACK::LAPACK)
+    add_library(LAPACK::LAPACK INTERFACE IMPORTED)
+    set_target_properties(LAPACK::LAPACK PROPERTIES
+      INTERFACE_LINK_LIBRARIES "${LAPACK_LIBRARIES}")
+  endif ()
+
+  _qlten_collect_cpu_backend_details(
+    "${_qlten_package_bla_vendor}"
+    _qlten_cpu_backend_include_dirs
+    _qlten_lapacke_library)
+
+  if(@QLTEN_NEEDS_OPENMP@)
+    find_dependency(OpenMP REQUIRED)
+  endif ()
+
+  if (NOT TARGET qlten_cpu_backend_deps)
+    add_library(qlten_cpu_backend_deps INTERFACE IMPORTED)
+  endif ()
+  set_target_properties(qlten_cpu_backend_deps PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${_qlten_cpu_backend_include_dirs}")
+
+  if (_qlten_lapacke_library AND NOT TARGET qlten_external_lapacke)
+    add_library(qlten_external_lapacke UNKNOWN IMPORTED)
+    set_target_properties(qlten_external_lapacke PROPERTIES
+      IMPORTED_LOCATION "${_qlten_lapacke_library}")
+    set_property(TARGET qlten_cpu_backend_deps APPEND PROPERTY
+      INTERFACE_LINK_LIBRARIES qlten_external_lapacke)
+  endif ()
+
+endif ()
+
+if(@QLTEN_USE_GPU@)
+  find_dependency(CUDAToolkit REQUIRED)
+  find_dependency(CUTENSOR REQUIRED)
+else ()
+  if(NOT @QLTEN_BUNDLES_HPTT@)
+    find_dependency(hptt REQUIRED)
+
+    set(_qlten_hptt_include_dirs "${hptt_INCLUDE_DIRS}")
+    if (NOT _qlten_hptt_include_dirs)
+      set(_qlten_hptt_include_dirs "${hptt_INCLUDE_DIR}")
+    endif ()
+
+    if (NOT TARGET qlten_external_hptt)
+      add_library(qlten_external_hptt UNKNOWN IMPORTED)
+      set_target_properties(qlten_external_hptt PROPERTIES
+        IMPORTED_LOCATION "${hptt_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${_qlten_hptt_include_dirs}")
+    endif ()
+  endif ()
+
+  if (@QLTEN_BUNDLES_HPTT@ AND "@CMAKE_CXX_COMPILER_ID@" STREQUAL "NVHPC")
+    _qlten_find_nvhpc_pgmath(_qlten_pgmath_library)
+    if (_qlten_pgmath_library STREQUAL "")
+      message(FATAL_ERROR
+        "TensorToolkit requires the NVHPC pgmath runtime to consume the bundled "
+        "HPTT archive. Set NVHPC_ROOT/NVHPC/NVHPCSDK or make pgmath discoverable.")
+    endif ()
+
+    if (NOT TARGET qlten_hptt_runtime)
+      add_library(qlten_hptt_runtime INTERFACE IMPORTED)
+      set_target_properties(qlten_hptt_runtime PROPERTIES
+        INTERFACE_LINK_LIBRARIES "${_qlten_pgmath_library}")
+    endif ()
+  endif ()
+endif ()
+
+set(CMAKE_MODULE_PATH "${_qlten_saved_cmake_module_path}")

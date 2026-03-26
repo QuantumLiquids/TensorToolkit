@@ -1,0 +1,24 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+include("${CMAKE_CURRENT_LIST_DIR}/TensorToolkitDependencies.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/TensorToolkitTargets.cmake")
+
+if (TARGET qlten_cpu_backend_deps)
+  set_property(TARGET TensorToolkit::TensorToolkit APPEND PROPERTY
+    INTERFACE_LINK_LIBRARIES qlten_cpu_backend_deps)
+endif ()
+
+if (TARGET qlten_external_lapacke)
+  set_property(TARGET TensorToolkit::TensorToolkit APPEND PROPERTY
+    INTERFACE_LINK_LIBRARIES qlten_external_lapacke)
+endif ()
+
+if (TARGET qlten_hptt_runtime AND TARGET TensorToolkit::hptt)
+  set_property(TARGET TensorToolkit::hptt APPEND PROPERTY
+    INTERFACE_LINK_LIBRARIES qlten_hptt_runtime)
+endif ()
+
+set_and_check(QLTEN_HEADER_PATH "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+set(QLTEN_USE_GPU @QLTEN_USE_GPU@)
+set(TensorToolkit_USE_GPU @QLTEN_USE_GPU@)
