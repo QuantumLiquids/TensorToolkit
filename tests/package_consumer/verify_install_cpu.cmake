@@ -16,6 +16,7 @@ set(_qlten_verify_root "/tmp/qlten-verify-cpu-${_qlten_verify_suffix}")
 set(package_build_dir "${_qlten_verify_root}/package-build")
 set(package_prefix "${_qlten_verify_root}/prefix")
 set(consumer_build_dir "${_qlten_verify_root}/consumer-build")
+get_filename_component(_qlten_source_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 
 message(STATUS "TensorToolkit CPU package verification root: ${_qlten_verify_root}")
 
@@ -87,6 +88,16 @@ execute_process(
 )
 if (NOT install_result EQUAL 0)
   message(FATAL_ERROR "TensorToolkit CPU package install failed: ${install_result}")
+endif ()
+
+set(_qlten_installed_targets_file
+  "${package_prefix}/lib/cmake/TensorToolkit/TensorToolkitTargets.cmake")
+file(READ "${_qlten_installed_targets_file}" _qlten_installed_targets)
+string(FIND "${_qlten_installed_targets}" "${_qlten_source_root}" _qlten_source_root_pos)
+if (NOT _qlten_source_root_pos EQUAL -1)
+  message(FATAL_ERROR
+    "TensorToolkit CPU package export leaked the source tree into "
+    "${_qlten_installed_targets_file}.")
 endif ()
 
 set(_qlten_consumer_configure_args

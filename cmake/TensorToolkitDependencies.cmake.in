@@ -9,9 +9,60 @@ function(_qlten_reset_var _name _was_defined _value)
   endif ()
 endfunction()
 
+function(_qlten_list_entries_exist _out_var)
+  set(_qlten_all_exist TRUE)
+  foreach(_qlten_entry IN LISTS ARGN)
+    if (_qlten_entry STREQUAL ""
+        OR _qlten_entry MATCHES "^-"
+        OR _qlten_entry MATCHES "^\\$<")
+      continue ()
+    endif ()
+
+    if (NOT EXISTS "${_qlten_entry}")
+      set(_qlten_all_exist FALSE)
+      break ()
+    endif ()
+  endforeach ()
+
+  set(${_out_var} "${_qlten_all_exist}" PARENT_SCOPE)
+endfunction()
+
 function(_qlten_collect_cpu_backend_details _vendor _include_out _lapacke_out)
   set(_qlten_include_dirs "")
   set(_qlten_search_roots "")
+  set(_qlten_recorded_blas_include_dirs "@QLTEN_HP_NUMERIC_BLAS_INCLUDE_DIRS@")
+  set(_qlten_recorded_lapacke_include_dir "@QLTEN_HP_NUMERIC_LAPACKE_INCLUDE_DIR@")
+  set(_qlten_recorded_lapacke_library "@QLTEN_HP_NUMERIC_LAPACKE_LIBRARY@")
+
+  foreach(_qlten_recorded_include_dir IN LISTS _qlten_recorded_blas_include_dirs)
+    if (_qlten_recorded_include_dir)
+      list(APPEND _qlten_search_roots "${_qlten_recorded_include_dir}")
+      get_filename_component(_qlten_recorded_prefix1 "${_qlten_recorded_include_dir}/.." ABSOLUTE)
+      get_filename_component(_qlten_recorded_prefix2 "${_qlten_recorded_include_dir}/../.." ABSOLUTE)
+      list(APPEND _qlten_search_roots
+        "${_qlten_recorded_prefix1}"
+        "${_qlten_recorded_prefix2}")
+    endif ()
+  endforeach ()
+  if (_qlten_recorded_lapacke_include_dir)
+    list(APPEND _qlten_search_roots "${_qlten_recorded_lapacke_include_dir}")
+    get_filename_component(_qlten_recorded_lapacke_prefix1 "${_qlten_recorded_lapacke_include_dir}/.." ABSOLUTE)
+    get_filename_component(_qlten_recorded_lapacke_prefix2 "${_qlten_recorded_lapacke_include_dir}/../.." ABSOLUTE)
+    list(APPEND _qlten_search_roots
+      "${_qlten_recorded_lapacke_prefix1}"
+      "${_qlten_recorded_lapacke_prefix2}")
+  endif ()
+  if (_qlten_recorded_lapacke_library)
+    get_filename_component(_qlten_recorded_lapacke_lib_dir "${_qlten_recorded_lapacke_library}" DIRECTORY)
+    if (_qlten_recorded_lapacke_lib_dir)
+      get_filename_component(_qlten_recorded_lapacke_root1 "${_qlten_recorded_lapacke_lib_dir}/.." ABSOLUTE)
+      get_filename_component(_qlten_recorded_lapacke_root2 "${_qlten_recorded_lapacke_lib_dir}/../.." ABSOLUTE)
+      list(APPEND _qlten_search_roots
+        "${_qlten_recorded_lapacke_lib_dir}"
+        "${_qlten_recorded_lapacke_root1}"
+        "${_qlten_recorded_lapacke_root2}")
+    endif ()
+  endif ()
 
   foreach(_qlten_lib IN LISTS BLAS_LIBRARIES LAPACK_LIBRARIES)
     get_filename_component(_qlten_lib_dir "${_qlten_lib}" DIRECTORY)
@@ -30,10 +81,19 @@ function(_qlten_collect_cpu_backend_details _vendor _include_out _lapacke_out)
     if (DEFINED ENV{MKLROOT} AND NOT "$ENV{MKLROOT}" STREQUAL "")
       list(APPEND _qlten_search_roots "$ENV{MKLROOT}")
     endif ()
-    find_path(_qlten_mkl_include_dir
-      NAMES mkl.h
-      HINTS ${_qlten_search_roots}
-      PATH_SUFFIXES include include/oneapi)
+    set(_qlten_mkl_include_dir "")
+    foreach(_qlten_recorded_include_dir IN LISTS _qlten_recorded_blas_include_dirs)
+      if (EXISTS "${_qlten_recorded_include_dir}/mkl.h")
+        set(_qlten_mkl_include_dir "${_qlten_recorded_include_dir}")
+        break ()
+      endif ()
+    endforeach ()
+    if (NOT _qlten_mkl_include_dir)
+      find_path(_qlten_mkl_include_dir
+        NAMES mkl.h
+        HINTS ${_qlten_search_roots}
+        PATH_SUFFIXES include include/oneapi)
+    endif ()
     if (NOT _qlten_mkl_include_dir)
       message(FATAL_ERROR "TensorToolkit requires mkl.h for the installed MKL-backed variant.")
     endif ()
@@ -53,14 +113,51 @@ function(_qlten_collect_cpu_backend_details _vendor _include_out _lapacke_out)
   endif ()
 
   if (NOT _vendor STREQUAL "Intel10_64lp")
-    find_path(_qlten_cblas_include_dir
-      NAMES cblas.h
-      HINTS ${_qlten_search_roots}
-      PATH_SUFFIXES include include/openblas)
-    find_path(_qlten_lapacke_include_dir
-      NAMES lapacke.h
-      HINTS ${_qlten_search_roots}
-      PATH_SUFFIXES include include/openblas)
+    set(_qlten_cblas_include_dir "")
+    if (_vendor STREQUAL "OpenBLAS")
+      foreach(_qlten_recorded_include_dir IN LISTS _qlten_recorded_blas_include_dirs)
+        if (EXISTS "${_qlten_recorded_include_dir}/cblas.h"
+            AND EXISTS "${_qlten_recorded_include_dir}/openblas_config.h")
+          set(_qlten_cblas_include_dir "${_qlten_recorded_include_dir}")
+          break ()
+        endif ()
+      endforeach ()
+      if (NOT _qlten_cblas_include_dir)
+        find_path(_qlten_cblas_include_dir
+          NAMES openblas_config.h
+          HINTS ${_qlten_search_roots}
+          PATH_SUFFIXES include include/openblas)
+        if (_qlten_cblas_include_dir
+            AND NOT EXISTS "${_qlten_cblas_include_dir}/cblas.h")
+          unset(_qlten_cblas_include_dir CACHE)
+          unset(_qlten_cblas_include_dir)
+        endif ()
+      endif ()
+    else ()
+      foreach(_qlten_recorded_include_dir IN LISTS _qlten_recorded_blas_include_dirs)
+        if (EXISTS "${_qlten_recorded_include_dir}/cblas.h")
+          set(_qlten_cblas_include_dir "${_qlten_recorded_include_dir}")
+          break ()
+        endif ()
+      endforeach ()
+      if (NOT _qlten_cblas_include_dir)
+        find_path(_qlten_cblas_include_dir
+          NAMES cblas.h
+          HINTS ${_qlten_search_roots}
+          PATH_SUFFIXES include include/openblas)
+      endif ()
+    endif ()
+
+    set(_qlten_lapacke_include_dir "")
+    if (_qlten_recorded_lapacke_include_dir
+        AND EXISTS "${_qlten_recorded_lapacke_include_dir}/lapacke.h")
+      set(_qlten_lapacke_include_dir "${_qlten_recorded_lapacke_include_dir}")
+    else ()
+      find_path(_qlten_lapacke_include_dir
+        NAMES lapacke.h
+        HINTS ${_qlten_search_roots}
+        PATH_SUFFIXES include include/openblas)
+    endif ()
 
     if (NOT _qlten_cblas_include_dir OR NOT _qlten_lapacke_include_dir)
       message(FATAL_ERROR
@@ -71,12 +168,17 @@ function(_qlten_collect_cpu_backend_details _vendor _include_out _lapacke_out)
       "${_qlten_cblas_include_dir}"
       "${_qlten_lapacke_include_dir}")
 
-    unset(_qlten_lapacke_library CACHE)
-    unset(_qlten_lapacke_library)
-    find_library(_qlten_lapacke_library
-      NAMES lapacke
-      HINTS ${_qlten_search_roots}
-      PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu)
+    set(_qlten_lapacke_library "")
+    if (_qlten_recorded_lapacke_library AND EXISTS "${_qlten_recorded_lapacke_library}")
+      set(_qlten_lapacke_library "${_qlten_recorded_lapacke_library}")
+    else ()
+      unset(_qlten_lapacke_library CACHE)
+      unset(_qlten_lapacke_library)
+      find_library(_qlten_lapacke_library
+        NAMES lapacke
+        HINTS ${_qlten_search_roots}
+        PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu)
+    endif ()
     if (_vendor STREQUAL "OpenBLAS" AND NOT _qlten_lapacke_library)
       message(FATAL_ERROR
         "TensorToolkit requires a LAPACKE library for the installed OpenBLAS variant.")
@@ -184,6 +286,8 @@ find_dependency(MPI REQUIRED)
 
 set(_qlten_package_bla_vendor "@QLTEN_HP_NUMERIC_BLA_VENDOR@")
 if (_qlten_package_bla_vendor)
+  set(_qlten_recorded_blas_libraries "@BLAS_LIBRARIES@")
+  set(_qlten_recorded_lapack_libraries "@LAPACK_LIBRARIES@")
   set(_qlten_had_bla_vendor FALSE)
   set(_qlten_saved_bla_vendor "")
   if (DEFINED BLA_VENDOR)
@@ -202,8 +306,18 @@ if (_qlten_package_bla_vendor)
     set(BLA_VENDOR "${_qlten_package_bla_vendor}")
   endif ()
 
-  find_dependency(BLAS REQUIRED)
-  find_dependency(LAPACK REQUIRED)
+  _qlten_list_entries_exist(_qlten_recorded_blas_exist ${_qlten_recorded_blas_libraries})
+  _qlten_list_entries_exist(_qlten_recorded_lapack_exist ${_qlten_recorded_lapack_libraries})
+
+  # Reuse the producer-resolved libraries when they remain valid so external
+  # consumers do not depend on host-specific FindBLAS/FindLAPACK rediscovery.
+  if (_qlten_recorded_blas_exist AND _qlten_recorded_lapack_exist)
+    set(BLAS_LIBRARIES "${_qlten_recorded_blas_libraries}")
+    set(LAPACK_LIBRARIES "${_qlten_recorded_lapack_libraries}")
+  else ()
+    find_dependency(BLAS REQUIRED)
+    find_dependency(LAPACK REQUIRED)
+  endif ()
 
   _qlten_reset_var(BLA_VENDOR _qlten_had_bla_vendor "${_qlten_saved_bla_vendor}")
 

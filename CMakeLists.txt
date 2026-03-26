@@ -147,10 +147,12 @@ target_compile_definitions(TensorToolkit
 )
 
 if (QLTEN_HP_NUMERIC_PUBLIC_INCLUDE_DIRS)
-    target_include_directories(TensorToolkit
-            INTERFACE
-            $<BUILD_INTERFACE:${QLTEN_HP_NUMERIC_PUBLIC_INCLUDE_DIRS}>
-    )
+    foreach(_qlten_hp_numeric_include_dir IN LISTS QLTEN_HP_NUMERIC_PUBLIC_INCLUDE_DIRS)
+        target_include_directories(TensorToolkit
+                INTERFACE
+                $<BUILD_INTERFACE:${_qlten_hp_numeric_include_dir}>
+        )
+    endforeach ()
 endif ()
 
 target_link_libraries(TensorToolkit
@@ -238,23 +240,16 @@ else ()
             set(_qlten_hptt_include_dirs "${hptt_INCLUDE_DIR}")
         endif ()
 
-        if (NOT TARGET qlten_external_hptt)
-            add_library(qlten_external_hptt UNKNOWN IMPORTED)
-            set_target_properties(qlten_external_hptt PROPERTIES
+        if (NOT TARGET qlten_build_hptt)
+            add_library(qlten_build_hptt UNKNOWN IMPORTED)
+            set_target_properties(qlten_build_hptt PROPERTIES
                     IMPORTED_LOCATION "${hptt_LIBRARY}"
                     INTERFACE_INCLUDE_DIRECTORIES "${_qlten_hptt_include_dirs}")
         endif ()
 
-        if (_qlten_hptt_include_dirs)
-            target_include_directories(TensorToolkit
-                    INTERFACE
-                    $<BUILD_INTERFACE:${_qlten_hptt_include_dirs}>
-            )
-        endif ()
-
         target_link_libraries(TensorToolkit
                 INTERFACE
-                qlten_external_hptt
+                $<BUILD_INTERFACE:qlten_build_hptt>
         )
     endif ()
 endif ()
