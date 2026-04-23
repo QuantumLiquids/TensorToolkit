@@ -17,6 +17,20 @@ endif()
 add_executable(qlten_package_smoke "${qlten_package_smoke_source}")
 target_link_libraries(qlten_package_smoke PRIVATE TensorToolkit::TensorToolkit)
 
+set(_qlten_consumer_expects_openmp OFF)
+get_target_property(_qlten_tt_link_libs TensorToolkit::TensorToolkit INTERFACE_LINK_LIBRARIES)
+if(_qlten_tt_link_libs)
+  foreach(_qlten_link_item IN LISTS _qlten_tt_link_libs)
+    if(_qlten_link_item MATCHES "OpenMP::OpenMP_CXX")
+      set(_qlten_consumer_expects_openmp ON)
+      break()
+    endif()
+  endforeach()
+endif()
+if(_qlten_consumer_expects_openmp)
+  target_compile_definitions(qlten_package_smoke PRIVATE QLTEN_EXPECT_OPENMP=1)
+endif()
+
 enable_testing()
 add_test(
   NAME qlten_package_smoke

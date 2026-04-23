@@ -17,6 +17,9 @@
 #include <cassert>
 #include <omp.h>
 
+#include "qlten/framework/hp_numeric/backend_selector.h"
+#include "qlten/framework/hp_numeric/ten_trans.h"
+
 namespace qlten {
 /// High performance numerical functions.
 namespace hp_numeric {
@@ -29,8 +32,12 @@ inline void SetTensorManipulationThreads(unsigned thread) {
   assert(thread > 0);
   tensor_manipulation_num_threads = thread;
   tensor_transpose_num_threads = thread;
-#ifdef HP_NUMERIC_BACKEND_INTEL
+#ifdef HP_NUMERIC_BACKEND_MKL
   mkl_set_num_threads(thread);
+#if defined(_OPENMP)
+  // Keep MKL and OpenMP runtimes aligned when OpenMP is enabled.
+  omp_set_num_threads(thread);
+#endif
 #elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
   openblas_set_num_threads(thread);
 #elif defined(HP_NUMERIC_BACKEND_AOCL)

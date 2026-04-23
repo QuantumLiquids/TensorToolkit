@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 namespace {
@@ -11,6 +12,32 @@ using MpiFinalizeFn = int (*)();
 
 volatile MpiInitFn kMpiInitRef = &MPI_Init;
 volatile MpiFinalizeFn kMpiFinalizeRef = &MPI_Finalize;
+
+constexpr int kBackendMacroCount =
+#if defined(HP_NUMERIC_BACKEND_MKL)
+    1
+#else
+    0
+#endif
+#if defined(HP_NUMERIC_BACKEND_AOCL)
+    + 1
+#else
+    + 0
+#endif
+#if defined(HP_NUMERIC_BACKEND_OPENBLAS)
+    + 1;
+#else
+    + 0;
+#endif
+
+static_assert(kBackendMacroCount == 1,
+              "Exactly one HP_NUMERIC_BACKEND_* macro must be defined.");
+
+#if defined(HP_NUMERIC_BACKEND_MKL) && defined(QLTEN_EXPECT_OPENMP)
+#if !defined(_OPENMP)
+#error "MKL consumers expecting OpenMP must receive OpenMP compile flags."
+#endif
+#endif
 
 }  // namespace
 
@@ -23,6 +50,34 @@ int main(int argc, char **argv) {
   (void)kMpiFinalizeRef;
 
   qlten::hp_numeric::SetTensorManipulationThreads(1);
+  if (qlten::hp_numeric::GetTensorManipulationThreads() != 1) {
+    return 1;
+  }
+
+#if defined(HP_NUMERIC_BACKEND_MKL)
+  if (std::string(hp_numeric_backend::Vendor()) != "intel") {
+    return 1;
+  }
+  if (mkl_get_max_threads() != 1) {
+    return 1;
+  }
+#if defined(QLTEN_EXPECT_OPENMP)
+  if (omp_get_max_threads() != 1) {
+    return 1;
+  }
+#endif
+#elif defined(HP_NUMERIC_BACKEND_AOCL)
+  if (std::string(hp_numeric_backend::Vendor()) != "amd") {
+    return 1;
+  }
+  if (omp_get_max_threads() != 1) {
+    return 1;
+  }
+#elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
+  if (std::string(hp_numeric_backend::Vendor()) != "openblas") {
+    return 1;
+  }
+#endif
 
   std::vector<size_t> input_shape{2, 2};
   std::vector<int> transpose_order{1, 0};
