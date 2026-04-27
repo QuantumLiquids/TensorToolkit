@@ -30,6 +30,7 @@ where:
 #include "qlten/tensor_manipulation/ten_decomp/ten_qr.h"    // GenMidQNSects, QRDataBlkInfo
 
 #include <algorithm>    // min
+#include <stdexcept>    // runtime_error
 
 #ifdef Release
   #define NDEBUG
@@ -124,6 +125,12 @@ void TensorLQExecutor<TenElemT, QNT>::Execute(void) {
   auto idx_raw_data_lq_res = pt_->GetBlkSparDataTen().DataBlkDecompLQ(
                                  idx_ten_decomp_data_blk_mat_map_
                              );
+  if (idx_raw_data_lq_res.empty()) {
+    throw std::runtime_error(
+        "LQ failed: empty result. The input tensor has no data blocks "
+        "compatible with the specified quantum number divergence (lqndiv)."
+    );
+  }
   ConstructLQResTens_(idx_raw_data_lq_res);
   DeleteDataBlkMatLqResMap(idx_raw_data_lq_res);
 

@@ -185,6 +185,13 @@ TEST_F(TestLq, 2DCase) {
   RunTestLqCase(zten_2d_s, 1, &qnm2);
 }
 
+TEST_F(TestLq, EmptyInputThrows) {
+  DQLTensor l, q;
+  EXPECT_THROW(LQ(&dten_2d_s, 1, qn0, &l, &q), std::runtime_error);
+  EXPECT_TRUE(l.IsDefault());
+  EXPECT_TRUE(q.IsDefault());
+}
+
 
 // ============================================================================
 // 3D Tensor Tests
@@ -391,4 +398,3 @@ TEST_F(TestLq, MPSRightCanonTest) {
   Contract(&q, &q_dag, {{1, 2}, {1, 2}}, &id_check);
   CheckIsIdTen(id_check);
 }
-
