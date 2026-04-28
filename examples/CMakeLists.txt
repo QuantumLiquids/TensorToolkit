@@ -11,9 +11,11 @@ endif ()
 add_executable(z2_ising_vertex z2_ising_tensor.cpp)
 target_link_libraries(z2_ising_vertex
     PRIVATE TensorToolkit::TensorToolkit
+    PRIVATE qlten_build_options
 )
 
 add_executable(z2_ising_trg z2_ising_trg.cpp)
 target_link_libraries(z2_ising_trg
     PRIVATE TensorToolkit::TensorToolkit
+    PRIVATE qlten_build_options
 )

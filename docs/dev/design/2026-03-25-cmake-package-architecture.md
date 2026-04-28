@@ -187,6 +187,8 @@ dependencies. In practice this includes:
 - build-only cache variables
 - machine-local probe results that are not part of the package interface
 - build-local warning/debug flags such as `-Wall` or `-g`
+- diagnostic instrumentation macros such as `QLTEN_TIMING_MODE` and
+  `QLTEN_MPI_TIMING_MODE`; downstream targets should opt in privately
 - duplicated downstream integration instructions that should instead live on the
   imported target
 

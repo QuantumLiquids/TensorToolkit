@@ -1,5 +1,9 @@
 #include "qlten/qlten.h"
 
+#if defined(QLTEN_TIMING_MODE) || defined(QLTEN_MPI_TIMING_MODE)
+#error "TensorToolkit package consumers should opt in to timing macros explicitly."
+#endif
+
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>

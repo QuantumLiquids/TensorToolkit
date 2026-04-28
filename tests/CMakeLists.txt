@@ -71,6 +71,7 @@ if (QLTEN_USE_GPU)
 
         target_link_libraries(${TEST_NAME}
                 PRIVATE TensorToolkit::TensorToolkit
+                PRIVATE qlten_build_options
                 PRIVATE GTest::GTest GTest::Main
                 "${LINK_LIBS}"
                 PRIVATE "${LINK_LIB_FLAGS}"
@@ -90,6 +91,7 @@ else ()
 
         target_link_libraries(${TEST_NAME}
                 PRIVATE TensorToolkit::TensorToolkit
+                PRIVATE qlten_build_options
                 PRIVATE GTest::GTest GTest::Main
                 "${LINK_LIBS}"
                 PRIVATE "${LINK_LIB_FLAGS}"
@@ -111,6 +113,7 @@ macro(add_mpi_unittest
 
     target_link_libraries(${TEST_NAME}
             PRIVATE TensorToolkit::TensorToolkit
+            PRIVATE qlten_build_options
             PRIVATE GTest::GTest GTest::Main
             "${LINK_LIBS}"
             PRIVATE "${LINK_LIB_FLAGS}"

@@ -29,8 +29,8 @@ option(QLTEN_COMPILE_HPTT_LIB "Compile hptt library; Invalid if Use GPU" ON)
 option(QLTEN_BUILD_UNITTEST "Build unittests for TensorKit." OFF)
 option(QLTEN_BUILD_EXAMPLES "Build examples." OFF)
 
-option(QLTEN_TIMING_MODE "Enable Timing mode." ON)
-option(QLTEN_MPI_TIMING_MODE "Enable MPI timing mode." ON)
+option(QLTEN_TIMING_MODE "Enable timing instrumentation for in-tree targets." OFF)
+option(QLTEN_MPI_TIMING_MODE "Enable MPI timing instrumentation for in-tree targets." OFF)
 
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/Modules")
@@ -97,9 +97,14 @@ target_include_directories(TensorToolkit
 )
 target_compile_definitions(TensorToolkit
         INTERFACE
+        $<$<BOOL:${QLTEN_USE_GPU}>:USE_GPU=1>
+)
+
+add_library(qlten_build_options INTERFACE)
+target_compile_definitions(qlten_build_options
+        INTERFACE
         $<$<BOOL:${QLTEN_TIMING_MODE}>:QLTEN_TIMING_MODE>
         $<$<BOOL:${QLTEN_MPI_TIMING_MODE}>:QLTEN_MPI_TIMING_MODE>
-        $<$<BOOL:${QLTEN_USE_GPU}>:USE_GPU=1>
 )
 
 qlten_prepare_mpi_discovery()
@@ -310,12 +315,6 @@ install(FILES
         cmake/Modules/Findhptt.cmake
         DESTINATION "${QLTEN_PACKAGE_CONFIG_DIR}/modules")
 
-if (NOT QLTEN_USE_GPU AND (QLTEN_BUILD_UNITTEST OR QLTEN_BUILD_EXAMPLES))
-    # Keep current in-tree CPU consumers building until Task 3 moves them to
-    # explicit TensorToolkit::TensorToolkit usage.
-    link_libraries(TensorToolkit::TensorToolkit)
-endif ()
-
 set(QLTEN_VERIFY_MPI_CXX_WRAPPER "")
 if (DEFINED MPI_CXX_COMPILER AND NOT MPI_CXX_COMPILER STREQUAL "")
     set(QLTEN_VERIFY_MPI_CXX_WRAPPER "${MPI_CXX_COMPILER}")
@@ -354,8 +353,8 @@ add_custom_target(verify-package-cpu
         -DQLTEN_VERIFY_COMPILE_HPTT_LIB:BOOL=${QLTEN_COMPILE_HPTT_LIB}
         -DQLTEN_VERIFY_HPTT_INCLUDE_DIR:PATH=${QLTEN_VERIFY_HPTT_INCLUDE_DIR}
         -DQLTEN_VERIFY_HPTT_LIBRARY:FILEPATH=${QLTEN_VERIFY_HPTT_LIBRARY}
-        -DQLTEN_VERIFY_TIMING_MODE:BOOL=${QLTEN_TIMING_MODE}
-        -DQLTEN_VERIFY_MPI_TIMING_MODE:BOOL=${QLTEN_MPI_TIMING_MODE}
+        -DQLTEN_VERIFY_TIMING_MODE:BOOL=ON
+        -DQLTEN_VERIFY_MPI_TIMING_MODE:BOOL=ON
         -DQLTEN_VERIFY_MPI_CXX_COMPILER:FILEPATH=${QLTEN_VERIFY_MPI_CXX_WRAPPER}
         -DQLTEN_VERIFY_CONSUMER_CXX_COMPILER:FILEPATH=${QLTEN_VERIFY_CONSUMER_CXX_COMPILER}
         -P ${PROJECT_SOURCE_DIR}/tests/package_consumer/verify_install_cpu.cmake
@@ -368,8 +367,8 @@ add_custom_target(verify-package-gpu
         -DQLTEN_VERIFY_CXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER}
         -DQLTEN_VERIFY_CPU_BACKEND_ARG:STRING=${QLTEN_VERIFY_CPU_BACKEND_ARG}
         -DQLTEN_VERIFY_CUDA_COMPILER:FILEPATH=${CMAKE_CUDA_COMPILER}
-        -DQLTEN_VERIFY_TIMING_MODE:BOOL=${QLTEN_TIMING_MODE}
-        -DQLTEN_VERIFY_MPI_TIMING_MODE:BOOL=${QLTEN_MPI_TIMING_MODE}
+        -DQLTEN_VERIFY_TIMING_MODE:BOOL=ON
+        -DQLTEN_VERIFY_MPI_TIMING_MODE:BOOL=ON
         -DQLTEN_VERIFY_CUDA_ARCHITECTURES:STRING=${QLTEN_CUDA_ARCHITECTURES}
         -DQLTEN_VERIFY_CUTENSOR_INCLUDE_DIR:PATH=${CUTENSOR_INCLUDE_DIR}
         -DQLTEN_VERIFY_CUTENSOR_LIBRARY:FILEPATH=${CUTENSOR_LIBRARY}

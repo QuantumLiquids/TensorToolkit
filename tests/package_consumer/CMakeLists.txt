@@ -9,6 +9,18 @@ endif()
 
 find_package(TensorToolkit CONFIG REQUIRED)
 
+get_target_property(_qlten_tt_compile_defs
+  TensorToolkit::TensorToolkit INTERFACE_COMPILE_DEFINITIONS)
+if(_qlten_tt_compile_defs)
+  foreach(_qlten_compile_def IN LISTS _qlten_tt_compile_defs)
+    if(_qlten_compile_def MATCHES "(^|[<:])QLTEN(_MPI)?_TIMING_MODE($|[>:])")
+      message(FATAL_ERROR
+        "TensorToolkit::TensorToolkit must not force timing macros on consumers: "
+        "${_qlten_compile_def}")
+    endif()
+  endforeach()
+endif()
+
 set(qlten_package_smoke_source smoke_cpu.cc)
 if(QLTEN_PACKAGE_CONSUMER_ENABLE_GPU)
   set(qlten_package_smoke_source smoke_gpu.cu)

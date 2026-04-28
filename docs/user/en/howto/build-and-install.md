@@ -128,11 +128,14 @@ The imported target carries the variant-specific public requirements:
 - external HPTT discovery when the package was installed with
   `QLTEN_COMPILE_HPTT_LIB=OFF`
 - CUDA, cuBLAS, cuSOLVER, and cuTENSOR for GPU installs
-- `QLTEN_TIMING_MODE` and `QLTEN_MPI_TIMING_MODE` when those options were
-  enabled in the installed variant
 
-Because those timing macros affect public headers, they are part of the package
-variant properties and should not be toggled separately in downstream code.
+Timing instrumentation macros are not part of the package interface. If a
+downstream target needs timing prints from TensorToolkit inline headers, opt in
+locally:
+
+```cmake
+target_compile_definitions(my_target PRIVATE QLTEN_TIMING_MODE QLTEN_MPI_TIMING_MODE)
+```
 
 If a CPU package was installed with `QLTEN_COMPILE_HPTT_LIB=OFF`, downstream
 consumer configuration must also make HPTT discoverable, either by adding the

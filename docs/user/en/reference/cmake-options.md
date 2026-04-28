@@ -12,12 +12,17 @@ that affect the installed package surface.
 | `QLTEN_COMPILE_HPTT_LIB` | `ON` | Build and install the bundled HPTT library for CPU transpose operations. Forced `OFF` when `QLTEN_USE_GPU=ON`. |
 | `QLTEN_BUILD_UNITTEST` | `OFF` | Build unit tests. The package verification targets are top-level targets and do not depend on this option. |
 | `QLTEN_BUILD_EXAMPLES` | `OFF` | Build the CPU-only example programs in `examples/`. |
-| `QLTEN_TIMING_MODE` | `ON` | Export `QLTEN_TIMING_MODE` through the installed package. |
-| `QLTEN_MPI_TIMING_MODE` | `ON` | Export `QLTEN_MPI_TIMING_MODE` through the installed package. |
+| `QLTEN_TIMING_MODE` | `OFF` | Enable `QLTEN_TIMING_MODE` for targets built inside this source tree. This is not exported through the installed package. |
+| `QLTEN_MPI_TIMING_MODE` | `OFF` | Enable `QLTEN_MPI_TIMING_MODE` for targets built inside this source tree. This is not exported through the installed package. |
 
-Because `QLTEN_TIMING_MODE` and `QLTEN_MPI_TIMING_MODE` gate public header
-behavior, they are part of the installed package variant and should not be
-overridden separately in downstream builds.
+`QLTEN_TIMING_MODE` and `QLTEN_MPI_TIMING_MODE` only enable diagnostic timing
+prints in inline header code. They are intentionally not part of the installed
+package interface. Downstream projects that want this instrumentation should opt
+in on their own targets, for example:
+
+```cmake
+target_compile_definitions(my_target PRIVATE QLTEN_TIMING_MODE QLTEN_MPI_TIMING_MODE)
+```
 
 ## CPU backend options
 
