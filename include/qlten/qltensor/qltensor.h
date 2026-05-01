@@ -555,6 +555,9 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   /** @brief Whether any element is NaN. */
   bool HasNan(void) const;
 
+  /** @brief Whether every tensor element is finite. */
+  bool AllFinite(void) const;
+
   /** @brief Actual number of stored elements in block-sparse buffer. */
   size_t GetActualDataSize(void) const;
 

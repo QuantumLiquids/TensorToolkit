@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -110,6 +111,24 @@ int main(int argc, char **argv) {
   }
   if (std::abs(host_s[0] - 5.464985704219043) > 1e-8
       || std::abs(host_s[1] - 0.365966190626257) > 1e-8) {
+    return 1;
+  }
+
+  using U1QN = qlten::QN<qlten::U1QNVal>;
+  using IndexT = qlten::Index<U1QN>;
+  using QNSectorT = qlten::QNSector<U1QN>;
+  U1QN qn0({qlten::QNCard("qn", qlten::U1QNVal(0))});
+  QNSectorT qnsct0(qn0, 4);
+  IndexT idx({qnsct0}, qlten::TenIndexDirType::OUT);
+  qlten::QLTensor<qlten::QLTEN_Double, U1QN> tensor({idx});
+  tensor.Fill(qn0, 1.0);
+  if (!tensor.AllFinite()) {
+    std::fprintf(stderr, "AllFinite rejected finite CUDA tensor data.\n");
+    return 1;
+  }
+  tensor(2) = std::numeric_limits<qlten::QLTEN_Double>::infinity();
+  if (tensor.AllFinite()) {
+    std::fprintf(stderr, "AllFinite accepted non-finite CUDA tensor data.\n");
     return 1;
   }
 

@@ -20,6 +20,13 @@
 #include <cstring>      // memcpy
 #include <cstdint>      // uint8_t, uint64_t
 #include <stdexcept>    // runtime_error
+#include <type_traits>  // is_same_v
+
+#ifdef USE_GPU
+#include <thrust/device_ptr.h>        // device_pointer_cast
+#include <thrust/execution_policy.h>  // device
+#include <thrust/logical.h>           // all_of
+#endif
 
 #include "qlten/framework/hp_numeric/mpi_fun.h"
 
@@ -903,6 +910,41 @@ inline bool is_nan(const std::complex<double> &value) {
   return std::isnan(value.real()) || std::isnan(value.imag());
 }
 
+#ifdef USE_GPU
+#define QLTEN_HOST_DEVICE __host__ __device__
+#else
+#define QLTEN_HOST_DEVICE
+#endif
+
+template<typename ScalarT>
+QLTEN_HOST_DEVICE inline bool IsFiniteScalar(const ScalarT &value) {
+  if constexpr (std::is_same_v<ScalarT, QLTEN_Complex> ||
+                std::is_same_v<ScalarT, QLTEN_ComplexFloat>) {
+#ifdef USE_GPU
+    return ::isfinite(value.real()) && ::isfinite(value.imag());
+#else
+    return std::isfinite(value.real()) && std::isfinite(value.imag());
+#endif
+  } else {
+#ifdef USE_GPU
+    return ::isfinite(value);
+#else
+    return std::isfinite(value);
+#endif
+  }
+}
+
+#ifdef USE_GPU
+template<typename ScalarT>
+struct IsFiniteScalarPredicate {
+  __host__ __device__ bool operator()(const ScalarT &value) const {
+    return IsFiniteScalar(value);
+  }
+};
+#endif
+
+#undef QLTEN_HOST_DEVICE
+
 template<typename ElemT, typename QNT>
 bool QLTensor<ElemT, QNT>::HasNan() const {
   const ElemT *raw_data = pblk_spar_data_ten_->GetActualRawDataPtr();
@@ -912,6 +954,34 @@ bool QLTensor<ElemT, QNT>::HasNan() const {
     }
   }
   return false;
+}
+
+template<typename ElemT, typename QNT>
+bool QLTensor<ElemT, QNT>::AllFinite() const {
+  if (IsDefault()) {
+    return true;
+  }
+  const size_t raw_data_size = pblk_spar_data_ten_->GetActualRawDataSize();
+  if (raw_data_size == 0) {
+    return true;
+  }
+#ifndef USE_GPU
+  const ElemT *raw_data = pblk_spar_data_ten_->GetActualRawDataPtr();
+  for (size_t i = 0; i < raw_data_size; i++) {
+    if (!IsFiniteScalar(raw_data[i])) {
+      return false;
+    }
+  }
+  return true;
+#else
+  auto raw_data = thrust::device_pointer_cast(
+      pblk_spar_data_ten_->GetActualRawDataPtr());
+  return thrust::all_of(
+      thrust::device,
+      raw_data,
+      raw_data + raw_data_size,
+      IsFiniteScalarPredicate<ElemT>());
+#endif
 }
 
 template<typename ElemT, typename QNT>

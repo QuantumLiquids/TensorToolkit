@@ -10,6 +10,7 @@
 #include "gtest/gtest.h"
 #include <type_traits>
 #include <complex>
+#include <limits>
 
 //#define PLAIN_TRANSPOSE 1
 
@@ -1163,6 +1164,34 @@ TEST_F(TestQLTensor, ElementWiseSquaredNorm) {
   EXPECT_NE(result.GetActualDataSize(), 0);
   EXPECT_EQ(result.Rank(), dten_copy_test.Rank());
   EXPECT_EQ(result.GetShape(), dten_copy_test.GetShape());
+}
+
+TEST_F(TestQLTensor, AllFinite) {
+  EXPECT_TRUE(dten_default.AllFinite());
+  EXPECT_TRUE(dten_1d_s.AllFinite());
+  EXPECT_TRUE(zten_1d_s.AllFinite());
+
+  dten_scalar() = 1.0f;
+  EXPECT_TRUE(dten_scalar.AllFinite());
+  dten_scalar() = std::numeric_limits<QLTEN_Float>::infinity();
+  EXPECT_FALSE(dten_scalar.AllFinite());
+
+  DQLTensor dten_1d_test(dten_1d_s);
+  dten_1d_test.Fill(qn0, 1.0f);
+  EXPECT_TRUE(dten_1d_test.AllFinite());
+  dten_1d_test(3) = std::numeric_limits<QLTEN_Float>::quiet_NaN();
+  EXPECT_FALSE(dten_1d_test.AllFinite());
+
+  zten_scalar() = QLTEN_ComplexFloat(1.0f, 2.0f);
+  EXPECT_TRUE(zten_scalar.AllFinite());
+  zten_scalar() = QLTEN_ComplexFloat(
+      std::numeric_limits<QLTEN_Float>::infinity(),
+      0.0f);
+  EXPECT_FALSE(zten_scalar.AllFinite());
+  zten_scalar() = QLTEN_ComplexFloat(
+      0.0f,
+      std::numeric_limits<QLTEN_Float>::quiet_NaN());
+  EXPECT_FALSE(zten_scalar.AllFinite());
 }
 
 TEST_F(TestQLTensor, ElementWiseClipTo) {
