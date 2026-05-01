@@ -651,6 +651,18 @@ QLTensor<ElemT, QNT> ElementWiseMultiply(const QLTensor<ElemT, QNT> &lhs, const 
   return res;
 }
 
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> ElementWiseShiftedDivideBy(
+    const QLTensor<ElemT, QNT> &lhs,
+    const QLTensor<ElemT, QNT> &rhs,
+    const ElemT shift,
+    const typename RealTypeTrait<ElemT>::type tolerance = typename RealTypeTrait<ElemT>::type(0)
+) {
+  QLTensor<ElemT, QNT> res(lhs);
+  res.ElementWiseShiftedDivideBy(rhs, shift, tolerance);
+  return res;
+}
+
 /**
 Element-wise multiplication of two tensors.
 The two tensors must have exactly the same indices.
@@ -669,6 +681,33 @@ void QLTensor<ElemT, QNT>::ElementWiseMultiply(const QLTensor &rhs) {
   }
   assert(Div() == rhs.Div());
   pblk_spar_data_ten_->ElementWiseMultiply(*rhs.pblk_spar_data_ten_);
+}
+
+template<typename ElemT, typename QNT>
+template<typename BinaryOp>
+void QLTensor<ElemT, QNT>::ElementWiseBinaryAssignByLhsLayout(
+    const QLTensor &rhs,
+    const ElemT &rhs_default,
+    BinaryOp op
+) {
+  assert(!(IsDefault() || rhs.IsDefault()));
+  assert(indexes_ == rhs.indexes_);
+  pblk_spar_data_ten_->ElementWiseBinaryAssignByLhsLayout(
+      *rhs.pblk_spar_data_ten_,
+      rhs_default,
+      op
+  );
+}
+
+template<typename ElemT, typename QNT>
+void QLTensor<ElemT, QNT>::ElementWiseShiftedDivideBy(
+    const QLTensor &rhs,
+    const ElemT shift,
+    typename RealTypeTrait<ElemT>::type tolerance
+) {
+  assert(!(IsDefault() || rhs.IsDefault()));
+  assert(indexes_ == rhs.indexes_);
+  pblk_spar_data_ten_->ElementWiseShiftedDivideBy(*rhs.pblk_spar_data_ten_, shift, tolerance);
 }
 
 template<typename ElemT, typename QNT>

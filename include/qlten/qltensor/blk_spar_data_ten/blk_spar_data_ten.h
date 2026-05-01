@@ -294,6 +294,19 @@ class BlockSparseDataTensor : public Streamable {
 
   void ElementWiseMultiply(const BlockSparseDataTensor &);
 
+  template<typename BinaryOp>
+  void ElementWiseBinaryAssignByLhsLayout(
+      const BlockSparseDataTensor &,
+      const ElemT &,
+      BinaryOp
+  );
+
+  void ElementWiseShiftedDivideBy(
+      const BlockSparseDataTensor &,
+      const ElemT,
+      typename RealTypeTrait<ElemT>::type tolerance = typename RealTypeTrait<ElemT>::type(0)
+  );
+
   void ElementWiseSqrt(void);
 
   void ElementWiseSquare(void);

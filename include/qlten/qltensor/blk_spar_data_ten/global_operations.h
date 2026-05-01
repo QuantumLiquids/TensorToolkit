@@ -27,6 +27,7 @@
 #include <map>              // map
 #include <unordered_set>    // unordered_set
 #include <set>              // set
+#include <stdexcept>        // runtime_error
 
 #ifdef Release
 #define NDEBUG
@@ -104,6 +105,182 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseMultiply(const BlockSparseDat
       );
     }
   }
+}
+
+#ifdef USE_GPU
+template<typename ElemT, typename RealT>
+__global__
+inline void ElementWiseShiftedDivideKernel(
+    ElemT *lhs_data,
+    const ElemT *rhs_data,
+    const size_t size,
+    const ElemT shift,
+    const RealT tolerance
+) {
+  const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    const ElemT denominator = shift - rhs_data[idx];
+    lhs_data[idx] = (qlten::abs(denominator) < tolerance)
+                    ? ElemT(0)
+                    : lhs_data[idx] / denominator;
+  }
+}
+
+template<typename ElemT, typename RealT>
+__global__
+inline void ElementWiseShiftedDivideDefaultKernel(
+    ElemT *lhs_data,
+    const size_t size,
+    const ElemT shift,
+    const ElemT rhs_default,
+    const RealT tolerance
+) {
+  const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    const ElemT denominator = shift - rhs_default;
+    lhs_data[idx] = (qlten::abs(denominator) < tolerance)
+                    ? ElemT(0)
+                    : lhs_data[idx] / denominator;
+  }
+}
+#endif
+
+template<typename ElemT, typename QNT>
+template<typename BinaryOp>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBinaryAssignByLhsLayout(
+    const BlockSparseDataTensor &rhs,
+    const ElemT &rhs_default,
+    BinaryOp op
+) {
+  assert(ten_rank == rhs.ten_rank);
+  assert(blk_shape == rhs.blk_shape);
+
+#ifdef USE_GPU
+  (void) rhs_default;
+  (void) op;
+  throw std::runtime_error(
+      "ElementWiseBinaryAssignByLhsLayout with an arbitrary host callable "
+      "is not supported in GPU builds."
+  );
+#else
+  if (IsScalar()) {
+    if (actual_raw_data_size_ == 0) {
+      return;
+    }
+    const ElemT rhs_elem = (rhs.actual_raw_data_size_ == 0)
+                           ? rhs_default
+                           : rhs.pactual_raw_data_[0];
+    pactual_raw_data_[0] = op(pactual_raw_data_[0], rhs_elem);
+    return;
+  }
+
+  for (auto &[blk_idx, data_blk] : blk_idx_data_blk_map_) {
+    const auto rhs_it = rhs.blk_idx_data_blk_map_.find(blk_idx);
+    const size_t data_offset = data_blk.data_offset;
+    const size_t data_size = data_blk.size;
+    int ompth = hp_numeric::tensor_manipulation_num_threads;
+
+    if (rhs_it == rhs.blk_idx_data_blk_map_.end()) {
+#pragma omp parallel for default(none) \
+                shared(pactual_raw_data_, rhs_default, op, data_offset, data_size)\
+                num_threads(ompth)\
+                schedule(static)
+      for (size_t i = 0; i < data_size; ++i) {
+        pactual_raw_data_[data_offset + i] = op(
+            pactual_raw_data_[data_offset + i],
+            rhs_default
+        );
+      }
+    } else {
+      const auto &rhs_data_blk = rhs_it->second;
+      assert(data_blk.shape == rhs_data_blk.shape);
+      assert(data_blk.size == rhs_data_blk.size);
+      const ElemT *rhs_data = rhs.pactual_raw_data_ + rhs_data_blk.data_offset;
+#pragma omp parallel for default(none) \
+                shared(pactual_raw_data_, rhs_data, op, data_offset, data_size)\
+                num_threads(ompth)\
+                schedule(static)
+      for (size_t i = 0; i < data_size; ++i) {
+        pactual_raw_data_[data_offset + i] = op(pactual_raw_data_[data_offset + i], rhs_data[i]);
+      }
+    }
+  }
+#endif
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseShiftedDivideBy(
+    const BlockSparseDataTensor &rhs,
+    const ElemT shift,
+    typename RealTypeTrait<ElemT>::type tolerance
+) {
+  assert(ten_rank == rhs.ten_rank);
+  assert(blk_shape == rhs.blk_shape);
+
+#ifndef USE_GPU
+  ElementWiseBinaryAssignByLhsLayout(
+      rhs,
+      ElemT(0),
+      [shift, tolerance](const ElemT lhs_elem, const ElemT rhs_elem) {
+        const ElemT denominator = shift - rhs_elem;
+        return (qlten::abs(denominator) < tolerance)
+               ? ElemT(0)
+               : lhs_elem / denominator;
+      }
+  );
+#else
+  const int threads_per_block = 256;
+  if (IsScalar()) {
+    if (actual_raw_data_size_ == 0) {
+      return;
+    }
+    if (rhs.actual_raw_data_size_ == 0) {
+      ElementWiseShiftedDivideDefaultKernel<<<1, threads_per_block>>>(
+          pactual_raw_data_,
+          actual_raw_data_size_,
+          shift,
+          ElemT(0),
+          tolerance
+      );
+    } else {
+      ElementWiseShiftedDivideKernel<<<1, threads_per_block>>>(
+          pactual_raw_data_,
+          rhs.pactual_raw_data_,
+          actual_raw_data_size_,
+          shift,
+          tolerance
+      );
+    }
+    cudaDeviceSynchronize();
+    return;
+  }
+
+  for (auto &[blk_idx, data_blk] : blk_idx_data_blk_map_) {
+    const int blocks = (data_blk.size + threads_per_block - 1) / threads_per_block;
+    const auto rhs_it = rhs.blk_idx_data_blk_map_.find(blk_idx);
+    if (rhs_it == rhs.blk_idx_data_blk_map_.end()) {
+      ElementWiseShiftedDivideDefaultKernel<<<blocks, threads_per_block>>>(
+          pactual_raw_data_ + data_blk.data_offset,
+          data_blk.size,
+          shift,
+          ElemT(0),
+          tolerance
+      );
+    } else {
+      const auto &rhs_data_blk = rhs_it->second;
+      assert(data_blk.shape == rhs_data_blk.shape);
+      assert(data_blk.size == rhs_data_blk.size);
+      ElementWiseShiftedDivideKernel<<<blocks, threads_per_block>>>(
+          pactual_raw_data_ + data_blk.data_offset,
+          rhs.pactual_raw_data_ + rhs_data_blk.data_offset,
+          data_blk.size,
+          shift,
+          tolerance
+      );
+    }
+  }
+  cudaDeviceSynchronize();
+#endif
 }
 
 /**

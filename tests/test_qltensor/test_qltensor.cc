@@ -1314,6 +1314,54 @@ TEST_F(TestQLTensor, ElementWiseSqrt) {
   EXPECT_EQ(result.GetShape(), dten_copy_test.GetShape());
 }
 
+TEST_F(TestQLTensor, ElementWiseBinaryAssignByLhsLayoutUsesDefaultForMissingRhsBlocks) {
+  DQLTensor lhs(dten_2d_s);
+  lhs.SetElemByQNSector({qnm1, qnm1}, {0, 1}, 2.0);
+  lhs.SetElemByQNSector({qn0, qn0}, {1, 2}, 3.0);
+
+  DQLTensor rhs(dten_2d_s);
+  rhs.SetElemByQNSector({qn0, qn0}, {1, 2}, 7.0);
+  rhs.SetElemByQNSector({qnp1, qnp1}, {2, 3}, 11.0);
+
+  const size_t lhs_blk_num = lhs.GetQNBlkNum();
+  const size_t lhs_data_size = lhs.GetActualDataSize();
+
+  lhs.ElementWiseBinaryAssignByLhsLayout(
+      rhs,
+      5.0,
+      [](const QLTEN_Double lhs_elem, const QLTEN_Double rhs_elem) {
+        return lhs_elem + rhs_elem;
+      }
+  );
+
+  EXPECT_EQ(lhs.GetQNBlkNum(), lhs_blk_num);
+  EXPECT_EQ(lhs.GetActualDataSize(), lhs_data_size);
+  EXPECT_NEAR(lhs.GetElem({0, 1}), 7.0, 1e-10);
+  EXPECT_NEAR(lhs.GetElem({4, 5}), 10.0, 1e-10);
+  EXPECT_EQ(lhs.GetElem({9, 10}), 0.0);
+}
+
+TEST_F(TestQLTensor, ElementWiseShiftedDivideByUsesZeroForMissingRhsBlocks) {
+  DQLTensor residual(dten_2d_s);
+  residual.SetElemByQNSector({qnm1, qnm1}, {0, 0}, 8.0);
+  residual.SetElemByQNSector({qn0, qn0}, {1, 2}, 12.0);
+  residual.SetElemByQNSector({qnp1, qnp1}, {2, 3}, 21.0);
+
+  DQLTensor diagonal(dten_2d_s);
+  diagonal.SetElemByQNSector({qn0, qn0}, {1, 2}, 3.0);
+
+  const size_t residual_blk_num = residual.GetQNBlkNum();
+  const size_t residual_data_size = residual.GetActualDataSize();
+
+  residual.ElementWiseShiftedDivideBy(diagonal, 10.0, 1e-12);
+
+  EXPECT_EQ(residual.GetQNBlkNum(), residual_blk_num);
+  EXPECT_EQ(residual.GetActualDataSize(), residual_data_size);
+  EXPECT_NEAR(residual.GetElem({0, 0}), 0.8, 1e-10);
+  EXPECT_NEAR(residual.GetElem({4, 5}), 12.0 / 7.0, 1e-10);
+  EXPECT_NEAR(residual.GetElem({9, 10}), 2.1, 1e-10);
+}
+
 template<typename ElemT, typename QNT>
 void RunTestQLTensorSetElemByQNSectorCase(
     QLTensor<ElemT, QNT>& t,

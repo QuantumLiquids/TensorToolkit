@@ -328,6 +328,29 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   /** @brief In-place element-wise product with another tensor (same indices). */
   void ElementWiseMultiply(const QLTensor &);
 
+  /**
+   * @brief In-place binary element-wise assignment using this tensor's stored blocks.
+   *
+   * Iterates over the current tensor's stored block layout. For each lhs element,
+   * the rhs element with the same block coordinates and in-block coordinates is
+   * used when present; otherwise `rhs_default` is supplied to `op`.
+   *
+   * @param rhs Tensor with the same indices and coordinate meaning.
+   * @param rhs_default Value used when rhs does not store a matching block.
+   * @param op Callable with signature `ElemT op(ElemT lhs, ElemT rhs)`.
+   */
+  template<typename BinaryOp>
+  void ElementWiseBinaryAssignByLhsLayout(const QLTensor &, const ElemT &, BinaryOp);
+
+  /**
+   * @brief In-place shifted element-wise division using this tensor's stored blocks.
+   *
+   * For each stored lhs element `x`, assigns `x / (shift - rhs)`. Missing rhs
+   * blocks are interpreted as structural zeros, so the denominator is `shift`.
+   * If `abs(shift - rhs) < tolerance`, the lhs element is set to zero.
+   */
+  void ElementWiseShiftedDivideBy(const QLTensor &, const ElemT, RealType tolerance = RealType(0));
+
   /** @brief In-place inverse of a diagonal matrix stored as a tensor.
    * The input tensor should be a matrix form, that means the number of indices is 2, and the two indices are the same except direction.
    */
