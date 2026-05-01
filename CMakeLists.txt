@@ -11,7 +11,7 @@
 cmake_minimum_required(VERSION 3.27) # Required for modern FindBLAS support used with AOCL.
 
 project("TensorToolkit"
-        VERSION 0.1.0
+        VERSION 0.1.1
         DESCRIPTION "a high-performance tensor basic operation library written in C++"
         LANGUAGES CXX
 )
