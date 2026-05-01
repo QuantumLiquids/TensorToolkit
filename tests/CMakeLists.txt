@@ -171,6 +171,10 @@ add_unittest(test_basic_operations
         "test_tensor_manipulation/test_basic_operations.cc"
         "" "" ""
 )
+add_unittest(test_diagonal_tensor_product
+        "test_tensor_manipulation/test_diagonal_tensor_product.cc"
+        "" "" ""
+)
 # Test tensor linear combination.
 add_unittest(test_ten_linear_combine
         "test_tensor_manipulation/test_ten_linear_combine.cc"
