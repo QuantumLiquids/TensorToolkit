@@ -9,6 +9,10 @@
 #include "gtest/gtest.h"
 #include "qlten/qltensor_all.h"      // QLTensor, Index, QN, U1QNVal, QNSectorVec
 #include "qlten/tensor_manipulation/basic_operations.h"
+#include "qlten/tensor_manipulation/ten_ctrct.h"            // Contract
+#include "../testing_utility.h"
+
+#include <numeric>      // iota
 
 
 using namespace qlten;
@@ -152,4 +156,61 @@ TEST_F(TestBasicTensorOperations, TestToComplex) {
   RunTestRealTensorToComplexCase(dten_3d_s, qn0, 1);
   RunTestRealTensorToComplexCase(dten_3d_s, qnp1, 0);
   RunTestRealTensorToComplexCase(dten_3d_s, qnp1, 1);
+}
+
+template<typename QLTensorT>
+typename QLTensorT::value_type ContractInnerProductReference(
+    const QLTensorT &bra,
+    const QLTensorT &ket) {
+  QLTensorT scalar;
+  auto bra_dag = Dag(bra);
+  std::vector<size_t> axes(ket.Rank());
+  std::iota(axes.begin(), axes.end(), 0);
+  Contract(&bra_dag, &ket, {axes, axes}, &scalar);
+  return scalar();
+}
+
+template<typename QLTensorT>
+typename QLTensorT::value_type DenseQuasiInnerProductReference(
+    const QLTensorT &bra,
+    const QLTensorT &ket) {
+  typename QLTensorT::value_type res(0);
+  for (auto &coors : GenAllCoors(bra.GetShape())) {
+    res += CalcConj(bra.GetElem(coors)) * ket.GetElem(coors);
+  }
+  return res;
+}
+
+TEST_F(TestBasicTensorOperations, TestInnerProduct) {
+  dten_scalar.Random(U1QN());
+  auto dket_scalar = dten_scalar;
+  dket_scalar *= 2.0;
+  GtestExpectNear(
+      InnerProduct(dten_scalar, dket_scalar),
+      DenseQuasiInnerProductReference(dten_scalar, dket_scalar),
+      kEpsilon);
+
+  dten_3d_s.Random(qn0);
+  auto dket = dten_3d_s;
+  dket *= 1.7;
+  GtestExpectNear(
+      InnerProduct(dten_3d_s, dket),
+      ContractInnerProductReference(dten_3d_s, dket),
+      kEpsilon);
+  GtestExpectNear(
+      QuasiInnerProduct(dten_3d_s, dket),
+      DenseQuasiInnerProductReference(dten_3d_s, dket),
+      kEpsilon);
+
+  zten_3d_s.Random(qn0);
+  auto zket = zten_3d_s;
+  zket *= QLTEN_Complex(0.5, -0.25);
+  GtestExpectNear(
+      InnerProduct(zten_3d_s, zket),
+      ContractInnerProductReference(zten_3d_s, zket),
+      kEpsilon);
+  GtestExpectNear(
+      QuasiInnerProduct(zten_3d_s, zket),
+      DenseQuasiInnerProductReference(zten_3d_s, zket),
+      kEpsilon);
 }

@@ -23,6 +23,8 @@
 // In CUDA code, include mkl/openblas to benchmark
 #include "qlten/framework/hp_numeric/backend_selector.h"
 
+#include <numeric>      // iota
+
 using namespace qlten;
 
 using fU1QN = special_qn::fU1QN;
@@ -225,6 +227,63 @@ void RunTestTenCtrctDagEqualNorm(
     double norm = t.Get2Norm();
     GtestExpectNear(res.real(), norm * norm, kEpsilon);
   }
+}
+
+template<typename QLTensorT>
+typename QLTensorT::value_type RunFermionContractInnerProductReference(
+    const QLTensorT &bra,
+    const QLTensorT &ket) {
+  QLTensorT scalar;
+  auto bra_dag = Dag(bra);
+  std::vector<size_t> axes(ket.Rank());
+  std::iota(axes.begin(), axes.end(), 0);
+  Contract(&bra_dag, &ket, {axes, axes}, &scalar);
+  return scalar();
+}
+
+template<typename QLTensorT>
+typename QLTensorT::value_type RunFermionQuasiInnerProductReference(
+    const QLTensorT &bra,
+    const QLTensorT &ket) {
+  QLTensorT scalar;
+  auto bra_dag = Dag(bra);
+  bra_dag.ActFermionPOps();
+  std::vector<size_t> axes(ket.Rank());
+  std::iota(axes.begin(), axes.end(), 0);
+  Contract(&bra_dag, &ket, {axes, axes}, &scalar);
+  return scalar();
+}
+
+TEST_F(TestContraction, InnerProductMatchesFermionContraction) {
+  zten_3d_s.Random(qn0);
+  auto zket = zten_3d_s;
+  zket *= QLTEN_Complex(0.7, 0.2);
+
+  GtestExpectNear(
+      InnerProduct(zten_3d_s, zket),
+      RunFermionContractInnerProductReference(zten_3d_s, zket),
+      kEpsilon);
+}
+
+TEST_F(TestContraction, QuasiInnerProductMatchesPositiveFermionPairing) {
+  const double a = 0.1;
+  const double b = 1.7;
+  const double c = 0.2;
+  const double d = 0.3;
+  dten_2d_s({0, 0}) = a;
+  dten_2d_s({3, 3}) = b;
+  dten_2d_s({6, 6}) = c;
+  dten_2d_s({7, 7}) = d;
+
+  const double graded = b * b - a * a - c * c - d * d;
+  const double positive = a * a + b * b + c * c + d * d;
+
+  GtestExpectNear(InnerProduct(dten_2d_s, dten_2d_s), graded, kEpsilon);
+  GtestExpectNear(QuasiInnerProduct(dten_2d_s, dten_2d_s), positive, kEpsilon);
+  GtestExpectNear(
+      QuasiInnerProduct(dten_2d_s, dten_2d_s),
+      RunFermionQuasiInnerProductReference(dten_2d_s, dten_2d_s),
+      kEpsilon);
 }
 
 TEST_F(TestContraction, 2DCase) {
@@ -613,4 +672,3 @@ TEST_F(TestContraction, MatBasedContract) {
   zten_3d_s4.Random(qnm1);
   RunTestTenMatBasedCtrct(zten_3d_s, {0, 1, 2}, zten_3d_s4, {0, 1, 2});
 }
-

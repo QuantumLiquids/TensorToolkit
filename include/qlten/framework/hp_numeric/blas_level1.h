@@ -329,6 +329,56 @@ inline float VectorSumSquares(
 #endif
 }
 
+inline QLTEN_Double VectorConjDot(
+    const QLTEN_Double *x,
+    const QLTEN_Double *y,
+    const size_t size
+) {
+  auto res = cblas_ddot(size, x, 1, y, 1);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 2 * size;
+#endif
+  return res;
+}
+
+inline QLTEN_Float VectorConjDot(
+    const QLTEN_Float *x,
+    const QLTEN_Float *y,
+    const size_t size
+) {
+  auto res = cblas_sdot(size, x, 1, y, 1);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 2 * size;
+#endif
+  return res;
+}
+
+inline QLTEN_Complex VectorConjDot(
+    const QLTEN_Complex *x,
+    const QLTEN_Complex *y,
+    const size_t size
+) {
+  QLTEN_Complex res;
+  cblas_zdotc_sub(size, x, 1, y, 1, &res);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 8 * size;
+#endif
+  return res;
+}
+
+inline QLTEN_ComplexFloat VectorConjDot(
+    const QLTEN_ComplexFloat *x,
+    const QLTEN_ComplexFloat *y,
+    const size_t size
+) {
+  QLTEN_ComplexFloat res;
+  cblas_cdotc_sub(size, x, 1, y, 1, &res);
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 8 * size;
+#endif
+  return res;
+}
+
 #else //USE GPU
 
 inline void VectorAddTo(
@@ -933,6 +983,96 @@ inline float VectorSumSquares(
 #ifdef QLTEN_COUNT_FLOPS
   flop += 4 * size;
 #endif
+}
+
+inline QLTEN_Double VectorConjDot(
+    const QLTEN_Double *x,
+    const QLTEN_Double *y,
+    const size_t size
+) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+
+  QLTEN_Double res;
+  cublasStatus_t status = cublasDdot(handle, size, x, 1, y, 1, &res);
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasDdot failed!" << std::endl;
+  }
+
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 2 * size;
+#endif
+  return res;
+}
+
+inline QLTEN_Float VectorConjDot(
+    const QLTEN_Float *x,
+    const QLTEN_Float *y,
+    const size_t size
+) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+
+  QLTEN_Float res;
+  cublasStatus_t status = cublasSdot(handle, size, x, 1, y, 1, &res);
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasSdot failed!" << std::endl;
+  }
+
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 2 * size;
+#endif
+  return res;
+}
+
+inline QLTEN_Complex VectorConjDot(
+    const QLTEN_Complex *x,
+    const QLTEN_Complex *y,
+    const size_t size
+) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+
+  QLTEN_Complex res;
+  cublasStatus_t status = cublasZdotc(
+      handle,
+      size,
+      reinterpret_cast<const cuDoubleComplex *>(x),
+      1,
+      reinterpret_cast<const cuDoubleComplex *>(y),
+      1,
+      reinterpret_cast<cuDoubleComplex *>(&res));
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasZdotc failed!" << std::endl;
+  }
+
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 8 * size;
+#endif
+  return res;
+}
+
+inline QLTEN_ComplexFloat VectorConjDot(
+    const QLTEN_ComplexFloat *x,
+    const QLTEN_ComplexFloat *y,
+    const size_t size
+) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+
+  QLTEN_ComplexFloat res;
+  cublasStatus_t status = cublasCdotc(
+      handle,
+      size,
+      reinterpret_cast<const cuComplex *>(x),
+      1,
+      reinterpret_cast<const cuComplex *>(y),
+      1,
+      reinterpret_cast<cuComplex *>(&res));
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasCdotc failed!" << std::endl;
+  }
+
+#ifdef QLTEN_COUNT_FLOPS
+  flop += 8 * size;
+#endif
+  return res;
 }
 #endif // USE GPU
 

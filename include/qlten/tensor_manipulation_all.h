@@ -13,7 +13,7 @@
 #ifndef QLTEN_TENSOR_MANIPULATION_ALL
 #define QLTEN_TENSOR_MANIPULATION_ALL
 
-#include "qlten/tensor_manipulation/basic_operations.h"       // Dag, Div, ToComplex
+#include "qlten/tensor_manipulation/basic_operations.h"       // Dag, Div, ToComplex, InnerProduct
 #include "qlten/tensor_manipulation/ten_diagonal_tensor_product.h"      // DiagonalTensorProductAccumulate
 #include "qlten/tensor_manipulation/index_combine.h"          // IndexCombine
 #include "qlten/tensor_manipulation/ten_linear_combine.h"     // LinearCombine
