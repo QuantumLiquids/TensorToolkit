@@ -6,11 +6,13 @@
 * Description: QuantumLiquids/tensor project. Unittests for QLTensor object.
 */
 
+#include <algorithm>  // min
 #include <fstream>    // ifstream, ofstream
 #include "gtest/gtest.h"
 #include <type_traits>
 #include <complex>
 #include <limits>
+#include <streambuf>  // streambuf
 
 //#define PLAIN_TRANSPOSE 1
 
@@ -28,6 +30,40 @@ using QNSctVecT = QNSectorVec<U1QN>;
 
 using DQLTensor = QLTensor<QLTEN_Double, U1QN>;
 using ZQLTensor = QLTensor<QLTEN_Complex, U1QN>;
+
+namespace {
+
+class WriteFailAfterStreamBuf : public std::streambuf {
+ public:
+  explicit WriteFailAfterStreamBuf(const std::streamsize write_limit)
+      : bytes_until_failure_(write_limit) {}
+
+ protected:
+  std::streamsize xsputn(const char *, const std::streamsize count) override {
+    if (bytes_until_failure_ <= 0) {
+      return 0;
+    }
+    const std::streamsize writable = std::min(count, bytes_until_failure_);
+    bytes_until_failure_ -= writable;
+    return writable;
+  }
+
+  int_type overflow(const int_type ch) override {
+    if (traits_type::eq_int_type(ch, traits_type::eof())) {
+      return traits_type::not_eof(ch);
+    }
+    if (bytes_until_failure_ <= 0) {
+      return traits_type::eof();
+    }
+    --bytes_until_failure_;
+    return traits_type::not_eof(ch);
+  }
+
+ private:
+  std::streamsize bytes_until_failure_;
+};
+
+}  // namespace
 
 struct TestQLTensor : public testing::Test {
   std::string qn_nm = "qn";
@@ -880,6 +916,15 @@ TEST_F(TestQLTensor, FileIO) {
   RunTestQLTensorFileIOCase(zten_3d_s);
   zten_3d_s.Random(qnp1);
   RunTestQLTensorFileIOCase(zten_3d_s);
+}
+
+TEST_F(TestQLTensor, FileIOThrowsOnWriteFailure) {
+  dten_2d_s.Random(qn0);
+
+  WriteFailAfterStreamBuf failing_buffer(32);
+  std::ostream out(&failing_buffer);
+
+  EXPECT_THROW(out << dten_2d_s, std::ios_base::failure);
 }
 
 template<typename QLTensorT>

@@ -53,9 +53,13 @@ Overload output stream operator for streamable object.
 
 @param os Output stream.
 @param obj Streamable object.
+@throws std::ios_base::failure if the output stream reports a write failure.
 */
 inline std::ostream &operator<<(std::ostream &os, const Streamable &obj) {
   obj.StreamWrite(os);
+  if (!os) {
+    throw std::ios_base::failure("Failed to write streamable object.");
+  }
   return os;
 }
 } /* qlten */
