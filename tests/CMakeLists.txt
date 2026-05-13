@@ -225,6 +225,12 @@ add_unittest(test_ten_expand
         "" "" ""
 )
 
+# Test pure index lineage helpers
+add_unittest(test_index_lineage
+        "test_tensor_manipulation/test_index_lineage.cc"
+        "" "" ""
+)
+
 # Test tensor fuse index
 add_unittest(test_ten_fuse_index
         "test_tensor_manipulation/test_ten_fuse_index.cc"

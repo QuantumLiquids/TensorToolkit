@@ -10,10 +10,15 @@ Location: `include/qlten/tensor_manipulation/`
 
 ## Key headers
 
+- `qlten/tensor_manipulation/index_lineage.h`
 - `qlten/tensor_manipulation/ten_ctrct.h`
 - `qlten/tensor_manipulation/ten_decomp/ten_svd.h`
 - `qlten/tensor_manipulation/ten_decomp/ten_qr.h`
 - `qlten/tensor_manipulation/ten_decomp/ten_evd.h`
+
+## Design notes
+
+- [Index lineage design](../design/index-lineage.md)
 
 ## Responsibilities
 

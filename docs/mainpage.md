@@ -18,7 +18,7 @@ decompositions, with MPI and GPU extensions.
 
 ## Developer documentation
 
-- [Architecture and design](dev/design/architecture-overview.md)
+- [Architecture and design](dev/design/index.md)
 - [Developer setup](dev/guides/dev-setup.md)
 - [Testing strategy](dev/testing/testing-strategy.md)
 

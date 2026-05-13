@@ -19,15 +19,19 @@
 #include "qlten/framework/bases/showable.h"                         // Showable
 #include "qlten/qltensor/index.h"                                   // IndexVec
 #include "qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h"     // BlockSparseDataTensor
+#include "qlten/tensor_manipulation/index_lineage.h"                // IndexLineages
 
 #include <vector>       // vector
 #include <iostream>     // istream, ostream
 
 namespace qlten {
 
-// Forward declaration for FuseInfo (defined in ten_fuse_index.h)
+// Forward declaration for IndexFusionInfo (defined in ten_fuse_index.h)
 template<typename QNT>
-struct FuseInfo;
+struct IndexFusionInfo;
+
+template<typename QNT>
+struct FuseIndexResult;
 
 /**
  * Symmetry-blocked sparse tensor.
@@ -262,17 +266,37 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
    *
    * Fuses the indices at positions `idx1` and `idx2` into a single combined
    * index placed at position 0. Both indices must have the same direction.
+   * The operation first transposes the tensor so `idx1` and `idx2` become
+   * axes 0 and 1, in that order, then fuses those leading axes. This ordering
+   * is part of the API contract.
    *
    * @param idx1 Position of the first index to fuse (must be < idx2).
    * @param idx2 Position of the second index to fuse.
-   * @return FuseInfo<QNT> containing information needed for potential SplitIndex.
+   * @return IndexFusionInfo<QNT> containing information needed for potential SplitIndex.
    *
-   * @note For fermionic tensors, the fermion exchange sign is correctly handled
-   *       during the internal transpose step.
+   * @note For fermionic tensors, the exchange sign is determined by the
+   *       pre-fusion transpose to axes 0 and 1. The fusion step itself assumes
+   *       the two indices are already adjacent and does not introduce an
+   *       additional exchange.
    *
-   * @see FuseInfo, ten_fuse_index.h for detailed documentation.
+   * @see IndexFusionInfo, ten_fuse_index.h for detailed documentation.
    */
-  FuseInfo<QNT> FuseIndex(const size_t, const size_t);
+  IndexFusionInfo<QNT> FuseIndex(const size_t idx1, const size_t idx2);
+
+  /**
+   * @brief Fuse two indices and return both fusion metadata and updated index lineages.
+   *
+   * Uses the same transpose-to-axes-0-and-1 ordering as the two-argument
+   * overload when computing `output_lineages`.
+   *
+   * @param idx1 Position of the first index to fuse (must be < idx2).
+   * @param idx2 Position of the second index to fuse.
+   * @param input_lineages Lineages for the tensor indices before fusion.
+   * @return Fusion metadata and lineages after the in-place fusion.
+   */
+  FuseIndexResult<QNT> FuseIndex(const size_t idx1,
+                                 const size_t idx2,
+                                 const IndexLineages &input_lineages);
 
   /** @brief 2-norm of the tensor.
    *

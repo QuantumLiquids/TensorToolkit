@@ -19,7 +19,7 @@ These docs assume familiarity with:
   - [docs/dev/design/fermion-design.md](design/fermion-design.md)
 
 ## By document type
-- Architecture and design: `docs/dev/design/`
+- Architecture and design: [docs/dev/design/](design/index.md)
 - Guides: `docs/dev/guides/`
 - Testing: `docs/dev/testing/`
 - Practices and standards: `docs/dev/practices/`
@@ -34,6 +34,7 @@ These docs assume familiarity with:
 
 ## Start here
 
+- [Design documents](design/index.md)
 - [Architecture overview](design/architecture-overview.md)
 - [CMake package architecture](design/2026-03-25-cmake-package-architecture.md)
 - [Developer setup](guides/dev-setup.md)

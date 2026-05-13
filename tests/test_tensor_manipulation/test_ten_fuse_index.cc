@@ -135,27 +135,51 @@ TEST(TESTFuseIndexRandom, 4DCase) {
   RunTestTenFuseIndexBenchMarkByIndexCombinerCase(t1, 1, 2);
 }
 
-// Test that FuseInfo is correctly returned and contains valid information
-TEST(TestFuseInfo, BasicTest) {
+// Test that IndexFusionInfo is correctly returned and contains valid information
+TEST(TestIndexFusionInfo, BasicTest) {
   DQLTensor ten0 = DQLTensor({idx_out0_2, idx_out0_2, idx_in0});
   ten0({0, 0, 0}) = 0.5;
   ten0({0, 1, 0}) = 0.7;
   ten0({1, 0, 0}) = 0.2;
   ten0({1, 1, 0}) = 1.2;
 
-  // Get FuseInfo from FuseIndex
-  FuseInfo<U1QN> fuse_info = ten0.FuseIndex(0, 1);
+  // Get IndexFusionInfo from FuseIndex
+  IndexFusionInfo<U1QN> fusion_info = ten0.FuseIndex(0, 1);
 
-  // Verify FuseInfo contains correct original indices
-  EXPECT_EQ(fuse_info.original_idx1, idx_out0_2);
-  EXPECT_EQ(fuse_info.original_idx2, idx_out0_2);
+  // Verify IndexFusionInfo contains correct original indices
+  EXPECT_EQ(fusion_info.left_index, idx_out0_2);
+  EXPECT_EQ(fusion_info.right_index, idx_out0_2);
 
   // Verify fused index has correct dimension
-  EXPECT_EQ(fuse_info.fused_idx.dim(), idx_out0_2.dim() * idx_out0_2.dim());
+  EXPECT_EQ(fusion_info.fused_index.dim(), idx_out0_2.dim() * idx_out0_2.dim());
 
   // Verify fused index direction matches original
-  EXPECT_EQ(fuse_info.fused_idx.GetDir(), idx_out0_2.GetDir());
+  EXPECT_EQ(fusion_info.fused_index.GetDir(), idx_out0_2.GetDir());
 
   // Verify tensor has the fused index
-  EXPECT_EQ(ten0.GetIndexes()[0], fuse_info.fused_idx);
+  EXPECT_EQ(ten0.GetIndexes()[0], fusion_info.fused_index);
+
+  // Verify sector offset metadata was recorded
+  EXPECT_FALSE(fusion_info.sector_offsets.empty());
+}
+
+TEST(TestFuseIndexLineage, ReturnsFusionInfoAndOutputLineages) {
+  DQLTensor ten({idx_out0_2, idx_out0_2, idx_out0_2, idx_out0_2});
+  ten({0, 0, 0, 0}) = 1.0;
+  ten({1, 0, 1, 0}) = 2.0;
+
+  DQLTensor expected = ten;
+  IndexFusionInfo<U1QN> expected_fusion = expected.FuseIndex(1, 3);
+
+  const IndexLineages input_lineages = {{{0}}, {{1}}, {{2}}, {{3}}};
+  const FuseIndexResult<U1QN> result = ten.FuseIndex(1, 3, input_lineages);
+
+  EXPECT_TRUE(ten == expected);
+  EXPECT_EQ(result.index_fusion.left_index, expected_fusion.left_index);
+  EXPECT_EQ(result.index_fusion.right_index, expected_fusion.right_index);
+  EXPECT_EQ(result.index_fusion.fused_index, expected_fusion.fused_index);
+  EXPECT_EQ(result.index_fusion.sector_offsets, expected_fusion.sector_offsets);
+
+  const IndexLineages expected_lineages = {{{1, 3}}, {{0}}, {{2}}};
+  EXPECT_EQ(result.output_lineages, expected_lineages);
 }

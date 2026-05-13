@@ -59,5 +59,7 @@ Notes:
 
 ## Related docs
 
+- [Design documents](index.md)
 - [Backend architecture](backend-architecture.md)
 - [Fermion design](fermion-design.md)
+- [Index lineage design](index-lineage.md)

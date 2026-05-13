@@ -21,6 +21,7 @@
 
 #include "qlten/qltensor_all.h"     // QLTensor
 #include "qlten/tensor_manipulation/index_combine.h"  // QNSctsOffsetInfo
+#include "qlten/tensor_manipulation/index_lineage.h"  // IndexLineages
 #include "qlten/utility/timer.h"
 
 #ifdef Release
@@ -39,31 +40,38 @@ namespace qlten {
  *
  * @note Currently, this is designed for Abelian quantum numbers. For non-Abelian
  *       cases (e.g., SU(2)), additional Clebsch-Gordan coefficient information
- *       may be needed and could require storing FuseInfo inside the tensor.
+ *       may be needed and could require storing IndexFusionInfo inside the tensor.
  */
 template<typename QNT>
-struct FuseInfo {
-  Index<QNT> original_idx1;   ///< The first original index before fusion.
-  Index<QNT> original_idx2;   ///< The second original index before fusion.
-  Index<QNT> fused_idx;       ///< The resulting fused index.
+struct IndexFusionInfo {
+  Index<QNT> left_index;    ///< The first original index before fusion.
+  Index<QNT> right_index;   ///< The second original index before fusion.
+  Index<QNT> fused_index;   ///< The resulting fused index.
 
   /**
    * @brief Mapping from original QNSector pairs to the fused QNSector.
    *
    * Each tuple contains:
-   * - std::get<0>: QNSector index in original_idx1
-   * - std::get<1>: QNSector index in original_idx2
-   * - std::get<2>: QNSector index in fused_idx
+   * - std::get<0>: QNSector index in left_index
+   * - std::get<1>: QNSector index in right_index
+   * - std::get<2>: QNSector index in fused_index
    * - std::get<3>: Offset within the fused QNSector's degeneracy space
    */
-  std::vector<QNSctsOffsetInfo> qnscts_offset_info_list;
+  std::vector<QNSctsOffsetInfo> sector_offsets;
 
-  FuseInfo() = default;
+  IndexFusionInfo() = default;
 
-  FuseInfo(const Index<QNT> &idx1, const Index<QNT> &idx2,
-           const Index<QNT> &fused, const std::vector<QNSctsOffsetInfo> &info)
-      : original_idx1(idx1), original_idx2(idx2),
-        fused_idx(fused), qnscts_offset_info_list(info) {}
+  IndexFusionInfo(const Index<QNT> &left, const Index<QNT> &right,
+                  const Index<QNT> &fused,
+                  const std::vector<QNSctsOffsetInfo> &offsets)
+      : left_index(left), right_index(right),
+        fused_index(fused), sector_offsets(offsets) {}
+};
+
+template<typename QNT>
+struct FuseIndexResult {
+  IndexFusionInfo<QNT> index_fusion;
+  IndexLineages output_lineages;
 };
 
 // Forward declaration
@@ -86,7 +94,7 @@ Index<QNT> FuseTwoIndexAndRecordInfo(
  * @param idx1 Position of the first index to fuse (must be < idx2).
  * @param idx2 Position of the second index to fuse.
  *
- * @return FuseInfo<QNT> containing information about the fusion, which can be
+ * @return IndexFusionInfo<QNT> containing information about the fusion, which can be
  *         used for a future SplitIndex operation.
  *
  * @pre idx1 < idx2 < rank()
@@ -121,7 +129,7 @@ Index<QNT> FuseTwoIndexAndRecordInfo(
  * For block-sparse tensors, the fused index structure is determined by quantum
  * number conservation. QN sectors from idx1 and idx2 that combine to the same
  * total QN are grouped together in the fused index. The detailed mapping is
- * recorded in `FuseInfo::qnscts_offset_info_list`.
+ * recorded in `IndexFusionInfo::sector_offsets`.
  *
  * Within each combined QN sector, elements from (qnsct_i, qnsct_j) are stored
  * contiguously with row-major ordering (i.e., idx2 varies fastest).
@@ -129,21 +137,21 @@ Index<QNT> FuseTwoIndexAndRecordInfo(
  * @warning Fusing indices with opposite directions (IN-OUT or OUT-IN) is
  *          currently not supported. Use IndexCombine with Contract for such cases.
  *
- * @todo Implement SplitIndex as the inverse operation using FuseInfo.
+ * @todo Implement SplitIndex as the inverse operation using IndexFusionInfo.
  *
- * @see FuseInfo, IndexCombine, SplitIndex (TODO)
+ * @see IndexFusionInfo, IndexCombine, SplitIndex (TODO)
  */
 template<typename TenElemT, typename QNT>
-FuseInfo<QNT> QLTensor<TenElemT, QNT>::FuseIndex(
+IndexFusionInfo<QNT> QLTensor<TenElemT, QNT>::FuseIndex(
     const size_t idx1,
     const size_t idx2
 ) {
   assert(idx1 < idx2 && idx2 < rank_);
   assert(indexes_[idx1].GetDir() == indexes_[idx2].GetDir());
 
-  // Store original indices for FuseInfo before any modification
-  Index<QNT> original_idx1 = indexes_[idx1];
-  Index<QNT> original_idx2 = indexes_[idx2];
+  // Store original indices for IndexFusionInfo before any modification
+  Index<QNT> left_index = indexes_[idx1];
+  Index<QNT> right_index = indexes_[idx2];
 
 #ifdef QLTEN_TIMING_MODE
   Timer fuse_index_pre_transpose_timer("fuse_index_pre_trans");
@@ -174,15 +182,15 @@ FuseInfo<QNT> QLTensor<TenElemT, QNT>::FuseIndex(
   // Step 2: Generate new fused index and record mapping information.
   // Since the two indices are now adjacent (at positions 0 and 1),
   // no additional fermion exchange is needed during this step.
-  std::vector<QNSctsOffsetInfo> qnscts_offset_info_list;
+  std::vector<QNSctsOffsetInfo> sector_offsets;
   Index<QNT> new_index = FuseTwoIndexAndRecordInfo(
       indexes_[0],
       indexes_[1],
-      qnscts_offset_info_list
+      sector_offsets
   );
 
-  // Create FuseInfo before modifying the tensor
-  FuseInfo<QNT> fuse_info(original_idx1, original_idx2, new_index, qnscts_offset_info_list);
+  // Create IndexFusionInfo before modifying the tensor
+  IndexFusionInfo<QNT> fusion_info(left_index, right_index, new_index, sector_offsets);
 
   // Step 3: Update tensor metadata (index, shape, rank)
   indexes_.erase(indexes_.begin());
@@ -193,10 +201,23 @@ FuseInfo<QNT> QLTensor<TenElemT, QNT>::FuseIndex(
 
   // Step 4: Update block sparse data tensor (data blocks and raw data)
   pblk_spar_data_ten_->FuseFirstTwoIndex(
-      qnscts_offset_info_list
+      sector_offsets
   );
 
-  return fuse_info;
+  return fusion_info;
+}
+
+template<typename TenElemT, typename QNT>
+FuseIndexResult<QNT> QLTensor<TenElemT, QNT>::FuseIndex(
+    const size_t idx1,
+    const size_t idx2,
+    const IndexLineages &input_lineages
+) {
+  assert(input_lineages.size() == rank_);
+  FuseIndexResult<QNT> result;
+  result.output_lineages = FuseIndexLineages(input_lineages, idx1, idx2);
+  result.index_fusion = FuseIndex(idx1, idx2);
+  return result;
 }
 
 /**

@@ -129,3 +129,7 @@ approximation controlled by the truncation error.
 - `qlten/framework/bases/fermionicable.h`
 - `qlten/qltensor/blk_spar_data_ten/data_blk_operations.h`
 - `qlten/qltensor/special_qn/`
+
+## Related docs
+
+- [Index lineage design](index-lineage.md)
