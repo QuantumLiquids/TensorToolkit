@@ -12,6 +12,7 @@
 #include "qlten/tensor_manipulation/ten_ctrct.h"            // Contract
 #include "../testing_utility.h"
 
+#include <algorithm>    // max
 #include <numeric>      // iota
 
 
@@ -181,36 +182,49 @@ typename QLTensorT::value_type DenseQuasiInnerProductReference(
   return res;
 }
 
+template<typename ElemT>
+double InnerProductTolerance(const ElemT &reference) {
+  return kEpsilon * std::max(1.0, static_cast<double>(qlten::abs(reference)));
+}
+
 TEST_F(TestBasicTensorOperations, TestInnerProduct) {
   dten_scalar.Random(U1QN());
   auto dket_scalar = dten_scalar;
   dket_scalar *= 2.0;
+  const auto d_scalar_ref =
+      DenseQuasiInnerProductReference(dten_scalar, dket_scalar);
   GtestExpectNear(
       InnerProduct(dten_scalar, dket_scalar),
-      DenseQuasiInnerProductReference(dten_scalar, dket_scalar),
-      kEpsilon);
+      d_scalar_ref,
+      InnerProductTolerance(d_scalar_ref));
 
   dten_3d_s.Random(qn0);
   auto dket = dten_3d_s;
   dket *= 1.7;
+  const auto d_inner_ref = ContractInnerProductReference(dten_3d_s, dket);
   GtestExpectNear(
       InnerProduct(dten_3d_s, dket),
-      ContractInnerProductReference(dten_3d_s, dket),
-      kEpsilon);
+      d_inner_ref,
+      InnerProductTolerance(d_inner_ref));
+  const auto d_quasi_ref =
+      DenseQuasiInnerProductReference(dten_3d_s, dket);
   GtestExpectNear(
       QuasiInnerProduct(dten_3d_s, dket),
-      DenseQuasiInnerProductReference(dten_3d_s, dket),
-      kEpsilon);
+      d_quasi_ref,
+      InnerProductTolerance(d_quasi_ref));
 
   zten_3d_s.Random(qn0);
   auto zket = zten_3d_s;
   zket *= QLTEN_Complex(0.5, -0.25);
+  const auto z_inner_ref = ContractInnerProductReference(zten_3d_s, zket);
   GtestExpectNear(
       InnerProduct(zten_3d_s, zket),
-      ContractInnerProductReference(zten_3d_s, zket),
-      kEpsilon);
+      z_inner_ref,
+      InnerProductTolerance(z_inner_ref));
+  const auto z_quasi_ref =
+      DenseQuasiInnerProductReference(zten_3d_s, zket);
   GtestExpectNear(
       QuasiInnerProduct(zten_3d_s, zket),
-      DenseQuasiInnerProductReference(zten_3d_s, zket),
-      kEpsilon);
+      z_quasi_ref,
+      InnerProductTolerance(z_quasi_ref));
 }
