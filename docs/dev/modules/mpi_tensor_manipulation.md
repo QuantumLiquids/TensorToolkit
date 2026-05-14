@@ -9,6 +9,7 @@ Location: `include/qlten/mpi_tensor_manipulation/`
 
 ## Key headers
 
+- `qlten/mpi_tensor_manipulation_all.h`
 - `qlten/mpi_tensor_manipulation/ten_decomp/mpi_svd.h`
 
 ## Responsibilities

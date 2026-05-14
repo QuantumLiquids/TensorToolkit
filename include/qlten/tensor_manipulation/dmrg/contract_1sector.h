@@ -24,7 +24,7 @@
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/basic_operations.h"     // ToComplex
 #include "qlten/tensor_manipulation/ten_ctrct.h"            // TenCtrctInitResTen, CheckContractionIndicesMatch
-#include "qlten/qltensor/blk_spar_data_ten/data_blk_operator_seperate_ctrct.h"
+#include "qlten/qltensor/blk_spar_data_ten/data_blk_operator_separate_ctrct.h"
 
 #ifdef Release
 #define NDEBUG

@@ -8,10 +8,8 @@
 #ifndef QLTEN_QLTEN_H
 #define QLTEN_QLTEN_H
 
-#include "qlten/version.h"
-
-#include "qlten/framework/consts.h"
-#include "qlten/qltensor_all.h"
+#include "qlten/core.h"
 #include "qlten/tensor_manipulation_all.h"
+#include "qlten/mpi_tensor_manipulation_all.h"
 
 #endif /* ifndef QLTEN_QLTEN_H */

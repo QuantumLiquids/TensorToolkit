@@ -43,9 +43,9 @@ Notes:
 - `QLTensor` headers currently include `mpi.h`:
   `qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h` includes
   `qlten/framework/hp_numeric/mpi_fun.h`, which includes `mpi.h`. So including
-  `qlten/qltensor/qltensor.h` (or the umbrella headers `qlten/qlten.h` /
-  `qlten/qltensor_all.h`) requires MPI headers at compile time, even if you do
-  not call MPI APIs.
+  `qlten/qltensor/qltensor.h` (or the umbrella headers `qlten/core.h`,
+  `qlten/qlten.h`, or `qlten/qltensor_all.h`) requires MPI headers at compile
+  time, even if you do not call MPI APIs.
 - There is currently no supported build option to remove this compile-time MPI
   header dependency.
 - If you only use the core types (`Index`, `QNSector`, `QLTensor`) and avoid
@@ -54,8 +54,11 @@ Notes:
 
 ## Entry points
 
-- `qlten/qlten.h`: umbrella header for common usage.
-- `qlten/qltensor_all.h` and `qlten/tensor_manipulation_all.h`: convenience bundles.
+- `qlten/qlten.h`: full umbrella header for common downstream usage.
+- `qlten/core.h`: core tensor/index/QN entry point.
+- `qlten/tensor_manipulation_all.h`: non-MPI tensor manipulation bundle,
+  including `qlten::dmrg` helpers.
+- `qlten/mpi_tensor_manipulation_all.h`: MPI tensor manipulation bundle.
 
 ## Related docs
 

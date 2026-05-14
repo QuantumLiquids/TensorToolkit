@@ -7,8 +7,10 @@ The master rank performs the orchestration, while the other ranks participate as
 
 ```cpp
 #include "qlten/qlten.h"
-#include "qlten/mpi_tensor_manipulation/ten_decomp/mpi_svd.h"
 ```
+
+For a narrower include surface, use `qlten/core.h` together with
+`qlten/mpi_tensor_manipulation_all.h`.
 
 ## Minimal pattern
 

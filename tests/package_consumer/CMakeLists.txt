@@ -29,6 +29,12 @@ endif()
 add_executable(qlten_package_smoke "${qlten_package_smoke_source}")
 target_link_libraries(qlten_package_smoke PRIVATE TensorToolkit::TensorToolkit)
 
+add_executable(qlten_package_header_probe smoke_headers.cc)
+target_link_libraries(qlten_package_header_probe PRIVATE TensorToolkit::TensorToolkit)
+if(QLTEN_PACKAGE_CONSUMER_ENABLE_GPU)
+  set_source_files_properties(smoke_headers.cc PROPERTIES LANGUAGE CUDA)
+endif()
+
 set(_qlten_consumer_expects_openmp OFF)
 get_target_property(_qlten_tt_link_libs TensorToolkit::TensorToolkit INTERFACE_LINK_LIBRARIES)
 if(_qlten_tt_link_libs)
@@ -47,6 +53,9 @@ enable_testing()
 add_test(
   NAME qlten_package_smoke
   COMMAND "$<TARGET_FILE:qlten_package_smoke>")
+add_test(
+  NAME qlten_package_header_probe
+  COMMAND "$<TARGET_FILE:qlten_package_header_probe>")
 
 if(QLTEN_PACKAGE_CONSUMER_ENABLE_GPU)
   set_tests_properties(qlten_package_smoke PROPERTIES SKIP_RETURN_CODE 77)

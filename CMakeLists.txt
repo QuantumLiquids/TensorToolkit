@@ -273,7 +273,9 @@ else ()
 endif ()
 
 install(DIRECTORY ${QLTEN_HEADER_DIR}
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING
+        PATTERN "*.h")
 
 configure_package_config_file(
         cmake/TensorToolkitConfig.cmake.in

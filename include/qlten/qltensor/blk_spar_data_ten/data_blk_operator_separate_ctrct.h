@@ -4,11 +4,11 @@
 * Creation Date: 2021-7-29
 *
 * Description: QuantumLiquids/tensor project. Data block level operations for block
-* sparse data tensor for seperated contract task.
+* sparse data tensor for separated contract task.
 */
 
-#ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_DATA_BLK_OPERATION_SEPERATE_CTRCT_H
-#define QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_DATA_BLK_OPERATION_SEPERATE_CTRCT_H
+#ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_DATA_BLK_OPERATION_SEPARATE_CTRCT_H
+#define QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_DATA_BLK_OPERATION_SEPARATE_CTRCT_H
 
 #include "qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h"
 #include "qlten/qltensor/blk_spar_data_ten/raw_data_operations.h"
@@ -307,6 +307,6 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkGenFor1SectTenCtrct(
   return raw_data_ctrct_tasks;
 }
 
-}//qlten
+}  // namespace qlten
 
-#endif
+#endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_DATA_BLK_OPERATION_SEPARATE_CTRCT_H */

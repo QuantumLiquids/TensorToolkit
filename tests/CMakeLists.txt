@@ -119,13 +119,14 @@ macro(add_mpi_unittest
             PRIVATE "${LINK_LIB_FLAGS}"
     )
 
-    if (NOT (MPIEXEC_MAX_NUMPROCS MATCHES "1"))
-        add_test(
-                NAME ${TEST_NAME}
-                COMMAND ${MPIEXEC_EXECUTABLE}
-                ${MPIEXEC_NUMPROC_FLAG} ${PROCESSOR_NUM}
-                $<TARGET_FILE:${TEST_NAME}>)
-    endif ()
+    add_test(
+            NAME ${TEST_NAME}
+            COMMAND ${MPIEXEC_EXECUTABLE}
+            ${MPIEXEC_NUMPROC_FLAG} ${PROCESSOR_NUM}
+            $<TARGET_FILE:${TEST_NAME}>)
+    set_tests_properties(${TEST_NAME}
+            PROPERTIES
+            ENVIRONMENT "OMPI_MCA_rmaps_base_oversubscribe=1")
     set_target_properties(${TEST_NAME} PROPERTIES FOLDER tests)
 endmacro()
 
@@ -136,6 +137,7 @@ add_unittest(test_fz2u1qn "test_qltensor/test_special_qn/test_fz2u1qn.cc" "" "" 
 add_unittest(test_fermion_parity_exchange "test_utility/test_fermion_parity_exchange.cc" "" "" "")
 add_unittest(test_mpi_fun "test_utility/test_mpi_fun.cc" "" "" "")
 add_unittest(test_version "test_utility/test_version.cc" "" "" "")
+add_unittest(test_header_aggregation "test_utility/test_header_aggregation.cc" "" "" "")
 
 ## Test quantum number related objects
 # Test quantum number vaules

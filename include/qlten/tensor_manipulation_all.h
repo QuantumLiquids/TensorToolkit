@@ -3,12 +3,12 @@
 * Author: Rongyang Sun <sun-rongyang@outlook.com>
 * Creation Date: 2020-12-06 21:19
 *
-* Description: QuantumLiquids/tensor project. All staff for tensor manipulations.
+* Description: QuantumLiquids/tensor project. Public tensor manipulation headers.
 */
 
 /**
 @file tensor_manipulation_all.h
-@brief All staff for tensor manipulations.
+@brief Public tensor manipulation headers.
 */
 #ifndef QLTEN_TENSOR_MANIPULATION_ALL
 #define QLTEN_TENSOR_MANIPULATION_ALL
@@ -26,7 +26,7 @@
 #include "qlten/tensor_manipulation/index_lineage.h"          // IndexLineage, IndexLineages
 #include "qlten/tensor_manipulation/ten_fuse_index.h"         // Fuse Index
 #include "qlten/tensor_manipulation/ten_decomp/mat_evd.h"
-
-#include "qlten/mpi_tensor_manipulation/ten_decomp/mpi_svd.h" // MPISVDMaster, MPISVDSlave
+#include "qlten/tensor_manipulation/dmrg/block_expand.h"      // qlten::dmrg::BlockExpand
+#include "qlten/tensor_manipulation/dmrg/contract_1sector.h"  // qlten::dmrg::Contract1Sector
 
 #endif /* ifndef QLTEN_TENSOR_MANIPULATION_ALL */

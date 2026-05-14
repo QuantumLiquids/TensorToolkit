@@ -19,7 +19,10 @@ docs/build/html/index.html
 
 ## Common headers
 
-- `qlten/qlten.h` (umbrella header)
+- `qlten/qlten.h` (full umbrella header)
+- `qlten/core.h` (core tensor/index/QN entry point)
+- `qlten/tensor_manipulation_all.h` (non-MPI tensor manipulation bundle)
+- `qlten/mpi_tensor_manipulation_all.h` (MPI tensor manipulation bundle)
 - `qlten/qltensor/` (core tensor and index types)
 - `qlten/tensor_manipulation/` (contractions and decompositions)
 - `qlten/mpi_tensor_manipulation/` (MPI-enabled operations)
@@ -32,8 +35,8 @@ docs/build/html/index.html
   performance-oriented API for contiguous ascending contracted axes. New code
   should prefer this name over the legacy bool-tagged contiguous-axes
   `Contract<T, QNT, bool, bool>(...)` overload.
-- DMRG-specialized helpers are opt-in under `qlten::dmrg` and require explicit
-  `qlten/tensor_manipulation/dmrg/...` includes.
+- DMRG-specialized helpers live under `qlten::dmrg` and are included by the
+  full `qlten/qlten.h` umbrella and `qlten/tensor_manipulation_all.h`.
 
 ## Suggested reading path
 

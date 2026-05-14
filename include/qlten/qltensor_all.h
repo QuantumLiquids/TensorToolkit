@@ -3,12 +3,12 @@
 * Author: Rongyang Sun <sun-rongyang@outlook.com>
 * Creation Date: 2020-11-26 20:28
 *
-* Description: QuantumLiquids/tensor project. All staff for using QLTensor class.
+* Description: QuantumLiquids/tensor project. Public QLTensor headers.
 */
 
 /**
 @file qltensor_all.h
-@brief All staff for using QLTensor class.
+@brief Public QLTensor headers.
 */
 #ifndef QLTEN_QLTENSOR_ALL_H
 #define QLTEN_QLTENSOR_ALL_H

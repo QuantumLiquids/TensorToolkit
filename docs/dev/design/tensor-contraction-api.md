@@ -26,8 +26,9 @@ The old bool-tagged contiguous-axes `Contract<T, QNT, bool, bool>(...)`
 overload remains as a source-compatibility wrapper for existing downstream
 code, but new code should use `ContractContiguousAxes`.
 
-DMRG-specialized helpers live under `qlten::dmrg` and must be included
-explicitly. They are not part of the general umbrella `qlten/qlten.h` surface.
+DMRG-specialized helpers live under `qlten::dmrg`. They are included by the
+general umbrella `qlten/qlten.h` and the non-MPI tensor manipulation bundle for
+downstream convenience, but remain an expert API surface.
 
 ## General vs. contiguous-axes contraction
 
@@ -198,9 +199,9 @@ and in namespace:
 namespace qlten::dmrg { ... }
 ```
 
-They are intentionally absent from `qlten/qlten.h` and
-`tensor_manipulation_all.h`. This makes the expert-only surface opt-in and
-keeps the general tensor manipulation namespace from advertising unstable DMRG
+They are included by `qlten/qlten.h` and `tensor_manipulation_all.h` for
+downstream compatibility. They remain namespaced under `qlten::dmrg` so the
+general tensor manipulation namespace does not advertise these DMRG
 optimization hooks as ordinary APIs.
 
 ## Known debt: `ExpandQNBlocks` const-correctness

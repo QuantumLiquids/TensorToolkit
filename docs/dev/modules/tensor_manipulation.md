@@ -17,7 +17,10 @@ Location: `include/qlten/tensor_manipulation/`
 - `qlten/tensor_manipulation/dmrg/block_expand.h`
 - `qlten/tensor_manipulation/ten_decomp/ten_svd.h`
 - `qlten/tensor_manipulation/ten_decomp/ten_qr.h`
-- `qlten/tensor_manipulation/ten_decomp/ten_evd.h`
+- `qlten/tensor_manipulation/ten_decomp/mat_evd.h`
+
+`qlten/tensor_manipulation_all.h` aggregates these non-MPI tensor
+manipulation headers, including the DMRG helpers under `qlten::dmrg`.
 
 ## Design notes
 
