@@ -18,15 +18,13 @@
 #include "qlten/tensor_manipulation/index_combine.h"          // IndexCombine
 #include "qlten/tensor_manipulation/ten_linear_combine.h"     // LinearCombine
 #include "qlten/tensor_manipulation/ten_ctrct.h"              // Contract, TensorContractionExecutor
-#include "qlten/tensor_manipulation/ten_ctrct_based_mat_trans.h"        // Contract
+#include "qlten/tensor_manipulation/contract_contiguous_axes.h"        // ContractContiguousAxes (+ legacy Contract wrapper)
 #include "qlten/tensor_manipulation/ten_decomp/ten_svd.h"     // SVD, TensorSVDExecutor
 #include "qlten/tensor_manipulation/ten_decomp/ten_qr.h"      // QR, TensorQRExecutor
 #include "qlten/tensor_manipulation/ten_decomp/ten_lq.h"      // LQ
 #include "qlten/tensor_manipulation/ten_expand.h"             // Expand
 #include "qlten/tensor_manipulation/index_lineage.h"          // IndexLineage, IndexLineages
 #include "qlten/tensor_manipulation/ten_fuse_index.h"         // Fuse Index
-#include "qlten/tensor_manipulation/ten_block_expand.h"
-#include "qlten/tensor_manipulation/ten_ctrct_1sct.h"
 #include "qlten/tensor_manipulation/ten_decomp/mat_evd.h"
 
 #include "qlten/mpi_tensor_manipulation/ten_decomp/mpi_svd.h" // MPISVDMaster, MPISVDSlave

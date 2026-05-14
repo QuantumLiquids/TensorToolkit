@@ -97,7 +97,7 @@ inline IndexLineages FuseIndexLineages(const IndexLineages &lineages,
  * order.
  *
  * @warning This does not describe matrix-based contraction ordering in
- * ten_ctrct_based_mat_trans.h; that path uses cyclic saved-axis order and
+ * contract_contiguous_axes.h; that path uses cyclic saved-axis order and
  * cannot be derived from this axes-set-only signature.
  */
 inline IndexLineages ContractOutputLineages(

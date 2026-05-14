@@ -13,3 +13,4 @@ maintenance notes for TensorToolkit internals.
 
 - [Fermion design](fermion-design.md)
 - [Index lineage design](index-lineage.md)
+- [Tensor contraction API design](tensor-contraction-api.md)

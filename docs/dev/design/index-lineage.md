@@ -195,7 +195,7 @@ the order produced by `TenCtrctGenSavedAxesSet()` before ordinary `Contract`
 calls `TenCtrctInitResTen()`.
 
 `ContractOutputLineages` does not cover matrix-based contraction in
-`ten_ctrct_based_mat_trans.h`. That path builds cyclic saved-axis order from
+`contract_contiguous_axes.h`. That path builds cyclic saved-axis order from
 its contraction starts, and the result order cannot be reproduced from the
 axes-set-only helper signature. If lineage support is needed there later, add a
 separate helper that accepts the matrix-based contraction parameters or the

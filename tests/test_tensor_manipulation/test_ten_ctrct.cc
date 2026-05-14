@@ -16,7 +16,7 @@
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_ctrct.h"            // Contract
 #include "qlten/tensor_manipulation/basic_operations.h"     // Dag
-#include "qlten/tensor_manipulation/ten_ctrct_based_mat_trans.h"      // Contract
+#include "qlten/tensor_manipulation/contract_contiguous_axes.h"      // ContractContiguousAxes (+ legacy Contract wrapper)
 #include "gtest/gtest.h"
 #include "../testing_utility.h"
 #include "qlten/utility/timer.h"
@@ -856,4 +856,125 @@ TEST_F(TestContraction, MatBasedContract) {
   cften_3d_s.Random(qnp1);
   cften_3d_s4.Random(qnm1);
   RunTestTenMatBasedCtrct(cften_3d_s, {0, 1, 2}, cften_3d_s4, {0, 1, 2});
+}
+
+template<typename TenElemT, typename QNT>
+void RunTestContractContiguousAxesDefault(
+    const QLTensor<TenElemT, QNT> &ta,
+    const std::vector<size_t> &ctrct_axes_a,
+    const QLTensor<TenElemT, QNT> &tb,
+    const std::vector<size_t> &ctrct_axes_b
+) {
+  using TenT = QLTensor<TenElemT, QNT>;
+  TenT res_enum, res_bool;
+  ContractContiguousAxes<TenElemT, QNT>(ta, tb,
+                                        ctrct_axes_a[0], ctrct_axes_b[0],
+                                        ctrct_axes_a.size(), res_enum);
+  Contract<TenElemT, QNT, true, true>(ta, tb,
+                                      ctrct_axes_a[0], ctrct_axes_b[0],
+                                      ctrct_axes_a.size(), res_bool);
+  using RealT = typename RealTypeTrait<TenElemT>::type;
+  EXPECT_EQ(res_bool.GetIndexes(), res_enum.GetIndexes());
+  TenT diff = res_bool + (-res_enum);
+  EXPECT_NEAR(diff.Get2Norm() / std::max(res_enum.Get2Norm(), RealT(1e-5)),
+              0.0, GetEpsilon<TenElemT>());
+}
+
+TEST_F(TestContraction, ContractContiguousAxesDefaultMatchesBoolTrueTrue) {
+  auto dten_3d_s2 = dten_3d_s;
+  dten_3d_s.Random(qn0);
+  dten_3d_s2.Random(qn0);
+  RunTestContractContiguousAxesDefault(dten_3d_s, {2}, dten_3d_s2, {0});
+  // dten_3d_s3 is a fixture member; populate before use to mirror the
+  // existing MatBasedContract test pattern at test_ten_ctrct.cc:745-747.
+  dten_3d_s3.Random(qn0);
+  RunTestContractContiguousAxesDefault(dten_3d_s, {1, 2}, dten_3d_s3, {0, 1});
+}
+
+TEST_F(TestContraction, ContractContiguousAxesMixedPrecisionMatchesBoolWrapper) {
+  auto zten_3d_s2 = zten_3d_s;
+  auto dten_3d_s2 = dten_3d_s;
+  zten_3d_s.Random(qn0);
+  zten_3d_s2.Random(qn0);
+  dten_3d_s.Random(qn0);
+  dten_3d_s2.Random(qn0);
+
+  using ZTen = QLTensor<QLTEN_Complex, U1QN>;
+  ZTen res_z_d_enum, res_z_d_bool;
+  ContractContiguousAxes<QLTEN_Complex, U1QN>(zten_3d_s, dten_3d_s2,
+                                              2, 0, 1, res_z_d_enum);
+  Contract<QLTEN_Complex, U1QN, true, true>(zten_3d_s, dten_3d_s2,
+                                            2, 0, 1, res_z_d_bool);
+  ZTen diff_z_d = res_z_d_bool + (-res_z_d_enum);
+  EXPECT_NEAR(diff_z_d.Get2Norm()
+                  / std::max(res_z_d_enum.Get2Norm(), 1e-5),
+              0.0, GetEpsilon<QLTEN_Complex>());
+
+  ZTen res_d_z_enum, res_d_z_bool;
+  ContractContiguousAxes<QLTEN_Complex, U1QN>(dten_3d_s, zten_3d_s2,
+                                              2, 0, 1, res_d_z_enum);
+  Contract<QLTEN_Complex, U1QN, true, true>(dten_3d_s, zten_3d_s2,
+                                            2, 0, 1, res_d_z_bool);
+  ZTen diff_d_z = res_d_z_bool + (-res_d_z_enum);
+  EXPECT_NEAR(diff_d_z.Get2Norm()
+                  / std::max(res_d_z_enum.Get2Norm(), 1e-5),
+              0.0, GetEpsilon<QLTEN_Complex>());
+}
+
+template<typename TenElemT, typename QNT>
+void RunTestContractContiguousAxesAllSides(
+    const QLTensor<TenElemT, QNT> &ta,
+    const std::vector<size_t> &ctrct_axes_a,
+    const QLTensor<TenElemT, QNT> &tb,
+    const std::vector<size_t> &ctrct_axes_b
+) {
+  using TenT = QLTensor<TenElemT, QNT>;
+  using RealT = typename RealTypeTrait<TenElemT>::type;
+  const auto eps = GetEpsilon<TenElemT>();
+
+  TenT enum_TH, enum_HH, enum_TT, enum_HT;
+  ContractContiguousAxes<TenElemT, QNT, CtrctSide::Tail, CtrctSide::Head>(
+      ta, tb, ctrct_axes_a[0], ctrct_axes_b[0], ctrct_axes_a.size(), enum_TH);
+  ContractContiguousAxes<TenElemT, QNT, CtrctSide::Head, CtrctSide::Head>(
+      ta, tb, ctrct_axes_a[0], ctrct_axes_b[0], ctrct_axes_a.size(), enum_HH);
+  ContractContiguousAxes<TenElemT, QNT, CtrctSide::Tail, CtrctSide::Tail>(
+      ta, tb, ctrct_axes_a[0], ctrct_axes_b[0], ctrct_axes_a.size(), enum_TT);
+  ContractContiguousAxes<TenElemT, QNT, CtrctSide::Head, CtrctSide::Tail>(
+      ta, tb, ctrct_axes_a[0], ctrct_axes_b[0], ctrct_axes_a.size(), enum_HT);
+
+  TenT bool_TT, bool_FT, bool_TF, bool_FF;
+  Contract<TenElemT, QNT, true,  true >(ta, tb, ctrct_axes_a[0],
+      ctrct_axes_b[0], ctrct_axes_a.size(), bool_TT);
+  Contract<TenElemT, QNT, false, true >(ta, tb, ctrct_axes_a[0],
+      ctrct_axes_b[0], ctrct_axes_a.size(), bool_FT);
+  Contract<TenElemT, QNT, true,  false>(ta, tb, ctrct_axes_a[0],
+      ctrct_axes_b[0], ctrct_axes_a.size(), bool_TF);
+  Contract<TenElemT, QNT, false, false>(ta, tb, ctrct_axes_a[0],
+      ctrct_axes_b[0], ctrct_axes_a.size(), bool_FF);
+
+  auto expect_match = [&](TenT &lhs, TenT &rhs, const char *label) {
+    EXPECT_EQ(lhs.GetIndexes(), rhs.GetIndexes()) << label;
+    TenT diff = lhs + (-rhs);
+    EXPECT_NEAR(diff.Get2Norm()
+                    / std::max(rhs.Get2Norm(), RealT(1e-5)),
+                0.0, eps * 10) << label;
+  };
+  expect_match(enum_TH, bool_TT, "<Tail,Head> vs <true,true>");
+  expect_match(enum_HH, bool_FT, "<Head,Head> vs <false,true>");
+  expect_match(enum_TT, bool_TF, "<Tail,Tail> vs <true,false>");
+  expect_match(enum_HT, bool_FF, "<Head,Tail> vs <false,false>");
+}
+
+TEST_F(TestContraction, ContractContiguousAxesAllSidesMatchBoolWrapper) {
+  auto dten_3d_s2 = dten_3d_s;
+  dten_3d_s.Random(qn0);
+  dten_3d_s2.Random(qn0);
+  RunTestContractContiguousAxesAllSides(dten_3d_s, {2}, dten_3d_s2, {0});
+  RunTestContractContiguousAxesAllSides(dten_3d_s, {1}, dten_3d_s2, {0});
+  dten_3d_s.Random(qnp1);
+  dten_3d_s2.Random(qnm1);
+  // dten_3d_s3 is a fixture member; populate before use to mirror the
+  // existing MatBasedContract test pattern at test_ten_ctrct.cc:745-747.
+  dten_3d_s3.Random(qn0);
+  RunTestContractContiguousAxesAllSides(dten_3d_s, {1, 2}, dten_3d_s3, {0, 1});
 }

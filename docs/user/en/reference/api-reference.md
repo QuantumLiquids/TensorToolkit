@@ -24,6 +24,17 @@ docs/build/html/index.html
 - `qlten/tensor_manipulation/` (contractions and decompositions)
 - `qlten/mpi_tensor_manipulation/` (MPI-enabled operations)
 
+## Contraction APIs
+
+- `qlten::Contract(&a, &b, axes_set, &c)` is the general arbitrary-axis
+  contraction API.
+- `qlten::ContractContiguousAxes(a, b, a_start, b_start, size, c)` is the
+  performance-oriented API for contiguous ascending contracted axes. New code
+  should prefer this name over the legacy bool-tagged contiguous-axes
+  `Contract<T, QNT, bool, bool>(...)` overload.
+- DMRG-specialized helpers are opt-in under `qlten::dmrg` and require explicit
+  `qlten/tensor_manipulation/dmrg/...` includes.
+
 ## Suggested reading path
 
 1. `Index`, `QNSector`, `QLTensor`

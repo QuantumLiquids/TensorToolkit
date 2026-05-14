@@ -7,7 +7,7 @@
 */
 
 /**
-@file ten_ctrct_based_mat_trans.h
+@file contract_contiguous_axes.h
 @brief Implementation of a faster tensor contraction functions without involving tensor transposition operations.
 
        This contraction method is defined by the following constraints:
@@ -21,8 +21,8 @@
 */
 
 
-#ifndef QLTEN_TENSOR_MANIPULATION_TEN_CTRCT_BASED_MAT_TRANS_H
-#define QLTEN_TENSOR_MANIPULATION_TEN_CTRCT_BASED_MAT_TRANS_H
+#ifndef QLTEN_TENSOR_MANIPULATION_CONTRACT_CONTIGUOUS_AXES_H
+#define QLTEN_TENSOR_MANIPULATION_CONTRACT_CONTIGUOUS_AXES_H
 
 #include <set>
 
@@ -33,17 +33,30 @@
 namespace qlten {
 
 /**
+ * @brief Specifies which side (head or tail) of a tensor's index range carries
+ *        the contracted axes in `ContractContiguousAxes`.
+ *
+ * Used as a strongly-typed replacement for the previous `bool a_ctrct_tail`
+ * and `bool b_ctrct_head` template parameters. The mapping is asymmetric:
+ *   - Position A: `Tail` <-> old `a_ctrct_tail == true`,
+ *                 `Head` <-> old `a_ctrct_tail == false`.
+ *   - Position B: `Head` <-> old `b_ctrct_head == true`,
+ *                 `Tail` <-> old `b_ctrct_head == false`.
+ */
+enum class CtrctSide { Head, Tail };
+
+/**
  * @tparam TenElemT Type of the tensor elements.
  * @tparam QNT Type of the quantum number.
- * @tparam a_ctrct_tail Indicates whether the contraction occurs at the tail of tensor A.
- * @tparam b_ctrct_head Indicates whether the contraction occurs at the head of tensor B.
+ * @tparam ASide Indicates which side (Head/Tail) of tensor A carries the contracted axes.
+ * @tparam BSide Indicates which side (Head/Tail) of tensor B carries the contracted axes.
  *
  * Note:
- * - When `a_ctrct_tail` is true and `b_ctrct_head` is true, no transpose is needed for the matrix product.
+ * - When `ASide == Tail` and `BSide == Head`, no transpose is needed for the matrix product.
  * - Otherwise, transpose the corresponding tensor(s) for the matrix product.
  * - These two parameters do not change the result of the contraction but provide hints to optimize operations and enhance performance.
  */
-template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
+template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
 class MatrixBasedTensorContractionExecutor : public Executor {
  public:
   MatrixBasedTensorContractionExecutor(
@@ -100,14 +113,14 @@ class MatrixBasedTensorContractionExecutor : public Executor {
  *      b_ctrct_axes_start = 5,
  *      ctrct_axes_size = 3;
  *
- *      for a_ctrct_tail == true case
+ *      for ASide == CtrctSide::Tail case
  *          a_trans_critical_axe_ = 4 if A.Rank()>4 or a_trans_critical_axe_ = 0 if A.Rank()==4;
  *
  *
  * @tparam TenElemT
  * @tparam QNT
- * @tparam a_ctrct_tail
- * @tparam b_ctrct_head
+ * @tparam ASide
+ * @tparam BSide
  * @param pa
  * @param pb
  * @param a_ctrct_axes_start
@@ -117,8 +130,8 @@ class MatrixBasedTensorContractionExecutor : public Executor {
  *
  *  question: meaning for set status?
  */
-template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::MatrixBasedTensorContractionExecutor(
+template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
+MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::MatrixBasedTensorContractionExecutor(
     const QLTensor<TenElemT, QNT> *pa,
     const QLTensor<TenElemT, QNT> *pb,
     const size_t a_ctrct_axes_start,
@@ -132,11 +145,11 @@ MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>:
     b_ctrct_axes_end_((b_ctrct_axes_start + ctrct_axes_size) % (pb->Rank())),
     ctrct_axes_size_(ctrct_axes_size),
     saved_axes_set_(2),
-    a_trans_critical_axe_(a_ctrct_tail ? a_ctrct_axes_end_ : a_ctrct_axes_start),
-    b_trans_critical_axe_(b_ctrct_head ? b_ctrct_axes_start : b_ctrct_axes_end_) {}
+    a_trans_critical_axe_((ASide == CtrctSide::Tail) ? a_ctrct_axes_end_ : a_ctrct_axes_start),
+    b_trans_critical_axe_((BSide == CtrctSide::Head) ? b_ctrct_axes_start : b_ctrct_axes_end_) {}
 
-template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::GenerateDataBlk_() {
+template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::GenerateDataBlk_() {
   using std::vector;
   const size_t a_rank(pa_->Rank()), b_rank(pb_->Rank());
   vector<vector<size_t>> ctrct_axes_set(2);
@@ -170,8 +183,8 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_h
   );
 }
 
-template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::TransposePrepare_() {
+template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::TransposePrepare_() {
   using std::set;
   if (a_trans_critical_axe_ > 0) {
     const auto &a_bsdt = pa_->GetBlkSparDataTen();
@@ -213,14 +226,14 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_h
   }
 }
 
-template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::ExecutePost_() {
+template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::ExecutePost_() {
   qlten::QLFree(a_trans_data_);
   qlten::QLFree(b_trans_data_);
 }
 
-template<typename TenElemT, typename QNT, bool a_ctrct_tail, bool b_ctrct_head>
-void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>::Execute() {
+template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::Execute() {
 #ifdef QLTEN_TIMING_MODE
   Timer gen_datablk_timer("mat_based_ctrct_gen_data_blk");
 #endif
@@ -253,7 +266,10 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_h
   Timer contract_according_task_timer("mat_based_ctrct_do_task");
 #endif
 
-  bsdt_c.template CtrctAccordingTask<a_ctrct_tail, b_ctrct_head>(
+  bsdt_c.template CtrctAccordingTask<
+      ASide == CtrctSide::Tail,
+      BSide == CtrctSide::Head
+  >(
       a_raw_data,
       b_raw_data,
       raw_data_ctrct_tasks_,
@@ -264,6 +280,73 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_h
   contract_according_task_timer.PrintElapsed();
 #endif
   ExecutePost_();
+}
+
+/**
+ * @brief Preferred contiguous-axes tensor contraction API.
+ *
+ * Drop-in alternative to `Contract<T, QNT, bool, bool>` with a self-documenting
+ * `CtrctSide` template parameter pair. Defaults `Tail, Head` match the
+ * dominant call pattern (the legacy `<..., true, true>` case).
+ *
+ * @tparam ASide On tensor A, which side of the index range carries the
+ *               contracted axes (`Tail` or `Head`).
+ * @tparam BSide On tensor B, same meaning.
+ */
+template<typename TenElemT, typename QNT,
+         CtrctSide ASide = CtrctSide::Tail,
+         CtrctSide BSide = CtrctSide::Head>
+void ContractContiguousAxes(
+    const QLTensor<TenElemT, QNT> &pa,
+    const QLTensor<TenElemT, QNT> &pb,
+    const size_t a_ctrct_axes_start,
+    const size_t b_ctrct_axes_start,
+    const size_t ctrct_axes_size,
+    QLTensor<TenElemT, QNT> &pc
+) {
+  auto executor = MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>(
+      &pa, &pb, a_ctrct_axes_start, b_ctrct_axes_start, ctrct_axes_size, &pc
+  );
+  executor.Execute();
+}
+
+// Note: `TenElemT` is unused in the body but kept in the template parameter list
+// so callers can write `ContractContiguousAxes<QLTEN_Complex, QNT, ...>(...)`
+// symmetrically with the same-precision overload. This matches the existing
+// pattern of the legacy mixed-precision `Contract` overloads further down in
+// this file.
+template<typename TenElemT, typename QNT,
+         CtrctSide ASide = CtrctSide::Tail,
+         CtrctSide BSide = CtrctSide::Head>
+void ContractContiguousAxes(
+    const QLTensor<QLTEN_Complex, QNT> &pa,
+    const QLTensor<QLTEN_Double, QNT> &pb,
+    const size_t a_ctrct_axes_start,
+    const size_t b_ctrct_axes_start,
+    const size_t ctrct_axes_size,
+    QLTensor<QLTEN_Complex, QNT> &pc
+) {
+  auto pb_complex = ToComplex(pb);
+  ContractContiguousAxes<QLTEN_Complex, QNT, ASide, BSide>(
+      pa, pb_complex,
+      a_ctrct_axes_start, b_ctrct_axes_start, ctrct_axes_size, pc);
+}
+
+template<typename TenElemT, typename QNT,
+         CtrctSide ASide = CtrctSide::Tail,
+         CtrctSide BSide = CtrctSide::Head>
+void ContractContiguousAxes(
+    const QLTensor<QLTEN_Double, QNT> &pa,
+    const QLTensor<QLTEN_Complex, QNT> &pb,
+    const size_t a_ctrct_axes_start,
+    const size_t b_ctrct_axes_start,
+    const size_t ctrct_axes_size,
+    QLTensor<QLTEN_Complex, QNT> &pc
+) {
+  auto pa_complex = ToComplex(pa);
+  ContractContiguousAxes<QLTEN_Complex, QNT, ASide, BSide>(
+      pa_complex, pb,
+      a_ctrct_axes_start, b_ctrct_axes_start, ctrct_axes_size, pc);
 }
 
 /**
@@ -289,10 +372,11 @@ void Contract(
     const size_t ctrct_axes_size,
     QLTensor<TenElemT, QNT> &pc
 ) {
-  auto extra_contraction_executor = MatrixBasedTensorContractionExecutor<TenElemT, QNT, a_ctrct_tail, b_ctrct_head>(
-      &pa, &pb, a_ctrct_axes_start, b_ctrct_axes_start, ctrct_axes_size, &pc
-  );
-  extra_contraction_executor.Execute();
+  constexpr CtrctSide ASide = a_ctrct_tail ? CtrctSide::Tail : CtrctSide::Head;
+  constexpr CtrctSide BSide = b_ctrct_head ? CtrctSide::Head : CtrctSide::Tail;
+  ContractContiguousAxes<TenElemT, QNT, ASide, BSide>(
+      pa, pb,
+      a_ctrct_axes_start, b_ctrct_axes_start, ctrct_axes_size, pc);
 }
 
 template<typename TenElemT, typename QNT, bool a_ctrct_tail = true, bool b_ctrct_head = true>
@@ -334,4 +418,4 @@ void Contract(
 
 
 
-#endif //QLTEN_TENSOR_MANIPULATION_TEN_CTRCT_BASED_MAT_TRANS_H
+#endif //QLTEN_TENSOR_MANIPULATION_CONTRACT_CONTIGUOUS_AXES_H

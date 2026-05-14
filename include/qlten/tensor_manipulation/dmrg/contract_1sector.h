@@ -8,14 +8,14 @@
 */
 
 /**
- * @file ten_ctrct_1sct.h
+ * @file dmrg/contract_1sector.h
  * @brief Contract two tensors, where one of the free indices in the first tensor
  *        is projected onto a subspace representing a single quantum number sector.
  *        This function is designed for parallel implementation of
  *        Density Matrix Renormalization Group (DMRG) algorithm.
  */
-#ifndef QLTEN_TENSOR_MANIPULATION_TEN_CTRCT_ONE_SCT_H
-#define QLTEN_TENSOR_MANIPULATION_TEN_CTRCT_ONE_SCT_H
+#ifndef QLTEN_TENSOR_MANIPULATION_DMRG_CONTRACT_1SECTOR_H
+#define QLTEN_TENSOR_MANIPULATION_DMRG_CONTRACT_1SECTOR_H
 
 #include <vector>     // vector
 #include <cassert>     // assert
@@ -30,7 +30,7 @@
 #define NDEBUG
 #endif
 
-namespace qlten {
+namespace qlten::dmrg {
 
 /**
 Tensor contraction executor.
@@ -256,5 +256,5 @@ void Contract1Sector(
   Contract1Sector(pa, idx_a, qn_sector_idx_a, &cplx_b, axes_set, pc);
 }
 
-} /* qlten */
-#endif /* ifndef QLTEN_TENSOR_MANIPULATION_TEN_CTRCT_ONE_SCT_H */
+} /* qlten::dmrg */
+#endif /* ifndef QLTEN_TENSOR_MANIPULATION_DMRG_CONTRACT_1SECTOR_H */

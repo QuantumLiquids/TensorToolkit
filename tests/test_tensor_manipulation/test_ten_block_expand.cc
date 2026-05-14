@@ -9,10 +9,11 @@
 #include "gtest/gtest.h"
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_expand.h"
-#include "qlten/tensor_manipulation/ten_block_expand.h"
+#include "qlten/tensor_manipulation/dmrg/block_expand.h"
 #include "qlten/utility/timer.h"
 
 using namespace qlten;
+using qlten::dmrg::ExpandQNBlocks;
 using U1QN = QN<U1QNVal>;
 using QNSctT = QNSector<U1QN>;
 using IndexT = Index<U1QN>;

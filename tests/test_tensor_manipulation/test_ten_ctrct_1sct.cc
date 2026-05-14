@@ -13,13 +13,15 @@
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_ctrct.h"            // Contract
 #include "qlten/tensor_manipulation/basic_operations.h"     // Dag
-#include "qlten/tensor_manipulation/ten_ctrct_1sct.h"
+#include "qlten/tensor_manipulation/dmrg/contract_1sector.h"
 #include "qlten/tensor_manipulation/ten_linear_combine.h"
 
 #include "../testing_utility.h"
 
 #include "qlten/utility/timer.h"
 using namespace qlten;
+using qlten::dmrg::Contract1Sector;
+using qlten::dmrg::TensorContraction1SectorExecutor;
 
 using special_qn::U1QN;
 using IndexT = Index<U1QN>;

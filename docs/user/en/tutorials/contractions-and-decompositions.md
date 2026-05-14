@@ -52,6 +52,33 @@ Contraction requirements and validation:
 - In debug builds, a mismatch triggers an `assert` with detailed diagnostics.
   In release builds, mismatches are not validated and can lead to undefined behavior.
 
+## Contiguous-axes contraction fast path
+
+When the contracted axes are contiguous and ascending, use
+`ContractContiguousAxes` for the matrix-based contraction path. This is a
+performance-oriented API used by structured tensor-network updates where a
+favorable index order can reduce explicit transpose work.
+
+```cpp
+#include "qlten/tensor_manipulation/contract_contiguous_axes.h"
+
+QLTensor<double, qn::Z2QN> C2;
+ContractContiguousAxes<double, qn::Z2QN>(
+    A, B,
+    /*a_ctrct_axes_start=*/1,
+    /*b_ctrct_axes_start=*/0,
+    /*ctrct_axes_size=*/1,
+    C2);
+```
+
+The default template tags contract the tail side of `A` with the head side of
+`B`. For other compatible layouts, pass explicit side tags such as
+`CtrctSide::Head, CtrctSide::Tail` in the template argument list.
+
+Use the general `Contract(&A, &B, axes_set, &C)` API for arbitrary axis lists.
+The old bool-tagged contiguous-axes `Contract<T, QNT, bool, bool>(...)` overload
+is kept for existing code, but new code should prefer `ContractContiguousAxes`.
+
 ## Decomposition: symmetry-aware SVD
 
 TensorToolkit provides a block-sparse SVD that respects symmetry sectors.

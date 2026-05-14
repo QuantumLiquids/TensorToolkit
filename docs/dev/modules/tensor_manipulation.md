@@ -12,6 +12,9 @@ Location: `include/qlten/tensor_manipulation/`
 
 - `qlten/tensor_manipulation/index_lineage.h`
 - `qlten/tensor_manipulation/ten_ctrct.h`
+- `qlten/tensor_manipulation/contract_contiguous_axes.h`
+- `qlten/tensor_manipulation/dmrg/contract_1sector.h`
+- `qlten/tensor_manipulation/dmrg/block_expand.h`
 - `qlten/tensor_manipulation/ten_decomp/ten_svd.h`
 - `qlten/tensor_manipulation/ten_decomp/ten_qr.h`
 - `qlten/tensor_manipulation/ten_decomp/ten_evd.h`
@@ -19,6 +22,7 @@ Location: `include/qlten/tensor_manipulation/`
 ## Design notes
 
 - [Index lineage design](../design/index-lineage.md)
+- [Tensor contraction API design](../design/tensor-contraction-api.md)
 
 ## Responsibilities
 

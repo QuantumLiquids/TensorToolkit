@@ -7,14 +7,14 @@
 */
 
 /**
- * @file tensor_block_expand.h
+ * @file dmrg/block_expand.h
  * @brief Perform a non-standard expansion of quantum number blocks from the second tensor to the first tensor,
  *        specifically only expanding blocks that are not present in the first tensor.
  *        This function is designed for introduce perturbation
  *        in two-site update Density Matrix Renormalization Group algorithm.
 */
-#ifndef QLTEN_TENSOR_MANIPULATION_TEN_BLOCK_EXPAND_H
-#define QLTEN_TENSOR_MANIPULATION_TEN_BLOCK_EXPAND_H
+#ifndef QLTEN_TENSOR_MANIPULATION_DMRG_BLOCK_EXPAND_H
+#define QLTEN_TENSOR_MANIPULATION_DMRG_BLOCK_EXPAND_H
 
 #include "qlten/qltensor_all.h"     // QLTensor
 #include "qlten/utility/timer.h"
@@ -29,7 +29,7 @@
 #endif
 #include <cassert>     // assert
 
-namespace qlten {
+namespace qlten::dmrg {
 // Forward declaration
 template<typename TenElemT, typename QNT>
 void ExpandQNBlocksOneIdx_(
@@ -203,5 +203,5 @@ void ExpandQNBlocksOneIdx_(
   expand_latter_transpose_timer.PrintElapsed();
 #endif
 }
-} /* qlten */
-#endif /* ifndef QLTEN_TENSOR_MANIPULATION_TEN_BLOCK_EXPAND_H */
+} /* qlten::dmrg */
+#endif /* ifndef QLTEN_TENSOR_MANIPULATION_DMRG_BLOCK_EXPAND_H */
