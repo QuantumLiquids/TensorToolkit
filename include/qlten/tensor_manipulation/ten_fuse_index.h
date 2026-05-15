@@ -21,7 +21,7 @@
 
 #include "qlten/qltensor_all.h"     // QLTensor
 #include "qlten/tensor_manipulation/index_combine.h"  // QNSctsOffsetInfo
-#include "qlten/tensor_manipulation/index_lineage.h"  // IndexLineages
+#include "qlten/tensor_manipulation/index_lineage.h"  // IndexLineage
 #include "qlten/utility/timer.h"
 
 #ifdef Release
@@ -68,10 +68,10 @@ struct IndexFusionInfo {
         fused_index(fused), sector_offsets(offsets) {}
 };
 
-template<typename QNT>
+template<typename QNT, typename LineageT>
 struct FuseIndexResult {
   IndexFusionInfo<QNT> index_fusion;
-  IndexLineages output_lineages;
+  IndexLineage<LineageT> fused_lineage;
 };
 
 // Forward declaration
@@ -208,14 +208,15 @@ IndexFusionInfo<QNT> QLTensor<TenElemT, QNT>::FuseIndex(
 }
 
 template<typename TenElemT, typename QNT>
-FuseIndexResult<QNT> QLTensor<TenElemT, QNT>::FuseIndex(
+template<typename LineageT>
+FuseIndexResult<QNT, LineageT> QLTensor<TenElemT, QNT>::FuseIndex(
     const size_t idx1,
     const size_t idx2,
-    const IndexLineages &input_lineages
+    const IndexLineage<LineageT> &left_lineage,
+    const IndexLineage<LineageT> &right_lineage
 ) {
-  assert(input_lineages.size() == rank_);
-  FuseIndexResult<QNT> result;
-  result.output_lineages = FuseIndexLineages(input_lineages, idx1, idx2);
+  FuseIndexResult<QNT, LineageT> result;
+  result.fused_lineage = FuseIndexLineage(left_lineage, right_lineage);
   result.index_fusion = FuseIndex(idx1, idx2);
   return result;
 }

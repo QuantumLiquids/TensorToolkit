@@ -19,7 +19,7 @@
 #include "qlten/framework/bases/showable.h"                         // Showable
 #include "qlten/qltensor/index.h"                                   // IndexVec
 #include "qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h"     // BlockSparseDataTensor
-#include "qlten/tensor_manipulation/index_lineage.h"                // IndexLineages
+#include "qlten/tensor_manipulation/index_lineage.h"                // IndexLineage
 
 #include <vector>       // vector
 #include <iostream>     // istream, ostream
@@ -30,7 +30,7 @@ namespace qlten {
 template<typename QNT>
 struct IndexFusionInfo;
 
-template<typename QNT>
+template<typename QNT, typename LineageT = std::size_t>
 struct FuseIndexResult;
 
 /**
@@ -284,19 +284,24 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   IndexFusionInfo<QNT> FuseIndex(const size_t idx1, const size_t idx2);
 
   /**
-   * @brief Fuse two indices and return both fusion metadata and updated index lineages.
+   * @brief Fuse two indices and return both fusion metadata and fused lineage.
    *
-   * Uses the same transpose-to-axes-0-and-1 ordering as the two-argument
-   * overload when computing `output_lineages`.
+   * The numerical tensor operation is identical to the two-argument overload.
+   * The returned `fused_lineage` is `left_lineage` followed by
+   * `right_lineage`.
    *
    * @param idx1 Position of the first index to fuse (must be < idx2).
    * @param idx2 Position of the second index to fuse.
-   * @param input_lineages Lineages for the tensor indices before fusion.
-   * @return Fusion metadata and lineages after the in-place fusion.
+   * @param left_lineage Lineage associated with the first fused index.
+   * @param right_lineage Lineage associated with the second fused index.
+   * @return Fusion metadata and the concatenated fused lineage.
    */
-  FuseIndexResult<QNT> FuseIndex(const size_t idx1,
-                                 const size_t idx2,
-                                 const IndexLineages &input_lineages);
+  template<typename LineageT = std::size_t>
+  FuseIndexResult<QNT, LineageT> FuseIndex(
+      const size_t idx1,
+      const size_t idx2,
+      const IndexLineage<LineageT> &left_lineage,
+      const IndexLineage<LineageT> &right_lineage);
 
   /** @brief 2-norm of the tensor.
    *

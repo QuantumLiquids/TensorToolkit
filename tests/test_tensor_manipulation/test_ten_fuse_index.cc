@@ -19,6 +19,21 @@ using QNSctT = QNSector<U1QN>;
 using IndexT = Index<U1QN>;
 using DQLTensor = QLTensor<QLTEN_Double, U1QN>;
 
+namespace {
+
+enum class PhysicalParity { kEven, kOdd };
+
+struct PhysTag {
+  size_t site;
+  PhysicalParity parity;
+};
+
+bool operator==(const PhysTag &lhs, const PhysTag &rhs) {
+  return lhs.site == rhs.site && lhs.parity == rhs.parity;
+}
+
+}  // namespace
+
 std::string qn_nm = "qn";
 U1QN qn0 = U1QN({QNCard(qn_nm, U1QNVal(0))});
 U1QN qnp1 = U1QN({QNCard(qn_nm, U1QNVal(1))});
@@ -163,7 +178,7 @@ TEST(TestIndexFusionInfo, BasicTest) {
   EXPECT_FALSE(fusion_info.sector_offsets.empty());
 }
 
-TEST(TestFuseIndexLineage, ReturnsFusionInfoAndOutputLineages) {
+TEST(TestFuseIndexLineage, ReturnsFusionInfoAndFusedLineage) {
   DQLTensor ten({idx_out0_2, idx_out0_2, idx_out0_2, idx_out0_2});
   ten({0, 0, 0, 0}) = 1.0;
   ten({1, 0, 1, 0}) = 2.0;
@@ -171,8 +186,10 @@ TEST(TestFuseIndexLineage, ReturnsFusionInfoAndOutputLineages) {
   DQLTensor expected = ten;
   IndexFusionInfo<U1QN> expected_fusion = expected.FuseIndex(1, 3);
 
-  const IndexLineages input_lineages = {{{0}}, {{1}}, {{2}}, {{3}}};
-  const FuseIndexResult<U1QN> result = ten.FuseIndex(1, 3, input_lineages);
+  const IndexLineage<PhysTag> left_lineage = {{{1, PhysicalParity::kOdd}}};
+  const IndexLineage<PhysTag> right_lineage = {{{3, PhysicalParity::kEven}}};
+  const FuseIndexResult<U1QN, PhysTag> result =
+      ten.FuseIndex(1, 3, left_lineage, right_lineage);
 
   EXPECT_TRUE(ten == expected);
   EXPECT_EQ(result.index_fusion.left_index, expected_fusion.left_index);
@@ -180,6 +197,8 @@ TEST(TestFuseIndexLineage, ReturnsFusionInfoAndOutputLineages) {
   EXPECT_EQ(result.index_fusion.fused_index, expected_fusion.fused_index);
   EXPECT_EQ(result.index_fusion.sector_offsets, expected_fusion.sector_offsets);
 
-  const IndexLineages expected_lineages = {{{1, 3}}, {{0}}, {{2}}};
-  EXPECT_EQ(result.output_lineages, expected_lineages);
+  const IndexLineage<PhysTag> expected_lineage = {
+      {{1, PhysicalParity::kOdd}, {3, PhysicalParity::kEven}}
+  };
+  EXPECT_EQ(result.fused_lineage, expected_lineage);
 }
