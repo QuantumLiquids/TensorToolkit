@@ -138,6 +138,21 @@ TEST_F(TestQLTensor, TestCommonConstructor) {
       {idx_in_s, idx_out_s, idx_out_s});
 }
 
+TEST_F(TestQLTensor, HasActualData) {
+  EXPECT_FALSE(dten_default.HasActualData());
+  EXPECT_FALSE(dten_1d_s.HasActualData());
+
+  DQLTensor dten_with_data(dten_2d_s);
+  dten_with_data.Random(qn0);
+  EXPECT_TRUE(dten_with_data.HasActualData());
+  EXPECT_NE(dten_with_data.GetActualDataSize(), 0);
+
+  DQLTensor dten_scalar_with_data(dten_scalar);
+  dten_scalar_with_data() = 1.0;
+  EXPECT_TRUE(dten_scalar_with_data.HasActualData());
+  EXPECT_NE(dten_scalar_with_data.GetActualDataSize(), 0);
+}
+
 template<typename ElemT, typename QNT>
 void RunTestQLTensorElemAssignmentCase(
     const QLTensor<ElemT, QNT> &t_init,

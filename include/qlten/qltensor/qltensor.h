@@ -591,6 +591,14 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
   size_t GetActualDataSize(void) const;
 
   /**
+   * @brief Whether this tensor has stored elements in its block-sparse buffer.
+   *
+   * For non-default tensors, `!HasActualData()` is equivalent to
+   * `GetActualDataSize() == 0`.
+   */
+  bool HasActualData(void) const;
+
+  /**
    * @brief Set an element by quantum-number sector and in-block coordinates.
    * @param qn_sector Block quantum numbers in index order.
    * @param blk_coors In-block coordinates.
