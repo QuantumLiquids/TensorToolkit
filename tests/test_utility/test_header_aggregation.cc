@@ -6,6 +6,7 @@
 #include "qlten/qlten.h"
 
 #include <gtest/gtest.h>
+#include <stdexcept>
 #include <type_traits>
 
 namespace {
@@ -36,6 +37,8 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
                 "qlten/qlten.h should expose tensor contraction helpers.");
   static_assert(std::is_base_of<qlten::Executor, TensorSVDExecutor>::value,
                 "qlten/qlten.h should expose SVD helpers.");
+  static_assert(std::is_base_of<std::runtime_error, qlten::EmptySVDResultError>::value,
+                "qlten/qlten.h should expose SVD error types.");
   static_assert(std::is_base_of<qlten::Executor, TensorQRExecutor>::value,
                 "qlten/qlten.h should expose QR helpers.");
   static_assert(std::is_base_of<qlten::Executor, TensorLQExecutor>::value,

@@ -8,6 +8,7 @@
 #include "qlten/version.h"
 
 #include "qlten/framework/consts.h"
+#include "qlten/framework/exceptions.h"
 #include "qlten/qltensor_all.h"
 
 #endif /* ifndef QLTEN_CORE_H */

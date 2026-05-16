@@ -79,7 +79,7 @@ void MPITensorSVDExecutor<TenElemT, QNT>::Execute(void) {
   // Empty SVD result: input tensor has no valid blocks for this QN configuration
   if (kept_sv_info.empty()) {
     DeleteDataBlkMatSvdResMap(idx_raw_data_svd_res);
-    throw std::runtime_error(
+    throw EmptySVDResultError(
         "MPI SVD failed: empty result. The input tensor has no data blocks "
         "compatible with the specified quantum number divergence (lqndiv)."
     );

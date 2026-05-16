@@ -22,6 +22,7 @@
 #include "qlten/framework/bases/hashable.h"     // Hashable
 #include "qlten/framework/bases/streamable.h"   // Streamable
 #include "qlten/framework/bases/showable.h"     // Showable
+#include "qlten/framework/exceptions.h"         // InvalidIndexDirectionError
 #include "qlten/framework/vec_hash.h"           // VecHasher
 #include "qlten/qltensor/qnsct.h"               // QNSectorVec
 
@@ -159,8 +160,10 @@ class Index : public Hashable, public Streamable, public Showable, public Fermio
       case TenIndexDirType::OUT:dir_ = TenIndexDirType::IN;
         break;
       case TenIndexDirType::NDIR:break;
-      default:std::cout << "Invalid Index direction!" << std::endl;
-        exit(1);
+      default:
+        throw InvalidIndexDirectionError(
+            "Index::Inverse failed: invalid index direction."
+        );
     }
     hash_ = CalcHash_();      // Recalculate hash value.
   }

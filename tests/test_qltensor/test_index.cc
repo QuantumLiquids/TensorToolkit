@@ -6,6 +6,8 @@
 * Description: QuantumLiquids/tensor project. Unit tests for Index class.
 */
 #include "gtest/gtest.h"
+#include "qlten/framework/exceptions.h"       // InvalidDataBlkAccessError, InvalidIndexDirectionError
+#include "qlten/qltensor/blk_spar_data_ten/data_blk.h"  // DataBlk
 #include "qlten/qltensor/index.h"           // Index
 #include "qlten/qltensor/qn/qn.h"           // QN
 #include "qlten/qltensor/qn/qnval_u1.h"     // U1QNVal
@@ -106,6 +108,17 @@ TEST_F(TestIndex, Showable) {
 TEST_F(TestIndex, Inversion) {
   EXPECT_EQ(InverseIndex(idx_default), idx_default);
   EXPECT_EQ(InverseIndex(idx_2sct_in), idx_2sct_out);
+}
+
+TEST_F(TestIndex, InversionThrowsOnInvalidDirection) {
+  IndexT invalid_idx({}, static_cast<TenIndexDirType>(42));
+  EXPECT_THROW(invalid_idx.Inverse(), InvalidIndexDirectionError);
+}
+
+TEST(TestDataBlk, NonFermionicAccessorsThrow) {
+  DataBlk<U1QN> data_blk({0}, ShapeT{1});
+  EXPECT_THROW(data_blk.GetBlkFermionicSign(), InvalidDataBlkAccessError);
+  EXPECT_THROW(data_blk.GetBlkFermionParities(), InvalidDataBlkAccessError);
 }
 
 

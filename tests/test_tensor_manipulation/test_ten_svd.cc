@@ -709,7 +709,7 @@ TEST_F(TestSvd, EmptySVDResultThrows) {
 
   EXPECT_THROW(
       SVD(&empty_tensor, 1, qn0, 0.0, 1, 100, &u, &s, &vt, &trunc_err, &D),
-      std::runtime_error
+      qlten::EmptySVDResultError
   );
 }
 

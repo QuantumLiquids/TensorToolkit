@@ -13,6 +13,7 @@
 #ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_DATA_BLK_H
 #define QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_DATA_BLK_H
 
+#include "qlten/framework/exceptions.h"                    // InvalidDataBlkAccessError
 #include "qlten/framework/value_t.h"                        // CoorsT, ShapeT
 #include "qlten/qltensor/blk_spar_data_ten/qnblk_info.h"    // BlkQNInfo
 #include "qlten/qltensor/index.h"                           // IndexVec
@@ -84,10 +85,9 @@ class DataBlk {
   template<typename T = QNT>
   typename std::enable_if<!Fermionicable<T>::IsFermionic(), int>::type
   GetBlkFermionicSign(void) const {
-    std::cerr << "You are going to a useless function which is defined for convenience.\n"
-              << "Please debug." << std::endl;
-    exit(1);
-    return 1;
+    throw InvalidDataBlkAccessError(
+        "DataBlk::GetBlkFermionicSign is only valid for fermionic quantum numbers."
+    );
   }
 
   template<typename T = QNT>
@@ -99,10 +99,9 @@ class DataBlk {
   template<typename T = QNT>
   typename std::enable_if<!Fermionicable<T>::IsFermionic(), std::vector<bool>>::type
   GetBlkFermionParities(void) const {
-    std::cerr << "You are going to a useless function which is defined for convenience.\n"
-              << "Please debug." << std::endl;
-    exit(1);
-    return std::vector<bool>();
+    throw InvalidDataBlkAccessError(
+        "DataBlk::GetBlkFermionParities is only valid for fermionic quantum numbers."
+    );
   }
 
   /// Create and set quantum number block info if it doesn't exist.
