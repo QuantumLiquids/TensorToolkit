@@ -44,6 +44,8 @@ int main(int argc, char **argv) {
 #error "TensorToolkit GPU package consumer requires USE_GPU"
 #endif
 
+  qlten::hp_numeric::SetCpuNumericsThreads(1);
+
   int device_count = 0;
   cudaError_t status = cudaGetDeviceCount(&device_count);
   if (status != cudaSuccess) {

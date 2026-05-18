@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
   (void)kMpiInitRef;
   (void)kMpiFinalizeRef;
 
-  qlten::hp_numeric::SetTensorManipulationThreads(1);
+  qlten::hp_numeric::SetCpuNumericsThreads(1);
   if (qlten::hp_numeric::GetTensorManipulationThreads() != 1) {
     return 1;
   }

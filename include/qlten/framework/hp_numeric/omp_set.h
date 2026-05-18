@@ -50,6 +50,37 @@ inline unsigned GetTensorManipulationThreads() {
   return tensor_manipulation_num_threads;
 }
 #endif
+
+/**
+ * @brief Configure the host-side thread count for CPU numerical work.
+ *
+ * This is the backend-neutral entry point downstream code should use when it
+ * wants to configure CPU-side numerical routines. In CPU builds, it delegates
+ * to SetTensorManipulationThreads(), updating TensorToolkit tensor
+ * manipulation, tensor transpose, BLAS, and OpenMP thread settings. In GPU
+ * builds, the function remains available and configures only CPU numerical
+ * backends that are still linked for host fallback work; it does not control
+ * CUDA, cuBLAS, cuSOLVER, or cuTENSOR execution.
+ *
+ * @param thread Number of CPU threads to use. Must be greater than zero.
+ */
+inline void SetCpuNumericsThreads(unsigned thread) {
+  assert(thread > 0);
+#ifndef USE_GPU
+  SetTensorManipulationThreads(thread);
+#else
+#ifdef HP_NUMERIC_BACKEND_MKL
+  mkl_set_num_threads(thread);
+#if defined(_OPENMP)
+  omp_set_num_threads(thread);
+#endif
+#elif defined(HP_NUMERIC_BACKEND_OPENBLAS)
+  openblas_set_num_threads(thread);
+#elif defined(HP_NUMERIC_BACKEND_AOCL)
+  omp_set_num_threads(thread);
+#endif
+#endif
+}
 } /* hp_numeric */
 } /* qlten */
 

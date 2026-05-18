@@ -15,6 +15,8 @@
 
 #include <vector>     // vector
 
+#include "qlten/framework/consts.h"
+
 #ifndef USE_GPU
 #ifndef PLAIN_TRANSPOSE
 #include "hptt.h"
