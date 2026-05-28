@@ -28,5 +28,6 @@
 #include "qlten/tensor_manipulation/ten_decomp/mat_evd.h"
 #include "qlten/tensor_manipulation/dmrg/block_expand.h"      // qlten::dmrg::BlockExpand
 #include "qlten/tensor_manipulation/dmrg/contract_1sector.h"  // qlten::dmrg::Contract1Sector
+#include "qlten/tensor_manipulation/dmrg/axis_ops.h"          // qlten::dmrg axis-local operations
 
 #endif /* ifndef QLTEN_TENSOR_MANIPULATION_ALL */

@@ -197,6 +197,10 @@ add_unittest(test_ten_ctrct_1sct
         "test_tensor_manipulation/test_ten_ctrct_1sct.cc"
         "" "" ""
 )
+add_unittest(test_dmrg_axis_ops
+        "test_tensor_manipulation/test_dmrg_axis_ops.cc"
+        "" "" ""
+)
 # Test tensor SVD.
 add_unittest(test_ten_svd
         "test_tensor_manipulation/test_ten_svd.cc"

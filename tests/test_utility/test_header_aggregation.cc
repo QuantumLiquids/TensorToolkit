@@ -72,6 +72,28 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
       const Tensor *,
       const std::vector<size_t> &,
       Tensor *);
+  using AxisDiagonalFn = void (*)(
+      const Tensor &,
+      size_t,
+      const qlten::dmrg::AxisDiagonalOp<qlten::QLTEN_Double, QNT> &,
+      Tensor &,
+      qlten::QLTEN_Double,
+      qlten::QLTEN_Double);
+  using AxisMonomialFn = void (*)(
+      const Tensor &,
+      size_t,
+      const qlten::dmrg::AxisMonomialOp<qlten::QLTEN_Double, QNT> &,
+      Tensor &,
+      qlten::QLTEN_Double,
+      qlten::QLTEN_Double);
+  using ScaleAxisSectorsFn = void (*)(
+      Tensor &,
+      const qlten::dmrg::AxisSectorScalar<qlten::QLTEN_Double, QNT> &);
+  using ProjectAxisFn = void (*)(
+      const Tensor &,
+      size_t,
+      const qlten::dmrg::AxisProjector<QNT> &,
+      Tensor &);
   using DMRGContractFn = void (*)(
       const Tensor *,
       size_t,
@@ -114,6 +136,22 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
                                  &qlten::dmrg::ExpandQNBlocks<qlten::QLTEN_Double, QNT>)),
                              ExpandFn>::value,
                 "qlten/qlten.h should expose DMRG block expansion.");
+  static_assert(std::is_same<decltype(static_cast<AxisDiagonalFn>(
+                                 &qlten::dmrg::ApplyAxisDiagonal<qlten::QLTEN_Double, QNT>)),
+                             AxisDiagonalFn>::value,
+                "qlten/qlten.h should expose DMRG axis diagonal apply.");
+  static_assert(std::is_same<decltype(static_cast<AxisMonomialFn>(
+                                 &qlten::dmrg::ApplyAxisMonomial<qlten::QLTEN_Double, QNT>)),
+                             AxisMonomialFn>::value,
+                "qlten/qlten.h should expose DMRG axis monomial apply.");
+  static_assert(std::is_same<decltype(static_cast<ScaleAxisSectorsFn>(
+                                 &qlten::dmrg::ScaleAxisSectorsInPlace<qlten::QLTEN_Double, QNT>)),
+                             ScaleAxisSectorsFn>::value,
+                "qlten/qlten.h should expose DMRG axis sector scaling.");
+  static_assert(std::is_same<decltype(static_cast<ProjectAxisFn>(
+                                 &qlten::dmrg::ProjectAxis<qlten::QLTEN_Double, QNT>)),
+                             ProjectAxisFn>::value,
+                "qlten/qlten.h should expose DMRG compact axis projection.");
   static_assert(std::is_same<decltype(static_cast<DMRGContractFn>(
                                  &qlten::dmrg::Contract1Sector<qlten::QLTEN_Double, QNT>)),
                              DMRGContractFn>::value,
