@@ -17,9 +17,11 @@
 #include <set>          // set
 #include <stdexcept>    // invalid_argument, runtime_error
 #include <string>       // string
+#include <type_traits>  // is_same
 #include <utility>      // move
 #include <vector>       // vector
 
+#include "qlten/framework/flops_count.h"  // flop
 #include "qlten/qltensor_all.h"
 #include "qlten/utility/utils_inl.h"    // CalcMultiDimDataOffsets, CalcEffOneDimArrayOffset
 
@@ -117,10 +119,75 @@ struct AxisSectorScalar {
   std::vector<ElemT> values_by_sector;
 };
 
+/**
+ * @brief Layout work counters for rank-2 axis application.
+ *
+ * These counters track full-state layout movement in the DMRG hot path.  The
+ * preserve-order primitive below writes directly into the requested output
+ * layout, so successful CPU calls currently leave all fields at zero.
+ */
+struct Rank2AxisApplyStats {
+  /// Number of full-state layout copy calls.
+  size_t layout_copy_calls = 0;
+  /// Number of full-state layout transpose calls.
+  size_t layout_transpose_calls = 0;
+  /// Full-state layout traffic in GiB.
+  double layout_gb = 0.0;
+};
+
 namespace detail {
 
 inline std::string AxisOpsPrefix(const char *func) {
   return std::string(func) + ": ";
+}
+
+template<typename ElemT>
+constexpr bool IsComplexElem() {
+  using BareElemT = typename std::remove_cv<ElemT>::type;
+  return std::is_same<BareElemT, QLTEN_Complex>::value ||
+         std::is_same<BareElemT, QLTEN_ComplexFloat>::value;
+}
+
+template<typename ElemT>
+constexpr size_t ScaleFlopCost() {
+  return IsComplexElem<ElemT>() ? 6 : 1;
+}
+
+template<typename ElemT>
+constexpr size_t AxpyFlopCost() {
+  return IsComplexElem<ElemT>() ? 8 : 2;
+}
+
+template<typename ElemT>
+constexpr size_t ProjectFlopCost() {
+  return IsComplexElem<ElemT>() ? 2 : 1;
+}
+
+template<typename ElemT>
+void CountScaleFlops(const size_t size) {
+#ifdef QLTEN_COUNT_FLOPS
+  flop += ScaleFlopCost<ElemT>() * size;
+#else
+  (void) size;
+#endif
+}
+
+template<typename ElemT>
+void CountAxpyFlops(const size_t size) {
+#ifdef QLTEN_COUNT_FLOPS
+  flop += AxpyFlopCost<ElemT>() * size;
+#else
+  (void) size;
+#endif
+}
+
+template<typename ElemT>
+void CountProjectFlops(const size_t size) {
+#ifdef QLTEN_COUNT_FLOPS
+  flop += ProjectFlopCost<ElemT>() * size;
+#else
+  (void) size;
+#endif
 }
 
 template<typename QNT>
@@ -381,6 +448,7 @@ void ScaleRawData(ElemT *data, const size_t size, const ElemT scale) {
   if (size == 0 || scale == ElemT(1)) {
     return;
   }
+  CountScaleFlops<ElemT>(size);
   if (scale == ElemT(0)) {
     std::fill(data, data + size, ElemT(0));
     return;
@@ -447,6 +515,7 @@ void AddAxisDiagonalBlock(
   if (AllValuesSame(values)) {
     const ElemT coef = alpha * values[0];
     const size_t block_size = outer_size * axis_dim * inner_size;
+    CountAxpyFlops<ElemT>(block_size);
     for (size_t i = 0; i < block_size; ++i) {
       output_data[i] += coef * input_data[i];
     }
@@ -461,6 +530,7 @@ void AddAxisDiagonalBlock(
         continue;
       }
       const size_t base = outer_base + axis_coor * inner_size;
+      CountAxpyFlops<ElemT>(inner_size);
       for (size_t inner = 0; inner < inner_size; ++inner) {
         output_data[base + inner] += coef * input_data[base + inner];
       }
@@ -487,6 +557,7 @@ void ScaleAxisDiagonalBlockInPlace(
     return;
   }
   if (AllValuesEqual(values, ElemT(0))) {
+    CountScaleFlops<ElemT>(block_size);
     std::fill(data, data + block_size, ElemT(0));
     return;
   }
@@ -504,8 +575,10 @@ void ScaleAxisDiagonalBlockInPlace(
       }
       const size_t base = outer_base + axis_coor * inner_size;
       if (coef == ElemT(0)) {
+        CountScaleFlops<ElemT>(inner_size);
         std::fill(data + base, data + base + inner_size, ElemT(0));
       } else {
+        CountScaleFlops<ElemT>(inner_size);
         for (size_t inner = 0; inner < inner_size; ++inner) {
           data[base + inner] *= coef;
         }
@@ -573,6 +646,107 @@ void RequireMonomialOpMatchesAxis(
           AxisOpsPrefix(func) +
           "entry quantum numbers are inconsistent with operator flux."
       );
+    }
+  }
+}
+
+template<typename ElemT, typename QNT>
+IndexVec<QNT> Rank2OutputIndexes(
+    const QLTensor<ElemT, QNT> &input,
+    const size_t axis,
+    const QLTensor<ElemT, QNT> &rank2_op
+) {
+  IndexVec<QNT> output_indexes = input.GetIndexes();
+  output_indexes[axis] = rank2_op.GetIndex(1);
+  return output_indexes;
+}
+
+template<typename ElemT, typename QNT>
+void RequireRank2OpMatchesAxis(
+    const Index<QNT> &axis_index,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    const char *func
+) {
+  if (rank2_op.IsDefault()) {
+    throw std::invalid_argument(
+        AxisOpsPrefix(func) + "rank2_op must not be default."
+    );
+  }
+  if (rank2_op.Rank() != 2) {
+    throw std::invalid_argument(
+        AxisOpsPrefix(func) + "rank2_op must have rank 2."
+    );
+  }
+  if (rank2_op.GetIndex(0) != InverseIndex(axis_index)) {
+    throw std::invalid_argument(
+        AxisOpsPrefix(func) +
+        "rank2_op input index must be the inverse of the tensor axis."
+    );
+  }
+}
+
+template<typename ElemT, typename QNT>
+std::vector<CoorsT> GenerateRank2OutputBlockCoors(
+    const QLTensor<ElemT, QNT> &input,
+    const size_t axis,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    const IndexVec<QNT> &output_indexes
+) {
+  std::set<size_t> seen_blk_idxs;
+  std::vector<CoorsT> output_blk_coors_s;
+  const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &op_blocks = rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  for (const auto &input_entry : input_blocks) {
+    const auto &input_blk = input_entry.second;
+    for (const auto &op_entry : op_blocks) {
+      const auto &op_blk = op_entry.second;
+      if (op_blk.blk_coors[0] != input_blk.blk_coors[axis]) {
+        continue;
+      }
+      CoorsT output_blk_coors = input_blk.blk_coors;
+      output_blk_coors[axis] = op_blk.blk_coors[1];
+      const size_t output_blk_idx = BlkCoorsToBlkIdx(output_blk_coors, output_indexes);
+      if (seen_blk_idxs.insert(output_blk_idx).second) {
+        output_blk_coors_s.push_back(std::move(output_blk_coors));
+      }
+    }
+  }
+  return output_blk_coors_s;
+}
+
+template<typename ElemT>
+void AddRank2AxisBlock(
+    const ElemT *input_data,
+    const ElemT *op_data,
+    ElemT *output_data,
+    const ShapeT &input_shape,
+    const ShapeT &op_shape,
+    const ShapeT &output_shape,
+    const size_t axis
+) {
+  const size_t input_axis_dim = input_shape[axis];
+  const size_t output_axis_dim = output_shape[axis];
+  const size_t inner_size = AxisInnerSize(input_shape, axis);
+  const size_t outer_size = std::accumulate(input_shape.begin(), input_shape.begin() + axis,
+                                            size_t(1), std::multiplies<size_t>());
+  for (size_t outer = 0; outer < outer_size; ++outer) {
+    const size_t input_outer_base = outer * input_axis_dim * inner_size;
+    const size_t output_outer_base = outer * output_axis_dim * inner_size;
+    for (size_t in_offset = 0; in_offset < input_axis_dim; ++in_offset) {
+      const size_t input_base = input_outer_base + in_offset * inner_size;
+      const size_t op_base = in_offset * op_shape[1];
+      for (size_t out_offset = 0; out_offset < output_axis_dim; ++out_offset) {
+        const ElemT coef = op_data[op_base + out_offset];
+        if (coef == ElemT(0)) {
+          continue;
+        }
+        const size_t output_base = output_outer_base + out_offset * inner_size;
+        CountAxpyFlops<ElemT>(inner_size);
+        for (size_t inner = 0; inner < inner_size; ++inner) {
+          output_data[output_base + inner] +=
+              coef * input_data[input_base + inner];
+        }
+      }
     }
   }
 }
@@ -646,6 +820,7 @@ void AddAxisMonomialEntryBlock(
   const size_t inner_size = AxisInnerSize(input_shape, axis);
   const size_t outer_size = std::accumulate(input_shape.begin(), input_shape.begin() + axis,
                                             size_t(1), std::multiplies<size_t>());
+  CountAxpyFlops<ElemT>(outer_size * inner_size);
   for (size_t outer = 0; outer < outer_size; ++outer) {
     const size_t input_base =
         outer * input_axis_dim * inner_size + in_offset * inner_size;
@@ -671,6 +846,7 @@ void CopyProjectedAxisBlock(
   const size_t inner_size = AxisInnerSize(input_shape, axis);
   const size_t outer_size = std::accumulate(input_shape.begin(), input_shape.begin() + axis,
                                             size_t(1), std::multiplies<size_t>());
+  CountProjectFlops<ElemT>(outer_size * kept_degeneracies.size() * inner_size);
   for (size_t outer = 0; outer < outer_size; ++outer) {
     const size_t input_outer_base = outer * input_axis_dim * inner_size;
     const size_t output_outer_base = outer * output_axis_dim * inner_size;
@@ -1061,6 +1237,107 @@ void ApplyAxisMonomial(
           op_entry.in_offset,
           op_entry.out_offset,
           alpha * op_entry.coef
+      );
+    }
+  }
+#endif
+}
+
+/**
+ * @brief Apply a rank-2 operator to one tensor axis without reordering axes.
+ *
+ * The operator is interpreted in the standard TensorToolkit matrix layout
+ * `{input_index, output_index}`.  `rank2_op.GetIndex(0)` is contracted with
+ * `input.GetIndex(target_axis)`, and the output tensor keeps the original
+ * state-axis order with only `target_axis` replaced by
+ * `rank2_op.GetIndex(1)`.
+ *
+ * `out` is always overwritten.  The implementation writes output blocks
+ * directly in the final axis order and does not perform full-state layout
+ * copies or transposes.
+ *
+ * @pre `input` is non-default and `target_axis < input.Rank()`.
+ * @pre `rank2_op` is non-default, has rank 2, and
+ *      `rank2_op.GetIndex(0) == InverseIndex(input.GetIndex(target_axis))`.
+ * @pre `out` does not alias `input` or `rank2_op`.
+ * @throws std::invalid_argument on invalid axes, rank/index mismatch, or
+ *         output aliasing.
+ * @throws std::runtime_error when used with GPU tensors, or when a tensor has
+ *         stored blocks but no allocated raw data.
+ */
+template<typename ElemT, typename QNT>
+void ApplyRank2ToAxisPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    size_t target_axis,
+    QLTensor<ElemT, QNT> &out,
+    Rank2AxisApplyStats *stats = nullptr
+) {
+#ifdef USE_GPU
+  throw std::runtime_error(
+      "ApplyRank2ToAxisPreserveOrder does not support GPU tensors yet.");
+#else
+  static_assert(!Fermionicable<QNT>::IsFermionic(),
+                "ApplyRank2ToAxisPreserveOrder is bosonic-only.");
+  constexpr const char *kFunc = "ApplyRank2ToAxisPreserveOrder";
+  if (stats != nullptr) {
+    *stats = Rank2AxisApplyStats{};
+  }
+  if (&input == &out || &rank2_op == &out) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) + "output aliasing is not allowed."
+    );
+  }
+  detail::RequireUsableAxis(input, target_axis, kFunc);
+  detail::RequireRank2OpMatchesAxis(input.GetIndex(target_axis),
+                                    rank2_op,
+                                    kFunc);
+  detail::RequireRawDataIfBlocksPresent(input, kFunc, "input");
+  detail::RequireRawDataIfBlocksPresent(rank2_op, kFunc, "rank2_op");
+
+  const auto output_indexes =
+      detail::Rank2OutputIndexes(input, target_axis, rank2_op);
+  const auto output_blk_coors_s =
+      detail::GenerateRank2OutputBlockCoors(input,
+                                            target_axis,
+                                            rank2_op,
+                                            output_indexes);
+  out = QLTensor<ElemT, QNT>(output_indexes);
+  if (!output_blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  }
+  if (output_blk_coors_s.empty()) {
+    return;
+  }
+  detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
+
+  const auto &input_bsdt = input.GetBlkSparDataTen();
+  const auto &op_bsdt = rank2_op.GetBlkSparDataTen();
+  auto &output_bsdt = out.GetBlkSparDataTen();
+  const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
+  const ElemT *op_data = op_bsdt.GetActualRawDataPtr();
+  ElemT *output_data = output_bsdt.GetActualRawDataPtr();
+  const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
+
+  for (const auto &input_entry : input_bsdt.GetBlkIdxDataBlkMap()) {
+    const auto &input_blk = input_entry.second;
+    for (const auto &op_entry : op_bsdt.GetBlkIdxDataBlkMap()) {
+      const auto &op_blk = op_entry.second;
+      if (op_blk.blk_coors[0] != input_blk.blk_coors[target_axis]) {
+        continue;
+      }
+      CoorsT output_blk_coors = input_blk.blk_coors;
+      output_blk_coors[target_axis] = op_blk.blk_coors[1];
+      const size_t output_blk_idx = output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
+      const auto &output_blk = output_blocks.at(output_blk_idx);
+      detail::AddRank2AxisBlock(
+          input_data + input_blk.data_offset,
+          op_data + op_blk.data_offset,
+          output_data + output_blk.data_offset,
+          input_blk.shape,
+          op_blk.shape,
+          output_blk.shape,
+          target_axis
       );
     }
   }
