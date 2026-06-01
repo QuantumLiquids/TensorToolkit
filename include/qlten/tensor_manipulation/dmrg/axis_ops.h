@@ -135,6 +135,18 @@ struct Rank2AxisApplyStats {
   double layout_gb = 0.0;
 };
 
+/**
+ * @brief Layout work counters for positional axis movement.
+ */
+struct AxisLayoutMoveStats {
+  /// Number of generic full-tensor layout transpose calls.
+  size_t layout_transpose_calls = 0;
+  /// Number of dense block matrix transpose calls.
+  size_t block_matrix_transpose_calls = 0;
+  /// Raw-data traffic in GB, counting reads plus writes.
+  double layout_gb = 0.0;
+};
+
 namespace detail {
 
 inline std::string AxisOpsPrefix(const char *func) {
@@ -712,6 +724,54 @@ std::vector<CoorsT> GenerateRank2OutputBlockCoors(
     }
   }
   return output_blk_coors_s;
+}
+
+template<typename QNT>
+IndexVec<QNT> MoveHeadAxisToTailIndexes(
+    const IndexVec<QNT> &input_indexes
+) {
+  IndexVec<QNT> output_indexes;
+  output_indexes.reserve(input_indexes.size());
+  output_indexes.insert(output_indexes.end(),
+                        input_indexes.begin() + 1,
+                        input_indexes.end());
+  output_indexes.push_back(input_indexes.front());
+  return output_indexes;
+}
+
+inline CoorsT MoveHeadAxisToTailCoors(const CoorsT &input_coors) {
+  CoorsT output_coors;
+  output_coors.reserve(input_coors.size());
+  output_coors.insert(output_coors.end(),
+                      input_coors.begin() + 1,
+                      input_coors.end());
+  output_coors.push_back(input_coors.front());
+  return output_coors;
+}
+
+template<typename ElemT>
+double RawReadWriteGb(const size_t elem_count) {
+  return 2.0 * static_cast<double>(elem_count) *
+         static_cast<double>(sizeof(ElemT)) / 1.0e9;
+}
+
+template<typename ElemT>
+void MoveHeadAxisBlockToTail(
+    const ElemT *input_data,
+    ElemT *output_data,
+    const ShapeT &input_shape
+) {
+  const size_t head_dim = input_shape.front();
+  const size_t tail_size = std::accumulate(input_shape.begin() + 1,
+                                           input_shape.end(),
+                                           size_t(1),
+                                           std::multiplies<size_t>());
+  for (size_t head = 0; head < head_dim; ++head) {
+    const size_t input_base = head * tail_size;
+    for (size_t tail = 0; tail < tail_size; ++tail) {
+      output_data[tail * head_dim + head] = input_data[input_base + tail];
+    }
+  }
 }
 
 template<typename ElemT>
@@ -1339,6 +1399,112 @@ void ApplyRank2ToAxisPreserveOrder(
           output_blk.shape,
           target_axis
       );
+    }
+  }
+#endif
+}
+
+/**
+ * @brief Move tensor axis 0 to the last axis by positional axis order.
+ *
+ * The output layout is
+ * `{input.GetIndex(1), ..., input.GetIndex(input.Rank() - 1),
+ * input.GetIndex(0)}`.  This is equivalent to copying `input` into `out` and
+ * calling `out.Transpose({1, 2, ..., rank - 1, 0})`, but this implementation
+ * writes each dense block through a `d0 x (d1 * ... * dn)` matrix transpose
+ * instead of invoking the generic tensor transpose path.
+ *
+ * The mapping is positional, not index-name based; duplicate indexes are valid.
+ * This is a layout/data-movement operation and does not increment FLOP counters.
+ *
+ * @pre `input` is non-default and `input.Rank() > 0`.
+ * @pre `out` does not alias `input`.
+ * @post `out` is overwritten.
+ * @throws std::invalid_argument on default input, rank-0 input, or output
+ *         aliasing.
+ * @throws std::runtime_error when used with GPU tensors, or when a tensor has
+ *         stored blocks but no allocated raw data.
+ */
+template<typename ElemT, typename QNT>
+void MoveHeadAxisToTail(
+    const QLTensor<ElemT, QNT> &input,
+    QLTensor<ElemT, QNT> &out,
+    AxisLayoutMoveStats *stats = nullptr
+) {
+#ifdef USE_GPU
+  throw std::runtime_error("MoveHeadAxisToTail does not support GPU tensors yet.");
+#else
+  static_assert(!Fermionicable<QNT>::IsFermionic(),
+                "MoveHeadAxisToTail is bosonic-only.");
+  constexpr const char *kFunc = "MoveHeadAxisToTail";
+  if (stats != nullptr) {
+    *stats = AxisLayoutMoveStats{};
+  }
+  if (input.IsDefault()) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) + "input tensor must not be default."
+    );
+  }
+  if (input.Rank() == 0) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) + "input rank must be positive."
+    );
+  }
+  if (&input == &out) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) + "input/output aliasing is not allowed."
+    );
+  }
+  detail::RequireRawDataIfBlocksPresent(input, kFunc, "input");
+
+  if (input.Rank() == 1) {
+    out = input;
+    if (stats != nullptr) {
+      stats->layout_gb += detail::RawReadWriteGb<ElemT>(
+          input.GetBlkSparDataTen().GetActualRawDataSize());
+    }
+    return;
+  }
+
+  const auto output_indexes =
+      detail::MoveHeadAxisToTailIndexes(input.GetIndexes());
+  const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  std::vector<CoorsT> output_blk_coors_s;
+  output_blk_coors_s.reserve(input_blocks.size());
+  for (const auto &entry : input_blocks) {
+    output_blk_coors_s.push_back(
+        detail::MoveHeadAxisToTailCoors(entry.second.blk_coors));
+  }
+
+  out = QLTensor<ElemT, QNT>(output_indexes);
+  if (!output_blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  }
+  if (output_blk_coors_s.empty()) {
+    return;
+  }
+  detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
+
+  const auto &input_bsdt = input.GetBlkSparDataTen();
+  auto &output_bsdt = out.GetBlkSparDataTen();
+  const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
+  ElemT *output_data = output_bsdt.GetActualRawDataPtr();
+  const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
+
+  for (const auto &entry : input_blocks) {
+    const auto &input_blk = entry.second;
+    const auto output_blk_coors =
+        detail::MoveHeadAxisToTailCoors(input_blk.blk_coors);
+    const size_t output_blk_idx = output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
+    const auto &output_blk = output_blocks.at(output_blk_idx);
+    detail::MoveHeadAxisBlockToTail(
+        input_data + input_blk.data_offset,
+        output_data + output_blk.data_offset,
+        input_blk.shape
+    );
+    if (stats != nullptr) {
+      stats->block_matrix_transpose_calls++;
+      stats->layout_gb += detail::RawReadWriteGb<ElemT>(input_blk.size);
     }
   }
 #endif

@@ -92,6 +92,28 @@ void ExpectTensorElementsNear(
   }
 }
 
+Rank4Tensor MakeNontrivialRank4Input(const U1QN &div) {
+  const auto qnm1 = U1QN(-1);
+  const auto qnp1 = U1QN(1);
+  const IndexT state_index(
+      {QNSctT(qnm1, 1), QNSctT(div, 2), QNSctT(qnp1, 1)},
+      TenIndexDirType::OUT);
+  Rank4Tensor input({state_index, state_index, state_index, state_index});
+  input.Fill(div, 0.0);
+  FillStoredBlocks(input, 10.0);
+  return input;
+}
+
+std::vector<size_t> MoveHeadToTailOrder(const size_t rank) {
+  std::vector<size_t> order;
+  order.reserve(rank);
+  for (size_t axis = 1; axis < rank; ++axis) {
+    order.push_back(axis);
+  }
+  order.push_back(0);
+  return order;
+}
+
 TEST_F(DmrgAxisOpsTest, ApplyAxisDiagonalDefaultOutputScalesEachDegeneracy) {
   auto input = MakeInput();
   dmrg::AxisDiagonalOp<QLTEN_Double, U1QN> op{
@@ -288,6 +310,45 @@ TEST_F(DmrgAxisOpsTest, ApplyRank2ToAxisPreserveOrderMatchesDenseReference) {
     reference.Transpose(ReferenceTransposeOrder(input.Rank(), target_axis));
     ExpectTensorElementsNear(output, reference, target_axis);
   }
+}
+
+TEST_F(DmrgAxisOpsTest, MoveHeadAxisToTailMatchesTensorTranspose) {
+  const auto input = MakeNontrivialRank4Input(qn0);
+  const auto block_count =
+      input.GetBlkSparDataTen().GetBlkIdxDataBlkMap().size();
+  const auto raw_size = input.GetBlkSparDataTen().GetActualRawDataSize();
+
+  Tensor output;
+  dmrg::AxisLayoutMoveStats stats;
+  flop = 123;
+  dmrg::MoveHeadAxisToTail(input, output, &stats);
+
+  auto reference = input;
+  reference.Transpose(MoveHeadToTailOrder(input.Rank()));
+
+  ExpectTensorElementsNear(output, reference, 0);
+  EXPECT_EQ(stats.layout_transpose_calls, 0U);
+  EXPECT_EQ(stats.block_matrix_transpose_calls, block_count);
+  EXPECT_DOUBLE_EQ(
+      stats.layout_gb,
+      2.0 * static_cast<double>(raw_size * sizeof(QLTEN_Double)) / 1.0e9);
+  EXPECT_EQ(flop, 123U);
+}
+
+TEST_F(DmrgAxisOpsTest, MoveHeadAxisToTailRejectsInvalidInputs) {
+  Tensor output;
+  const Tensor default_input;
+  EXPECT_THROW(dmrg::MoveHeadAxisToTail(default_input, output),
+               std::invalid_argument);
+
+  Tensor scalar(IndexVec<U1QN>{});
+  scalar() = 1.0;
+  EXPECT_THROW(dmrg::MoveHeadAxisToTail(scalar, output),
+               std::invalid_argument);
+
+  auto input = MakeNontrivialRank4Input(qn0);
+  EXPECT_THROW(dmrg::MoveHeadAxisToTail(input, input),
+               std::invalid_argument);
 }
 
 TEST_F(DmrgAxisOpsTest, ProjectAxisCompactsSectorsAndReordersDegeneracies) {
