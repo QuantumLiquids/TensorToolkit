@@ -5,6 +5,9 @@
 
 #define QLTEN_COUNT_FLOPS 1
 
+#include <functional>  // multiplies
+#include <numeric>     // accumulate
+
 #include "gtest/gtest.h"
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/dmrg/axis_ops.h"
@@ -112,6 +115,42 @@ std::vector<size_t> MoveHeadToTailOrder(const size_t rank) {
   }
   order.push_back(0);
   return order;
+}
+
+size_t ExpectedRank2GemmFlops(
+    const Rank4Tensor &input,
+    const Rank4Tensor &rank2_op,
+    const size_t target_axis
+) {
+  size_t expected = 0;
+  const auto &input_blocks =
+      input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &op_blocks =
+      rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  for (const auto &input_entry : input_blocks) {
+    const auto &input_blk = input_entry.second;
+    const size_t inner_size =
+        std::accumulate(input_blk.shape.begin() + target_axis + 1,
+                        input_blk.shape.end(),
+                        size_t(1),
+                        std::multiplies<size_t>());
+    const size_t outer_size =
+        std::accumulate(input_blk.shape.begin(),
+                        input_blk.shape.begin() + target_axis,
+                        size_t(1),
+                        std::multiplies<size_t>());
+    const size_t input_axis_dim = input_blk.shape[target_axis];
+    for (const auto &op_entry : op_blocks) {
+      const auto &op_blk = op_entry.second;
+      if (op_blk.blk_coors[0] != input_blk.blk_coors[target_axis]) {
+        continue;
+      }
+      const size_t output_axis_dim = op_blk.shape[1];
+      expected += outer_size * output_axis_dim * inner_size *
+                  (2 * input_axis_dim + 2);
+    }
+  }
+  return expected;
 }
 
 TEST_F(DmrgAxisOpsTest, ApplyAxisDiagonalDefaultOutputScalesEachDegeneracy) {
@@ -310,6 +349,30 @@ TEST_F(DmrgAxisOpsTest, ApplyRank2ToAxisPreserveOrderMatchesDenseReference) {
     reference.Transpose(ReferenceTransposeOrder(input.Rank(), target_axis));
     ExpectTensorElementsNear(output, reference, target_axis);
   }
+}
+
+TEST_F(DmrgAxisOpsTest, ApplyRank2ToAxisPreserveOrderUsesGemmFlopAccounting) {
+  const auto qnm1 = U1QN(-1);
+  const auto qnp1 = U1QN(1);
+  const IndexT state_index(
+      {QNSctT(qnm1, 1), QNSctT(qn0, 2), QNSctT(qnp1, 1)},
+      TenIndexDirType::OUT);
+  const IndexT op_output_index(
+      {QNSctT(qnm1, 2), QNSctT(qn0, 1), QNSctT(qnp1, 2)},
+      TenIndexDirType::OUT);
+  Rank4Tensor input({state_index, state_index, state_index, state_index});
+  input.Fill(qn0, 0.0);
+  FillStoredBlocks(input, 10.0);
+
+  Rank4Tensor rank2_op({InverseIndex(state_index), op_output_index});
+  rank2_op.Fill(qn0, 0.0);
+  FillStoredBlocks(rank2_op, 0.5);
+
+  Rank4Tensor output;
+  flop = 0;
+  dmrg::ApplyRank2ToAxisPreserveOrder(input, rank2_op, 2, output);
+
+  EXPECT_EQ(flop, ExpectedRank2GemmFlops(input, rank2_op, 2));
 }
 
 TEST_F(DmrgAxisOpsTest, MoveHeadAxisToTailMatchesTensorTranspose) {

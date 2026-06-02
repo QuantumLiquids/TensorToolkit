@@ -10,7 +10,6 @@
 #ifndef QLTEN_TENSOR_MANIPULATION_DMRG_AXIS_OPS_H
 #define QLTEN_TENSOR_MANIPULATION_DMRG_AXIS_OPS_H
 
-#include <algorithm>    // fill
 #include <cstddef>      // size_t
 #include <functional>   // multiplies
 #include <numeric>      // accumulate
@@ -22,6 +21,10 @@
 #include <vector>       // vector
 
 #include "qlten/framework/flops_count.h"  // flop
+#include "qlten/framework/mem_ops.h"      // QLMemset
+#include "qlten/framework/hp_numeric/blas_level1.h"      // VectorAddTo, VectorCopy, VectorScale
+#include "qlten/framework/hp_numeric/blas_level3.h"      // MatMultiply
+#include "qlten/framework/hp_numeric/blas_extensions.h"  // MatrixTransposeBatch
 #include "qlten/qltensor_all.h"
 #include "qlten/utility/utils_inl.h"    // CalcMultiDimDataOffsets, CalcEffOneDimArrayOffset
 
@@ -161,13 +164,33 @@ constexpr bool IsComplexElem() {
 }
 
 template<typename ElemT>
-constexpr size_t ScaleFlopCost() {
-  return IsComplexElem<ElemT>() ? 6 : 1;
+constexpr bool IsHpNumericElem() {
+  using BareElemT = typename std::remove_cv<ElemT>::type;
+  return std::is_same<BareElemT, QLTEN_Double>::value ||
+         std::is_same<BareElemT, QLTEN_Float>::value ||
+         std::is_same<BareElemT, QLTEN_Complex>::value ||
+         std::is_same<BareElemT, QLTEN_ComplexFloat>::value;
+}
+
+inline auto BlasNoTrans() {
+#ifdef USE_GPU
+  return CUBLAS_OP_N;
+#else
+  return CblasNoTrans;
+#endif
+}
+
+inline auto BlasTrans() {
+#ifdef USE_GPU
+  return CUBLAS_OP_T;
+#else
+  return CblasTrans;
+#endif
 }
 
 template<typename ElemT>
-constexpr size_t AxpyFlopCost() {
-  return IsComplexElem<ElemT>() ? 8 : 2;
+constexpr size_t ScaleFlopCost() {
+  return IsComplexElem<ElemT>() ? 6 : 1;
 }
 
 template<typename ElemT>
@@ -185,20 +208,38 @@ void CountScaleFlops(const size_t size) {
 }
 
 template<typename ElemT>
-void CountAxpyFlops(const size_t size) {
+void CountProjectFlops(const size_t size) {
 #ifdef QLTEN_COUNT_FLOPS
-  flop += AxpyFlopCost<ElemT>() * size;
+  flop += ProjectFlopCost<ElemT>() * size;
 #else
   (void) size;
 #endif
 }
 
 template<typename ElemT>
-void CountProjectFlops(const size_t size) {
-#ifdef QLTEN_COUNT_FLOPS
-  flop += ProjectFlopCost<ElemT>() * size;
+void MatrixTransposeBlocks(
+    const std::vector<const ElemT *> &input_ptrs,
+    const std::vector<ElemT *> &output_ptrs,
+    const std::vector<size_t> &rows,
+    const std::vector<size_t> &cols
+) {
+  static_assert(IsHpNumericElem<ElemT>(),
+                "DMRG axis operations require a hp_numeric-supported ElemT.");
+  if (input_ptrs.empty()) {
+    return;
+  }
+#ifdef USE_GPU
+  for (size_t i = 0; i < input_ptrs.size(); ++i) {
+    hp_numeric::MatrixTranspose(input_ptrs[i], rows[i], cols[i], output_ptrs[i]);
+  }
 #else
-  (void) size;
+  auto input_ptr_array = input_ptrs;
+  auto output_ptr_array = output_ptrs;
+  hp_numeric::MatrixTransposeBatch(input_ptr_array.data(),
+                                   output_ptr_array.data(),
+                                   rows.data(),
+                                   cols.data(),
+                                   input_ptr_array.size());
 #endif
 }
 
@@ -457,23 +498,64 @@ void InitializeOutputLikeInput(
 
 template<typename ElemT>
 void ScaleRawData(ElemT *data, const size_t size, const ElemT scale) {
+  static_assert(IsHpNumericElem<ElemT>(),
+                "DMRG axis operations require a hp_numeric-supported ElemT.");
   if (size == 0 || scale == ElemT(1)) {
     return;
   }
-  CountScaleFlops<ElemT>(size);
   if (scale == ElemT(0)) {
-    std::fill(data, data + size, ElemT(0));
+    CountScaleFlops<ElemT>(size);
+    QLMemset(data, 0, size * sizeof(ElemT));
     return;
   }
-  for (size_t i = 0; i < size; ++i) {
-    data[i] *= scale;
-  }
+  hp_numeric::VectorScale(data, size, scale);
 }
 
 template<typename ElemT, typename QNT>
 void ScaleTensorRawData(QLTensor<ElemT, QNT> &tensor, const ElemT scale) {
   auto &bsdt = tensor.GetBlkSparDataTen();
   ScaleRawData(bsdt.GetActualRawDataPtr(), bsdt.GetActualRawDataSize(), scale);
+}
+
+template<typename ElemT>
+void AddRawDataTo(
+    const ElemT *input_data,
+    const size_t size,
+    ElemT *output_data,
+    const ElemT coef
+) {
+  static_assert(IsHpNumericElem<ElemT>(),
+                "DMRG axis operations require a hp_numeric-supported ElemT.");
+  if (size == 0 || coef == ElemT(0)) {
+    return;
+  }
+  hp_numeric::VectorAddTo(input_data, size, output_data, coef);
+}
+
+template<typename ElemT>
+void CopyRawData(
+    const ElemT *input_data,
+    const size_t size,
+    ElemT *output_data
+) {
+  static_assert(IsHpNumericElem<ElemT>(),
+                "DMRG axis operations require a hp_numeric-supported ElemT.");
+  if (size == 0) {
+    return;
+  }
+  hp_numeric::VectorCopy(input_data, size, output_data);
+}
+
+template<typename ElemT, typename QNT>
+void CopyTensorRawData(
+    const QLTensor<ElemT, QNT> &input,
+    QLTensor<ElemT, QNT> &output
+) {
+  const auto &input_bsdt = input.GetBlkSparDataTen();
+  auto &output_bsdt = output.GetBlkSparDataTen();
+  CopyRawData(input_bsdt.GetActualRawDataPtr(),
+              input_bsdt.GetActualRawDataSize(),
+              output_bsdt.GetActualRawDataPtr());
 }
 
 template<typename ElemT>
@@ -527,10 +609,7 @@ void AddAxisDiagonalBlock(
   if (AllValuesSame(values)) {
     const ElemT coef = alpha * values[0];
     const size_t block_size = outer_size * axis_dim * inner_size;
-    CountAxpyFlops<ElemT>(block_size);
-    for (size_t i = 0; i < block_size; ++i) {
-      output_data[i] += coef * input_data[i];
-    }
+    AddRawDataTo(input_data, block_size, output_data, coef);
     return;
   }
 
@@ -542,10 +621,7 @@ void AddAxisDiagonalBlock(
         continue;
       }
       const size_t base = outer_base + axis_coor * inner_size;
-      CountAxpyFlops<ElemT>(inner_size);
-      for (size_t inner = 0; inner < inner_size; ++inner) {
-        output_data[base + inner] += coef * input_data[base + inner];
-      }
+      AddRawDataTo(input_data + base, inner_size, output_data + base, coef);
     }
   }
 }
@@ -570,7 +646,7 @@ void ScaleAxisDiagonalBlockInPlace(
   }
   if (AllValuesEqual(values, ElemT(0))) {
     CountScaleFlops<ElemT>(block_size);
-    std::fill(data, data + block_size, ElemT(0));
+    QLMemset(data, 0, block_size * sizeof(ElemT));
     return;
   }
   if (AllValuesSame(values)) {
@@ -588,12 +664,9 @@ void ScaleAxisDiagonalBlockInPlace(
       const size_t base = outer_base + axis_coor * inner_size;
       if (coef == ElemT(0)) {
         CountScaleFlops<ElemT>(inner_size);
-        std::fill(data + base, data + base + inner_size, ElemT(0));
+        QLMemset(data + base, 0, inner_size * sizeof(ElemT));
       } else {
-        CountScaleFlops<ElemT>(inner_size);
-        for (size_t inner = 0; inner < inner_size; ++inner) {
-          data[base + inner] *= coef;
-        }
+        ScaleRawData(data + base, inner_size, coef);
       }
     }
   }
@@ -756,25 +829,6 @@ double RawReadWriteGb(const size_t elem_count) {
 }
 
 template<typename ElemT>
-void MoveHeadAxisBlockToTail(
-    const ElemT *input_data,
-    ElemT *output_data,
-    const ShapeT &input_shape
-) {
-  const size_t head_dim = input_shape.front();
-  const size_t tail_size = std::accumulate(input_shape.begin() + 1,
-                                           input_shape.end(),
-                                           size_t(1),
-                                           std::multiplies<size_t>());
-  for (size_t head = 0; head < head_dim; ++head) {
-    const size_t input_base = head * tail_size;
-    for (size_t tail = 0; tail < tail_size; ++tail) {
-      output_data[tail * head_dim + head] = input_data[input_base + tail];
-    }
-  }
-}
-
-template<typename ElemT>
 void AddRank2AxisBlock(
     const ElemT *input_data,
     const ElemT *op_data,
@@ -784,30 +838,31 @@ void AddRank2AxisBlock(
     const ShapeT &output_shape,
     const size_t axis
 ) {
+  static_assert(IsHpNumericElem<ElemT>(),
+                "DMRG axis operations require a hp_numeric-supported ElemT.");
   const size_t input_axis_dim = input_shape[axis];
   const size_t output_axis_dim = output_shape[axis];
   const size_t inner_size = AxisInnerSize(input_shape, axis);
   const size_t outer_size = std::accumulate(input_shape.begin(), input_shape.begin() + axis,
                                             size_t(1), std::multiplies<size_t>());
+  using AlphaT = typename RealTypeTrait<ElemT>::type;
   for (size_t outer = 0; outer < outer_size; ++outer) {
     const size_t input_outer_base = outer * input_axis_dim * inner_size;
     const size_t output_outer_base = outer * output_axis_dim * inner_size;
-    for (size_t in_offset = 0; in_offset < input_axis_dim; ++in_offset) {
-      const size_t input_base = input_outer_base + in_offset * inner_size;
-      const size_t op_base = in_offset * op_shape[1];
-      for (size_t out_offset = 0; out_offset < output_axis_dim; ++out_offset) {
-        const ElemT coef = op_data[op_base + out_offset];
-        if (coef == ElemT(0)) {
-          continue;
-        }
-        const size_t output_base = output_outer_base + out_offset * inner_size;
-        CountAxpyFlops<ElemT>(inner_size);
-        for (size_t inner = 0; inner < inner_size; ++inner) {
-          output_data[output_base + inner] +=
-              coef * input_data[input_base + inner];
-        }
-      }
-    }
+    hp_numeric::MatMultiply(
+        AlphaT(1),
+        op_data,
+        BlasTrans(),
+        input_data + input_outer_base,
+        BlasNoTrans(),
+        output_axis_dim,
+        input_axis_dim,
+        inner_size,
+        op_shape[1],
+        inner_size,
+        ElemT(1),
+        output_data + output_outer_base
+    );
   }
 }
 
@@ -880,15 +935,15 @@ void AddAxisMonomialEntryBlock(
   const size_t inner_size = AxisInnerSize(input_shape, axis);
   const size_t outer_size = std::accumulate(input_shape.begin(), input_shape.begin() + axis,
                                             size_t(1), std::multiplies<size_t>());
-  CountAxpyFlops<ElemT>(outer_size * inner_size);
   for (size_t outer = 0; outer < outer_size; ++outer) {
     const size_t input_base =
         outer * input_axis_dim * inner_size + in_offset * inner_size;
     const size_t output_base =
         outer * output_axis_dim * inner_size + out_offset * inner_size;
-    for (size_t inner = 0; inner < inner_size; ++inner) {
-      output_data[output_base + inner] += coef * input_data[input_base + inner];
-    }
+    AddRawDataTo(input_data + input_base,
+                 inner_size,
+                 output_data + output_base,
+                 coef);
   }
 }
 
@@ -914,9 +969,9 @@ void CopyProjectedAxisBlock(
       const size_t input_base =
           input_outer_base + kept_degeneracies[out_d] * inner_size;
       const size_t output_base = output_outer_base + out_d * inner_size;
-      std::copy(input_data + input_base,
-                input_data + input_base + inner_size,
-                output_data + output_base);
+      CopyRawData(input_data + input_base,
+                  inner_size,
+                  output_data + output_base);
     }
   }
 }
@@ -944,8 +999,8 @@ void CopyProjectedAxisBlock(
  *      in-place scaling.
  * @throws std::invalid_argument on invalid axes, index/layout mismatch, or
  *         input/output aliasing.
- * @throws std::runtime_error when used with GPU tensors, or when a tensor has
- *         stored blocks but no allocated raw data.
+ * @throws std::runtime_error when a tensor has stored blocks but no allocated
+ *         raw data.
  */
 template<typename ElemT, typename QNT>
 void ApplyAxisDiagonal(
@@ -956,9 +1011,6 @@ void ApplyAxisDiagonal(
     ElemT alpha = ElemT(1),
     ElemT beta = ElemT(0)
 ) {
-#ifdef USE_GPU
-  throw std::runtime_error("ApplyAxisDiagonal does not support GPU tensors yet.");
-#else
   static_assert(!Fermionicable<QNT>::IsFermionic(),
                 "ApplyAxisDiagonal is bosonic-only.");
   constexpr const char *kFunc = "ApplyAxisDiagonal";
@@ -1002,7 +1054,6 @@ void ApplyAxisDiagonal(
         alpha
     );
   }
-#endif
 }
 
 /**
@@ -1025,8 +1076,8 @@ void ApplyAxisDiagonal(
  * @pre `input` and `output` do not alias.
  * @throws std::invalid_argument on invalid axes, projector shape/offsets, or
  *         input/output aliasing.
- * @throws std::runtime_error when used with GPU tensors, or when `input` has
- *         stored blocks but no allocated raw data.
+ * @throws std::runtime_error when a tensor has stored blocks but no allocated
+ *         raw data.
  */
 template<typename ElemT, typename QNT>
 void ProjectAxis(
@@ -1035,9 +1086,6 @@ void ProjectAxis(
     const AxisProjector<QNT> &projector,
     QLTensor<ElemT, QNT> &output
 ) {
-#ifdef USE_GPU
-  throw std::runtime_error("ProjectAxis does not support GPU tensors yet.");
-#else
   static_assert(!Fermionicable<QNT>::IsFermionic(),
                 "ProjectAxis is bosonic-only.");
   constexpr const char *kFunc = "ProjectAxis";
@@ -1091,7 +1139,6 @@ void ProjectAxis(
         projector.kept_degeneracies[input_blk.blk_coors[axis]]
     );
   }
-#endif
 }
 
 /**
@@ -1106,8 +1153,8 @@ void ProjectAxis(
  * @pre `op.index` has the same sector order and degeneracies as
  *      `tensor.GetIndex(axis)`; index direction is ignored.
  * @throws std::invalid_argument on invalid axes or index mismatch.
- * @throws std::runtime_error when used with GPU tensors, or when `tensor` has
- *         stored blocks but no allocated raw data.
+ * @throws std::runtime_error when `tensor` has stored blocks but no allocated
+ *         raw data.
  */
 template<typename ElemT, typename QNT>
 void ApplyAxisDiagonalInPlace(
@@ -1115,9 +1162,6 @@ void ApplyAxisDiagonalInPlace(
     size_t axis,
     const AxisDiagonalOp<ElemT, QNT> &op
 ) {
-#ifdef USE_GPU
-  throw std::runtime_error("ApplyAxisDiagonalInPlace does not support GPU tensors yet.");
-#else
   static_assert(!Fermionicable<QNT>::IsFermionic(),
                 "ApplyAxisDiagonalInPlace is bosonic-only.");
   constexpr const char *kFunc = "ApplyAxisDiagonalInPlace";
@@ -1137,7 +1181,6 @@ void ApplyAxisDiagonalInPlace(
         values
     );
   }
-#endif
 }
 
 /**
@@ -1151,17 +1194,14 @@ void ApplyAxisDiagonalInPlace(
  * @pre `scale.values_by_sector.size()` equals the number of sectors of the
  *      selected axis.
  * @throws std::invalid_argument on invalid axes or sector-count mismatch.
- * @throws std::runtime_error when used with GPU tensors, or when `tensor` has
- *         stored blocks but no allocated raw data.
+ * @throws std::runtime_error when `tensor` has stored blocks but no allocated
+ *         raw data.
  */
 template<typename ElemT, typename QNT>
 void ScaleAxisSectorsInPlace(
     QLTensor<ElemT, QNT> &tensor,
     const AxisSectorScalar<ElemT, QNT> &scale
 ) {
-#ifdef USE_GPU
-  throw std::runtime_error("ScaleAxisSectorsInPlace does not support GPU tensors yet.");
-#else
   static_assert(!Fermionicable<QNT>::IsFermionic(),
                 "ScaleAxisSectorsInPlace is bosonic-only.");
   constexpr const char *kFunc = "ScaleAxisSectorsInPlace";
@@ -1185,7 +1225,6 @@ void ScaleAxisSectorsInPlace(
         scale.values_by_sector[block.blk_coors[scale.axis]]
     );
   }
-#endif
 }
 
 /**
@@ -1211,8 +1250,8 @@ void ScaleAxisSectorsInPlace(
  * @pre `input` and `output` do not alias.
  * @throws std::invalid_argument on invalid axes, entries, topology mismatch, or
  *         input/output aliasing.
- * @throws std::runtime_error when used with GPU tensors, or when a tensor has
- *         stored blocks but no allocated raw data.
+ * @throws std::runtime_error when a tensor has stored blocks but no allocated
+ *         raw data.
  */
 template<typename ElemT, typename QNT>
 void ApplyAxisMonomial(
@@ -1223,9 +1262,6 @@ void ApplyAxisMonomial(
     ElemT alpha = ElemT(1),
     ElemT beta = ElemT(0)
 ) {
-#ifdef USE_GPU
-  throw std::runtime_error("ApplyAxisMonomial does not support GPU tensors yet.");
-#else
   static_assert(!Fermionicable<QNT>::IsFermionic(),
                 "ApplyAxisMonomial is bosonic-only.");
   constexpr const char *kFunc = "ApplyAxisMonomial";
@@ -1300,7 +1336,6 @@ void ApplyAxisMonomial(
       );
     }
   }
-#endif
 }
 
 /**
@@ -1322,8 +1357,8 @@ void ApplyAxisMonomial(
  * @pre `out` does not alias `input` or `rank2_op`.
  * @throws std::invalid_argument on invalid axes, rank/index mismatch, or
  *         output aliasing.
- * @throws std::runtime_error when used with GPU tensors, or when a tensor has
- *         stored blocks but no allocated raw data.
+ * @throws std::runtime_error when a tensor has stored blocks but no allocated
+ *         raw data.
  */
 template<typename ElemT, typename QNT>
 void ApplyRank2ToAxisPreserveOrder(
@@ -1333,10 +1368,6 @@ void ApplyRank2ToAxisPreserveOrder(
     QLTensor<ElemT, QNT> &out,
     Rank2AxisApplyStats *stats = nullptr
 ) {
-#ifdef USE_GPU
-  throw std::runtime_error(
-      "ApplyRank2ToAxisPreserveOrder does not support GPU tensors yet.");
-#else
   static_assert(!Fermionicable<QNT>::IsFermionic(),
                 "ApplyRank2ToAxisPreserveOrder is bosonic-only.");
   constexpr const char *kFunc = "ApplyRank2ToAxisPreserveOrder";
@@ -1401,7 +1432,6 @@ void ApplyRank2ToAxisPreserveOrder(
       );
     }
   }
-#endif
 }
 
 /**
@@ -1422,8 +1452,8 @@ void ApplyRank2ToAxisPreserveOrder(
  * @post `out` is overwritten.
  * @throws std::invalid_argument on default input, rank-0 input, or output
  *         aliasing.
- * @throws std::runtime_error when used with GPU tensors, or when a tensor has
- *         stored blocks but no allocated raw data.
+ * @throws std::runtime_error when a tensor has stored blocks but no allocated
+ *         raw data.
  */
 template<typename ElemT, typename QNT>
 void MoveHeadAxisToTail(
@@ -1431,9 +1461,6 @@ void MoveHeadAxisToTail(
     QLTensor<ElemT, QNT> &out,
     AxisLayoutMoveStats *stats = nullptr
 ) {
-#ifdef USE_GPU
-  throw std::runtime_error("MoveHeadAxisToTail does not support GPU tensors yet.");
-#else
   static_assert(!Fermionicable<QNT>::IsFermionic(),
                 "MoveHeadAxisToTail is bosonic-only.");
   constexpr const char *kFunc = "MoveHeadAxisToTail";
@@ -1458,7 +1485,9 @@ void MoveHeadAxisToTail(
   detail::RequireRawDataIfBlocksPresent(input, kFunc, "input");
 
   if (input.Rank() == 1) {
-    out = input;
+    detail::InitializeOutputLikeInput(input, out);
+    detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
+    detail::CopyTensorRawData(input, out);
     if (stats != nullptr) {
       stats->layout_gb += detail::RawReadWriteGb<ElemT>(
           input.GetBlkSparDataTen().GetActualRawDataSize());
@@ -1491,23 +1520,37 @@ void MoveHeadAxisToTail(
   ElemT *output_data = output_bsdt.GetActualRawDataPtr();
   const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
 
+  static_assert(detail::IsHpNumericElem<ElemT>(),
+                "MoveHeadAxisToTail requires a hp_numeric-supported ElemT.");
+  std::vector<const ElemT *> input_ptrs;
+  std::vector<ElemT *> output_ptrs;
+  std::vector<size_t> rows;
+  std::vector<size_t> cols;
+  input_ptrs.reserve(input_blocks.size());
+  output_ptrs.reserve(input_blocks.size());
+  rows.reserve(input_blocks.size());
+  cols.reserve(input_blocks.size());
   for (const auto &entry : input_blocks) {
     const auto &input_blk = entry.second;
     const auto output_blk_coors =
         detail::MoveHeadAxisToTailCoors(input_blk.blk_coors);
     const size_t output_blk_idx = output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
     const auto &output_blk = output_blocks.at(output_blk_idx);
-    detail::MoveHeadAxisBlockToTail(
-        input_data + input_blk.data_offset,
-        output_data + output_blk.data_offset,
-        input_blk.shape
-    );
-    if (stats != nullptr) {
-      stats->block_matrix_transpose_calls++;
-      stats->layout_gb += detail::RawReadWriteGb<ElemT>(input_blk.size);
-    }
+    input_ptrs.push_back(input_data + input_blk.data_offset);
+    output_ptrs.push_back(output_data + output_blk.data_offset);
+    rows.push_back(input_blk.shape.front());
+    cols.push_back(std::accumulate(input_blk.shape.begin() + 1,
+                                   input_blk.shape.end(),
+                                   size_t(1),
+                                   std::multiplies<size_t>()));
   }
-#endif
+
+  detail::MatrixTransposeBlocks(input_ptrs, output_ptrs, rows, cols);
+  if (stats != nullptr) {
+    stats->block_matrix_transpose_calls += input_ptrs.size();
+    stats->layout_gb += detail::RawReadWriteGb<ElemT>(
+        input_bsdt.GetActualRawDataSize());
+  }
 }
 
 }  // namespace qlten::dmrg
