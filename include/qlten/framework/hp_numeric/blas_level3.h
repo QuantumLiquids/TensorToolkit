@@ -906,6 +906,167 @@ inline void MatMultiply(
 #endif
 }
 
+inline void MatMultiplyStridedBatch(
+    const double alpha,
+    const QLTEN_Double *a,
+    const cublasOperation_t cublas_transpose_a,
+    const QLTEN_Double *b,
+    const cublasOperation_t cublas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const long long int stride_a,
+    const size_t ldb,
+    const long long int stride_b,
+    const QLTEN_Double beta,
+    QLTEN_Double *c,
+    const long long int stride_c,
+    const size_t batch_count) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+  const auto status = cublasDgemmStridedBatched(
+      handle,
+      cublas_transpose_b, cublas_transpose_a,
+      static_cast<int>(n), static_cast<int>(m), static_cast<int>(k),
+      &alpha,
+      b, static_cast<int>(ldb), stride_b,
+      a, static_cast<int>(lda), stride_a,
+      &beta,
+      c, static_cast<int>(n), stride_c,
+      static_cast<int>(batch_count)
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasDgemmStridedBatched failed: "
+              << cublasGetErrorString(status) << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += batch_count * m * n * (2 * k + 2);
+#endif
+}
+
+inline void MatMultiplyStridedBatch(
+    const double alpha,
+    const QLTEN_Float *a,
+    const cublasOperation_t cublas_transpose_a,
+    const QLTEN_Float *b,
+    const cublasOperation_t cublas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const long long int stride_a,
+    const size_t ldb,
+    const long long int stride_b,
+    const QLTEN_Float beta,
+    QLTEN_Float *c,
+    const long long int stride_c,
+    const size_t batch_count) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+  const QLTEN_Float alpha_float = static_cast<QLTEN_Float>(alpha);
+  const auto status = cublasSgemmStridedBatched(
+      handle,
+      cublas_transpose_b, cublas_transpose_a,
+      static_cast<int>(n), static_cast<int>(m), static_cast<int>(k),
+      &alpha_float,
+      b, static_cast<int>(ldb), stride_b,
+      a, static_cast<int>(lda), stride_a,
+      &beta,
+      c, static_cast<int>(n), stride_c,
+      static_cast<int>(batch_count)
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasSgemmStridedBatched failed: "
+              << cublasGetErrorString(status) << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += batch_count * m * n * (2 * k + 2);
+#endif
+}
+
+inline void MatMultiplyStridedBatch(
+    const double alpha,
+    const QLTEN_ComplexFloat *a,
+    const cublasOperation_t cublas_transpose_a,
+    const QLTEN_ComplexFloat *b,
+    const cublasOperation_t cublas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const long long int stride_a,
+    const size_t ldb,
+    const long long int stride_b,
+    const QLTEN_ComplexFloat beta,
+    QLTEN_ComplexFloat *c,
+    const long long int stride_c,
+    const size_t batch_count) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+  const QLTEN_ComplexFloat alpha_complex(static_cast<QLTEN_Float>(alpha));
+  const auto status = cublasCgemmStridedBatched(
+      handle,
+      cublas_transpose_b, cublas_transpose_a,
+      static_cast<int>(n), static_cast<int>(m), static_cast<int>(k),
+      reinterpret_cast<const cuComplex *>(&alpha_complex),
+      reinterpret_cast<const cuComplex *>(b), static_cast<int>(ldb), stride_b,
+      reinterpret_cast<const cuComplex *>(a), static_cast<int>(lda), stride_a,
+      reinterpret_cast<const cuComplex *>(&beta),
+      reinterpret_cast<cuComplex *>(c), static_cast<int>(n), stride_c,
+      static_cast<int>(batch_count)
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasCgemmStridedBatched failed: "
+              << cublasGetErrorString(status) << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += batch_count * m * n * (8 * k + 8);
+#endif
+}
+
+inline void MatMultiplyStridedBatch(
+    const double alpha,
+    const QLTEN_Complex *a,
+    const cublasOperation_t cublas_transpose_a,
+    const QLTEN_Complex *b,
+    const cublasOperation_t cublas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const long long int stride_a,
+    const size_t ldb,
+    const long long int stride_b,
+    const QLTEN_Complex beta,
+    QLTEN_Complex *c,
+    const long long int stride_c,
+    const size_t batch_count) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+  const QLTEN_Complex alpha_complex(alpha);
+  const auto status = cublasZgemmStridedBatched(
+      handle,
+      cublas_transpose_b, cublas_transpose_a,
+      static_cast<int>(n), static_cast<int>(m), static_cast<int>(k),
+      reinterpret_cast<const cuDoubleComplex *>(&alpha_complex),
+      reinterpret_cast<const cuDoubleComplex *>(b),
+      static_cast<int>(ldb),
+      stride_b,
+      reinterpret_cast<const cuDoubleComplex *>(a),
+      static_cast<int>(lda),
+      stride_a,
+      reinterpret_cast<const cuDoubleComplex *>(&beta),
+      reinterpret_cast<cuDoubleComplex *>(c),
+      static_cast<int>(n),
+      stride_c,
+      static_cast<int>(batch_count)
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasZgemmStridedBatched failed: "
+              << cublasGetErrorString(status) << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += batch_count * m * n * (8 * k + 8);
+#endif
+}
+
 #endif  // USE_GPU
 
 } /* hp_numeric */

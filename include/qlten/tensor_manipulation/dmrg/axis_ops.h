@@ -123,19 +123,86 @@ struct AxisSectorScalar {
 };
 
 /**
- * @brief Layout work counters for rank-2 axis application.
+ * @brief Lightweight work counters for DMRG axis primitives.
  *
- * These counters track full-state layout movement in the DMRG hot path.  The
- * preserve-order primitive below writes directly into the requested output
- * layout, so successful CPU calls currently leave all fields at zero.
+ * These counters are caller-owned and optional.  They report high-level work
+ * that matters to preserve-order DMRG paths without changing the hot path when
+ * the pointer is null.
  */
-struct Rank2AxisApplyStats {
+struct AxisOpStats {
+  /// Number of output tensor topology rebuilds.
+  size_t output_tensor_rebuilds = 0;
+  /// Raw-data bytes copied by explicit copy helpers.
+  size_t raw_data_copy_bytes = 0;
+  /// Number of contraction-style transpose prepare calls.
+  size_t transpose_prepare_calls = 0;
+  /// Raw-data bytes moved by contraction-style transpose prepare calls.
+  size_t transpose_prepare_bytes = 0;
   /// Number of full-state layout copy calls.
   size_t layout_copy_calls = 0;
   /// Number of full-state layout transpose calls.
   size_t layout_transpose_calls = 0;
   /// Full-state layout traffic in GiB.
   double layout_gb = 0.0;
+  /// Number of BLAS GEMM calls issued by rank-2 axis application.
+  size_t gemm_calls = 0;
+  /// Sum of GEMM m dimensions.
+  size_t gemm_m_total = 0;
+  /// Sum of GEMM n dimensions.
+  size_t gemm_n_total = 0;
+  /// Sum of GEMM k dimensions.
+  size_t gemm_k_total = 0;
+  /// Number of GEMM calls using a head/tail boundary-axis fast path.
+  size_t boundary_axis_fast_path_hits = 0;
+  /// Number of batch-GEMM dispatch attempts for middle-axis rank-2 apply.
+  size_t batch_gemm_calls = 0;
+  /// Number of logical GEMM items covered by batch-GEMM dispatch attempts.
+  size_t batched_gemm_items = 0;
+  /// Number of batch-GEMM dispatch attempts that fell back to GEMM loops.
+  size_t batch_gemm_fallback_calls = 0;
+  /// Temporary numeric workspace bytes used to prepare batch GEMM operands.
+  size_t batch_gemm_workspace_bytes = 0;
+  /// Number of rank-2 topology lookups that used the op-sector index.
+  size_t rank2_sector_index_hits = 0;
+  /// Number of rank-2 input/op block pairs visited after sector filtering.
+  size_t rank2_topology_block_pair_visits = 0;
+  /// Number of direct scaled-copy calls.
+  size_t direct_scaled_copy_calls = 0;
+  /// Number of output element updates in the fused two-rank2 kernel.
+  size_t fused_element_updates = 0;
+  /// Number of calls that scaled an owned tensor in place.
+  size_t in_place_scale_hits = 0;
+  /// Number of truly fused two-rank2 calls.
+  size_t two_rank2_fused_hits = 0;
+  /// Number of intermediate tensor rebuilds in two-rank2 calls.
+  size_t two_rank2_intermediate_rebuilds = 0;
+};
+
+using Rank2AxisApplyStats = AxisOpStats;
+
+/**
+ * @brief GEMM dispatch strategy for middle-axis rank-2 application.
+ *
+ * Boundary axes already use a single contiguous GEMM.  `kBatch` affects only
+ * non-boundary axes where the contraction naturally decomposes into independent
+ * GEMMs over the outer slices.  Backends without a safe batch-GEMM primitive
+ * keep the old GEMM-loop kernel and report the fallback in `AxisOpStats`.
+ */
+enum class Rank2AxisApplyGemmMode {
+  /// Use the legacy loop over independent GEMMs.
+  kLoop,
+  /// Try backend batch GEMM for independent middle-axis GEMMs.
+  kBatch
+};
+
+/**
+ * @brief Storage ownership mode for preserve-order axis scaling helpers.
+ */
+enum class AxisApplyStorageMode {
+  /// Borrowed const input: rebuild output and apply out of place.
+  kOutOfPlace,
+  /// Owned mutable input: require input/output aliasing and scale in place.
+  kConsumeOwnedInPlace
 };
 
 /**
@@ -546,6 +613,30 @@ void CopyRawData(
   hp_numeric::VectorCopy(input_data, size, output_data);
 }
 
+template<typename ElemT>
+void CopyScaleRawData(
+    const ElemT *input_data,
+    const size_t size,
+    ElemT *output_data,
+    const ElemT scale
+) {
+  static_assert(IsHpNumericElem<ElemT>(),
+                "DMRG axis operations require a hp_numeric-supported ElemT.");
+  if (size == 0) {
+    return;
+  }
+  if (scale == ElemT(0)) {
+    CountScaleFlops<ElemT>(size);
+    QLMemset(output_data, 0, size * sizeof(ElemT));
+    return;
+  }
+  if (scale == ElemT(1)) {
+    CopyRawData(input_data, size, output_data);
+    return;
+  }
+  hp_numeric::VectorScaleCopy(input_data, size, output_data, scale);
+}
+
 template<typename ElemT, typename QNT>
 void CopyTensorRawData(
     const QLTensor<ElemT, QNT> &input,
@@ -771,22 +862,44 @@ void RequireRank2OpMatchesAxis(
 }
 
 template<typename ElemT, typename QNT>
+std::vector<std::vector<size_t>> Rank2OpBlockIndicesByInputSector(
+    const QLTensor<ElemT, QNT> &rank2_op
+) {
+  std::vector<std::vector<size_t>> op_blk_idxs_by_input_sector(
+      rank2_op.GetIndex(0).GetQNSctNum());
+  const auto &op_blocks = rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  for (const auto &op_entry : op_blocks) {
+    const auto &op_blk = op_entry.second;
+    op_blk_idxs_by_input_sector[op_blk.blk_coors[0]].push_back(op_entry.first);
+  }
+  return op_blk_idxs_by_input_sector;
+}
+
+template<typename ElemT, typename QNT>
 std::vector<CoorsT> GenerateRank2OutputBlockCoors(
     const QLTensor<ElemT, QNT> &input,
     const size_t axis,
     const QLTensor<ElemT, QNT> &rank2_op,
-    const IndexVec<QNT> &output_indexes
+    const IndexVec<QNT> &output_indexes,
+    AxisOpStats *stats = nullptr
 ) {
   std::set<size_t> seen_blk_idxs;
   std::vector<CoorsT> output_blk_coors_s;
   const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
   const auto &op_blocks = rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto op_blk_idxs_by_input_sector =
+      Rank2OpBlockIndicesByInputSector(rank2_op);
   for (const auto &input_entry : input_blocks) {
     const auto &input_blk = input_entry.second;
-    for (const auto &op_entry : op_blocks) {
-      const auto &op_blk = op_entry.second;
-      if (op_blk.blk_coors[0] != input_blk.blk_coors[axis]) {
-        continue;
+    const auto &matching_op_blk_idxs =
+        op_blk_idxs_by_input_sector[input_blk.blk_coors[axis]];
+    if (stats != nullptr && !matching_op_blk_idxs.empty()) {
+      ++stats->rank2_sector_index_hits;
+    }
+    for (const size_t op_blk_idx : matching_op_blk_idxs) {
+      const auto &op_blk = op_blocks.at(op_blk_idx);
+      if (stats != nullptr) {
+        ++stats->rank2_topology_block_pair_visits;
       }
       CoorsT output_blk_coors = input_blk.blk_coors;
       output_blk_coors[axis] = op_blk.blk_coors[1];
@@ -828,27 +941,113 @@ double RawReadWriteGb(const size_t elem_count) {
          static_cast<double>(sizeof(ElemT)) / 1.0e9;
 }
 
+inline void AddGemmStats(
+    AxisOpStats *stats,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const bool boundary_fast_path
+) {
+  if (stats == nullptr) {
+    return;
+  }
+  ++stats->gemm_calls;
+  stats->gemm_m_total += m;
+  stats->gemm_k_total += k;
+  stats->gemm_n_total += n;
+  if (boundary_fast_path) {
+    ++stats->boundary_axis_fast_path_hits;
+  }
+}
+
+inline void AddRepeatedGemmStats(
+    AxisOpStats *stats,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t gemm_count,
+    const bool boundary_fast_path
+) {
+  if (stats == nullptr) {
+    return;
+  }
+  stats->gemm_calls += gemm_count;
+  stats->gemm_m_total += gemm_count * m;
+  stats->gemm_k_total += gemm_count * k;
+  stats->gemm_n_total += gemm_count * n;
+  if (boundary_fast_path) {
+    stats->boundary_axis_fast_path_hits += gemm_count;
+  }
+}
+
+inline void AddBatchGemmStats(
+    AxisOpStats *stats,
+    const size_t gemm_count,
+    const bool backend_batch
+) {
+  if (stats == nullptr) {
+    return;
+  }
+  ++stats->batch_gemm_calls;
+  stats->batched_gemm_items += gemm_count;
+  if (!backend_batch) {
+    ++stats->batch_gemm_fallback_calls;
+  }
+}
+
+inline void AddAxisOpStats(AxisOpStats *stats, const AxisOpStats &other) {
+  if (stats == nullptr) {
+    return;
+  }
+  stats->output_tensor_rebuilds += other.output_tensor_rebuilds;
+  stats->raw_data_copy_bytes += other.raw_data_copy_bytes;
+  stats->transpose_prepare_calls += other.transpose_prepare_calls;
+  stats->transpose_prepare_bytes += other.transpose_prepare_bytes;
+  stats->layout_copy_calls += other.layout_copy_calls;
+  stats->layout_transpose_calls += other.layout_transpose_calls;
+  stats->layout_gb += other.layout_gb;
+  stats->gemm_calls += other.gemm_calls;
+  stats->gemm_m_total += other.gemm_m_total;
+  stats->gemm_n_total += other.gemm_n_total;
+  stats->gemm_k_total += other.gemm_k_total;
+  stats->boundary_axis_fast_path_hits += other.boundary_axis_fast_path_hits;
+  stats->batch_gemm_calls += other.batch_gemm_calls;
+  stats->batched_gemm_items += other.batched_gemm_items;
+  stats->batch_gemm_fallback_calls += other.batch_gemm_fallback_calls;
+  stats->batch_gemm_workspace_bytes += other.batch_gemm_workspace_bytes;
+  stats->rank2_sector_index_hits += other.rank2_sector_index_hits;
+  stats->rank2_topology_block_pair_visits +=
+      other.rank2_topology_block_pair_visits;
+  stats->direct_scaled_copy_calls += other.direct_scaled_copy_calls;
+  stats->fused_element_updates += other.fused_element_updates;
+  stats->in_place_scale_hits += other.in_place_scale_hits;
+  stats->two_rank2_fused_hits += other.two_rank2_fused_hits;
+  stats->two_rank2_intermediate_rebuilds +=
+      other.two_rank2_intermediate_rebuilds;
+}
+
 template<typename ElemT>
-void AddRank2AxisBlock(
+void AddRank2AxisMiddleLoop(
     const ElemT *input_data,
     const ElemT *op_data,
     ElemT *output_data,
     const ShapeT &input_shape,
     const ShapeT &op_shape,
     const ShapeT &output_shape,
-    const size_t axis
+    const size_t axis,
+    AxisOpStats *stats = nullptr
 ) {
-  static_assert(IsHpNumericElem<ElemT>(),
-                "DMRG axis operations require a hp_numeric-supported ElemT.");
   const size_t input_axis_dim = input_shape[axis];
   const size_t output_axis_dim = output_shape[axis];
   const size_t inner_size = AxisInnerSize(input_shape, axis);
   const size_t outer_size = std::accumulate(input_shape.begin(), input_shape.begin() + axis,
                                             size_t(1), std::multiplies<size_t>());
   using AlphaT = typename RealTypeTrait<ElemT>::type;
+
   for (size_t outer = 0; outer < outer_size; ++outer) {
     const size_t input_outer_base = outer * input_axis_dim * inner_size;
     const size_t output_outer_base = outer * output_axis_dim * inner_size;
+    AddGemmStats(stats, output_axis_dim, input_axis_dim, inner_size, false);
     hp_numeric::MatMultiply(
         AlphaT(1),
         op_data,
@@ -863,6 +1062,321 @@ void AddRank2AxisBlock(
         ElemT(1),
         output_data + output_outer_base
     );
+  }
+}
+
+template<typename ElemT>
+void AddRank2AxisMiddleBatch(
+    const ElemT *input_data,
+    const ElemT *op_data,
+    ElemT *output_data,
+    const ShapeT &input_shape,
+    const ShapeT &op_shape,
+    const ShapeT &output_shape,
+    const size_t axis,
+    AxisOpStats *stats = nullptr
+) {
+  const size_t input_axis_dim = input_shape[axis];
+  const size_t output_axis_dim = output_shape[axis];
+  const size_t inner_size = AxisInnerSize(input_shape, axis);
+  const size_t outer_size = std::accumulate(input_shape.begin(), input_shape.begin() + axis,
+                                            size_t(1), std::multiplies<size_t>());
+  (void) op_shape;
+  if (outer_size == 0) {
+    return;
+  }
+
+#if defined(USE_GPU)
+  using AlphaT = typename RealTypeTrait<ElemT>::type;
+  AddBatchGemmStats(stats, outer_size, true);
+  AddRepeatedGemmStats(
+      stats, output_axis_dim, input_axis_dim, inner_size, outer_size, false);
+  hp_numeric::MatMultiplyStridedBatch(
+      AlphaT(1),
+      op_data,
+      BlasTrans(),
+      input_data,
+      BlasNoTrans(),
+      output_axis_dim,
+      input_axis_dim,
+      inner_size,
+      op_shape[1],
+      0,
+      inner_size,
+      static_cast<long long int>(input_axis_dim * inner_size),
+      ElemT(1),
+      output_data,
+      static_cast<long long int>(output_axis_dim * inner_size),
+      outer_size
+  );
+#elif defined(HP_NUMERIC_BACKEND_MKL)
+#if defined(QLTEN_USE_MKL_GEMM_BATCH)
+  constexpr bool kUsesBackendBatch = true;
+#else
+  constexpr bool kUsesBackendBatch = false;
+#endif
+  AddBatchGemmStats(stats, outer_size, kUsesBackendBatch);
+  AddRepeatedGemmStats(
+      stats, output_axis_dim, input_axis_dim, inner_size, outer_size, false);
+
+  std::vector<ElemT> op_transposed(output_axis_dim * input_axis_dim);
+  for (size_t input_coor = 0; input_coor < input_axis_dim; ++input_coor) {
+    for (size_t output_coor = 0;
+         output_coor < output_axis_dim;
+         ++output_coor) {
+      op_transposed[output_coor * input_axis_dim + input_coor] =
+          op_data[input_coor * output_axis_dim + output_coor];
+    }
+  }
+  if (stats != nullptr) {
+    stats->batch_gemm_workspace_bytes +=
+        op_transposed.size() * sizeof(ElemT);
+  }
+
+  std::vector<const ElemT *> a_array(outer_size, op_transposed.data());
+  std::vector<const ElemT *> b_array(outer_size);
+  std::vector<ElemT *> c_array(outer_size);
+  std::vector<MKL_INT> m_array(outer_size,
+                               static_cast<MKL_INT>(output_axis_dim));
+  std::vector<MKL_INT> k_array(outer_size,
+                               static_cast<MKL_INT>(input_axis_dim));
+  std::vector<MKL_INT> n_array(outer_size, static_cast<MKL_INT>(inner_size));
+  std::vector<ElemT> beta_array(outer_size, ElemT(1));
+  for (size_t outer = 0; outer < outer_size; ++outer) {
+    const size_t input_outer_base = outer * input_axis_dim * inner_size;
+    const size_t output_outer_base = outer * output_axis_dim * inner_size;
+    b_array[outer] = input_data + input_outer_base;
+    c_array[outer] = output_data + output_outer_base;
+  }
+
+  hp_numeric::MatMultiplyBatch(a_array.data(),
+                               b_array.data(),
+                               m_array.data(),
+                               k_array.data(),
+                               n_array.data(),
+                               beta_array.data(),
+                               c_array.data(),
+                               static_cast<MKL_INT>(outer_size));
+#else
+  AddBatchGemmStats(stats, outer_size, false);
+  AddRank2AxisMiddleLoop(input_data,
+                         op_data,
+                         output_data,
+                         input_shape,
+                         op_shape,
+                         output_shape,
+                         axis,
+                         stats);
+#endif
+}
+
+template<Rank2AxisApplyGemmMode GemmMode = Rank2AxisApplyGemmMode::kLoop,
+         typename ElemT>
+void AddRank2AxisBlock(
+    const ElemT *input_data,
+    const ElemT *op_data,
+    ElemT *output_data,
+    const ShapeT &input_shape,
+    const ShapeT &op_shape,
+    const ShapeT &output_shape,
+    const size_t axis,
+    AxisOpStats *stats = nullptr
+) {
+  static_assert(IsHpNumericElem<ElemT>(),
+                "DMRG axis operations require a hp_numeric-supported ElemT.");
+  const size_t input_axis_dim = input_shape[axis];
+  const size_t output_axis_dim = output_shape[axis];
+  const size_t inner_size = AxisInnerSize(input_shape, axis);
+  const size_t outer_size = std::accumulate(input_shape.begin(), input_shape.begin() + axis,
+                                            size_t(1), std::multiplies<size_t>());
+  using AlphaT = typename RealTypeTrait<ElemT>::type;
+
+  if (axis == 0) {
+    AddGemmStats(stats, output_axis_dim, input_axis_dim, inner_size, true);
+    hp_numeric::MatMultiply(
+        AlphaT(1),
+        op_data,
+        BlasTrans(),
+        input_data,
+        BlasNoTrans(),
+        output_axis_dim,
+        input_axis_dim,
+        inner_size,
+        op_shape[1],
+        inner_size,
+        ElemT(1),
+        output_data
+    );
+    return;
+  }
+
+  if (axis + 1 == input_shape.size()) {
+    AddGemmStats(stats, outer_size, input_axis_dim, output_axis_dim, true);
+    hp_numeric::MatMultiply(
+        AlphaT(1),
+        input_data,
+        BlasNoTrans(),
+        op_data,
+        BlasNoTrans(),
+        outer_size,
+        input_axis_dim,
+        output_axis_dim,
+        input_axis_dim,
+        op_shape[1],
+        ElemT(1),
+        output_data
+    );
+    return;
+  }
+
+  if constexpr (GemmMode == Rank2AxisApplyGemmMode::kBatch) {
+    AddRank2AxisMiddleBatch(input_data,
+                            op_data,
+                            output_data,
+                            input_shape,
+                            op_shape,
+                            output_shape,
+                            axis,
+                            stats);
+  } else {
+    AddRank2AxisMiddleLoop(input_data,
+                           op_data,
+                           output_data,
+                           input_shape,
+                           op_shape,
+                           output_shape,
+                           axis,
+                           stats);
+  }
+}
+
+template<typename ElemT, typename QNT>
+IndexVec<QNT> TwoRank2OutputIndexes(
+    const QLTensor<ElemT, QNT> &input,
+    const size_t axis1,
+    const QLTensor<ElemT, QNT> &op1,
+    const size_t axis2,
+    const QLTensor<ElemT, QNT> &op2
+) {
+  IndexVec<QNT> output_indexes = input.GetIndexes();
+  output_indexes[axis1] = op1.GetIndex(1);
+  output_indexes[axis2] = op2.GetIndex(1);
+  return output_indexes;
+}
+
+template<typename ElemT, typename QNT>
+std::vector<CoorsT> GenerateTwoRank2OutputBlockCoors(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &op1,
+    const size_t axis1,
+    const QLTensor<ElemT, QNT> &op2,
+    const size_t axis2,
+    const IndexVec<QNT> &output_indexes
+) {
+  std::set<size_t> seen_blk_idxs;
+  std::vector<CoorsT> output_blk_coors_s;
+  const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &op1_blocks = op1.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &op2_blocks = op2.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto op1_blk_idxs_by_input_sector =
+      Rank2OpBlockIndicesByInputSector(op1);
+  const auto op2_blk_idxs_by_input_sector =
+      Rank2OpBlockIndicesByInputSector(op2);
+
+  for (const auto &input_entry : input_blocks) {
+    const auto &input_blk = input_entry.second;
+    const auto &op1_blk_idxs =
+        op1_blk_idxs_by_input_sector[input_blk.blk_coors[axis1]];
+    const auto &op2_blk_idxs =
+        op2_blk_idxs_by_input_sector[input_blk.blk_coors[axis2]];
+    for (const size_t op1_blk_idx : op1_blk_idxs) {
+      const auto &op1_blk = op1_blocks.at(op1_blk_idx);
+      for (const size_t op2_blk_idx : op2_blk_idxs) {
+        const auto &op2_blk = op2_blocks.at(op2_blk_idx);
+        CoorsT output_blk_coors = input_blk.blk_coors;
+        output_blk_coors[axis1] = op1_blk.blk_coors[1];
+        output_blk_coors[axis2] = op2_blk.blk_coors[1];
+        const size_t output_blk_idx =
+            BlkCoorsToBlkIdx(output_blk_coors, output_indexes);
+        if (seen_blk_idxs.insert(output_blk_idx).second) {
+          output_blk_coors_s.push_back(std::move(output_blk_coors));
+        }
+      }
+    }
+  }
+  return output_blk_coors_s;
+}
+
+inline void DecodeFlatOffset(
+    size_t flat_offset,
+    const std::vector<size_t> &offsets,
+    CoorsT &coors
+) {
+  for (size_t axis = 0; axis < offsets.size(); ++axis) {
+    coors[axis] = flat_offset / offsets[axis];
+    flat_offset %= offsets[axis];
+  }
+}
+
+template<typename ElemT>
+void AddTwoRank2AxesBlock(
+    const ElemT *input_data,
+    const ElemT *op1_data,
+    const ElemT *op2_data,
+    ElemT *output_data,
+    const ShapeT &input_shape,
+    const ShapeT &op1_shape,
+    const ShapeT &op2_shape,
+    const ShapeT &output_shape,
+    const size_t axis1,
+    const size_t axis2,
+    AxisOpStats *stats = nullptr
+) {
+  static_assert(IsHpNumericElem<ElemT>(),
+                "DMRG axis operations require a hp_numeric-supported ElemT.");
+  const size_t input_size = std::accumulate(input_shape.begin(),
+                                            input_shape.end(),
+                                            size_t(1),
+                                            std::multiplies<size_t>());
+  const size_t op1_output_dim = op1_shape[1];
+  const size_t op2_output_dim = op2_shape[1];
+  const auto input_offsets = CalcMultiDimDataOffsets(input_shape);
+  const auto output_offsets = CalcMultiDimDataOffsets(output_shape);
+  CoorsT input_coors(input_shape.size());
+  CoorsT output_coors(input_shape.size());
+
+  for (size_t input_offset = 0; input_offset < input_size; ++input_offset) {
+    DecodeFlatOffset(input_offset, input_offsets, input_coors);
+    output_coors = input_coors;
+    const size_t input_axis1_coor = input_coors[axis1];
+    const size_t input_axis2_coor = input_coors[axis2];
+    for (size_t out_axis1_coor = 0;
+         out_axis1_coor < op1_output_dim;
+         ++out_axis1_coor) {
+      const ElemT coef1 =
+          op1_data[input_axis1_coor * op1_output_dim + out_axis1_coor];
+      if (coef1 == ElemT(0)) {
+        continue;
+      }
+      output_coors[axis1] = out_axis1_coor;
+      for (size_t out_axis2_coor = 0;
+           out_axis2_coor < op2_output_dim;
+           ++out_axis2_coor) {
+        const ElemT coef =
+            coef1 * op2_data[input_axis2_coor * op2_output_dim +
+                             out_axis2_coor];
+        if (coef == ElemT(0)) {
+          continue;
+        }
+        output_coors[axis2] = out_axis2_coor;
+        const size_t output_offset =
+            CalcEffOneDimArrayOffset(output_coors, output_offsets);
+        output_data[output_offset] += coef * input_data[input_offset];
+        if (stats != nullptr) {
+          ++stats->fused_element_updates;
+        }
+      }
+    }
   }
 }
 
@@ -1184,6 +1698,55 @@ void ApplyAxisDiagonalInPlace(
 }
 
 /**
+ * @brief Apply a diagonal axis operator with explicit storage ownership.
+ *
+ * `kOutOfPlace` treats `input` as borrowed const data and rebuilds `output`.
+ * `kConsumeOwnedInPlace` requires `input` and `output` to be the same owned
+ * tensor object and scales it in place.  Axis order and block topology are
+ * preserved in both modes.
+ */
+template<typename ElemT, typename QNT>
+void ApplyAxisDiagonalPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    size_t axis,
+    const AxisDiagonalOp<ElemT, QNT> &op,
+    QLTensor<ElemT, QNT> &output,
+    AxisApplyStorageMode storage_mode,
+    AxisOpStats *stats = nullptr
+) {
+  static_assert(!Fermionicable<QNT>::IsFermionic(),
+                "ApplyAxisDiagonalPreserveOrder is bosonic-only.");
+  constexpr const char *kFunc = "ApplyAxisDiagonalPreserveOrder";
+  if (stats != nullptr) {
+    *stats = AxisOpStats{};
+  }
+  if (storage_mode == AxisApplyStorageMode::kOutOfPlace) {
+    if (&input == &output) {
+      throw std::invalid_argument(
+          detail::AxisOpsPrefix(kFunc) +
+          "input/output aliasing is not allowed in out-of-place mode."
+      );
+    }
+    ApplyAxisDiagonal(input, axis, op, output);
+    if (stats != nullptr) {
+      ++stats->output_tensor_rebuilds;
+    }
+    return;
+  }
+
+  if (&input != &output) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) +
+        "consume-owned mode requires input/output aliasing."
+    );
+  }
+  ApplyAxisDiagonalInPlace(output, axis, op);
+  if (stats != nullptr) {
+    ++stats->in_place_scale_hits;
+  }
+}
+
+/**
  * @brief Scale each stored block according to the sector on one axis.
  *
  * This is a whole-block operation: for each stored data block, only the block
@@ -1224,6 +1787,84 @@ void ScaleAxisSectorsInPlace(
         block.size,
         scale.values_by_sector[block.blk_coors[scale.axis]]
     );
+  }
+}
+
+/**
+ * @brief Apply per-sector axis scalars with explicit storage ownership.
+ *
+ * `kOutOfPlace` rebuilds `output` and directly writes scaled copies of input
+ * blocks.  `kConsumeOwnedInPlace` requires `input` and `output` to alias and
+ * scales that owned tensor directly.  Sector-scalar scaling itself never
+ * changes block topology.
+ */
+template<typename ElemT, typename QNT>
+void ApplyAxisSectorScalarsPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const AxisSectorScalar<ElemT, QNT> &scale,
+    QLTensor<ElemT, QNT> &output,
+    AxisApplyStorageMode storage_mode,
+    AxisOpStats *stats = nullptr
+) {
+  static_assert(!Fermionicable<QNT>::IsFermionic(),
+                "ApplyAxisSectorScalarsPreserveOrder is bosonic-only.");
+  constexpr const char *kFunc = "ApplyAxisSectorScalarsPreserveOrder";
+  if (stats != nullptr) {
+    *stats = AxisOpStats{};
+  }
+  if (storage_mode == AxisApplyStorageMode::kOutOfPlace) {
+    if (&input == &output) {
+      throw std::invalid_argument(
+          detail::AxisOpsPrefix(kFunc) +
+          "input/output aliasing is not allowed in out-of-place mode."
+      );
+    }
+    detail::RequireUsableAxis(input, scale.axis, kFunc);
+    const auto &axis_index = input.GetIndex(scale.axis);
+    if (scale.values_by_sector.size() != axis_index.GetQNSctNum()) {
+      throw std::invalid_argument(
+          detail::AxisOpsPrefix(kFunc) +
+          "values_by_sector size must match the number of sectors."
+      );
+    }
+    detail::RequireRawDataIfBlocksPresent(input, kFunc, "input");
+    detail::InitializeOutputLikeInput(input, output);
+    if (stats != nullptr) {
+      ++stats->output_tensor_rebuilds;
+      stats->raw_data_copy_bytes +=
+          input.GetBlkSparDataTen().GetActualRawDataSize() * sizeof(ElemT);
+    }
+    detail::RequireRawDataIfBlocksPresent(output, kFunc, "output");
+    const auto &input_bsdt = input.GetBlkSparDataTen();
+    auto &output_bsdt = output.GetBlkSparDataTen();
+    const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
+    ElemT *output_data = output_bsdt.GetActualRawDataPtr();
+    const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
+    for (const auto &input_entry : input_bsdt.GetBlkIdxDataBlkMap()) {
+      const auto &input_blk = input_entry.second;
+      const auto &output_blk = output_blocks.at(input_entry.first);
+      detail::CopyScaleRawData(
+          input_data + input_blk.data_offset,
+          input_blk.size,
+          output_data + output_blk.data_offset,
+          scale.values_by_sector[input_blk.blk_coors[scale.axis]]
+      );
+      if (stats != nullptr) {
+        ++stats->direct_scaled_copy_calls;
+      }
+    }
+    return;
+  }
+
+  if (&input != &output) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) +
+        "consume-owned mode requires input/output aliasing."
+    );
+  }
+  ScaleAxisSectorsInPlace(output, scale);
+  if (stats != nullptr) {
+    ++stats->in_place_scale_hits;
   }
 }
 
@@ -1351,6 +1992,9 @@ void ApplyAxisMonomial(
  * directly in the final axis order and does not perform full-state layout
  * copies or transposes.
  *
+ * @tparam GemmMode middle-axis GEMM dispatch strategy.  Boundary axes ignore
+ *         this parameter because they already use one contiguous GEMM.
+ *
  * @pre `input` is non-default and `target_axis < input.Rank()`.
  * @pre `rank2_op` is non-default, has rank 2, and
  *      `rank2_op.GetIndex(0) == InverseIndex(input.GetIndex(target_axis))`.
@@ -1360,7 +2004,8 @@ void ApplyAxisMonomial(
  * @throws std::runtime_error when a tensor has stored blocks but no allocated
  *         raw data.
  */
-template<typename ElemT, typename QNT>
+template<Rank2AxisApplyGemmMode GemmMode = Rank2AxisApplyGemmMode::kLoop,
+         typename ElemT, typename QNT>
 void ApplyRank2ToAxisPreserveOrder(
     const QLTensor<ElemT, QNT> &input,
     const QLTensor<ElemT, QNT> &rank2_op,
@@ -1392,8 +2037,12 @@ void ApplyRank2ToAxisPreserveOrder(
       detail::GenerateRank2OutputBlockCoors(input,
                                             target_axis,
                                             rank2_op,
-                                            output_indexes);
+                                            output_indexes,
+                                            stats);
   out = QLTensor<ElemT, QNT>(output_indexes);
+  if (stats != nullptr) {
+    ++stats->output_tensor_rebuilds;
+  }
   if (!output_blk_coors_s.empty()) {
     out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
   }
@@ -1408,29 +2057,291 @@ void ApplyRank2ToAxisPreserveOrder(
   const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
   const ElemT *op_data = op_bsdt.GetActualRawDataPtr();
   ElemT *output_data = output_bsdt.GetActualRawDataPtr();
+  const auto &op_blocks = op_bsdt.GetBlkIdxDataBlkMap();
   const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
+  const auto op_blk_idxs_by_input_sector =
+      detail::Rank2OpBlockIndicesByInputSector(rank2_op);
 
   for (const auto &input_entry : input_bsdt.GetBlkIdxDataBlkMap()) {
     const auto &input_blk = input_entry.second;
-    for (const auto &op_entry : op_bsdt.GetBlkIdxDataBlkMap()) {
-      const auto &op_blk = op_entry.second;
-      if (op_blk.blk_coors[0] != input_blk.blk_coors[target_axis]) {
-        continue;
-      }
+    const auto &matching_op_blk_idxs =
+        op_blk_idxs_by_input_sector[input_blk.blk_coors[target_axis]];
+    for (const size_t op_blk_idx : matching_op_blk_idxs) {
+      const auto &op_blk = op_blocks.at(op_blk_idx);
       CoorsT output_blk_coors = input_blk.blk_coors;
       output_blk_coors[target_axis] = op_blk.blk_coors[1];
-      const size_t output_blk_idx = output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
+      const size_t output_blk_idx =
+          output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
       const auto &output_blk = output_blocks.at(output_blk_idx);
-      detail::AddRank2AxisBlock(
+      detail::AddRank2AxisBlock<GemmMode>(
           input_data + input_blk.data_offset,
           op_data + op_blk.data_offset,
           output_data + output_blk.data_offset,
           input_blk.shape,
           op_blk.shape,
           output_blk.shape,
-          target_axis
+          target_axis,
+          stats
       );
     }
+  }
+}
+
+/**
+ * @brief Apply two rank-2 operators to two tensor axes without reordering axes.
+ *
+ * The operators are applied in the exact order supplied by the caller:
+ * `op1` on `axis1`, then `op2` on `axis2`.  The final tensor keeps the original
+ * positional axis order with those axes replaced by each operator's output
+ * index.
+ *
+ * The implementation writes directly into the final output tensor.  It does not
+ * construct the single-axis intermediate tensor used by two sequential
+ * `ApplyRank2ToAxisPreserveOrder()` calls.
+ *
+ * @note On GPU builds this API currently uses two rank-2 GEMM applications
+ *       rather than the CPU scalar fused kernel, because the scalar kernel
+ *       cannot safely dereference device raw-data pointers.  Stats report this
+ *       as one intermediate rebuild instead of a fused hit.
+ *
+ * @pre `axis1 != axis2`.
+ * @pre `out` does not alias `input`, `op1`, or `op2`.
+ */
+template<typename ElemT, typename QNT>
+void ApplyTwoRank2ToAxesPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &op1,
+    size_t axis1,
+    const QLTensor<ElemT, QNT> &op2,
+    size_t axis2,
+    QLTensor<ElemT, QNT> &out,
+    AxisOpStats *stats = nullptr
+) {
+  static_assert(!Fermionicable<QNT>::IsFermionic(),
+                "ApplyTwoRank2ToAxesPreserveOrder is bosonic-only.");
+  constexpr const char *kFunc = "ApplyTwoRank2ToAxesPreserveOrder";
+  if (stats != nullptr) {
+    *stats = AxisOpStats{};
+  }
+  if (&input == &out || &op1 == &out || &op2 == &out) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) + "output aliasing is not allowed."
+    );
+  }
+  if (axis1 == axis2) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) + "axes must be distinct."
+    );
+  }
+  detail::RequireUsableAxis(input, axis1, kFunc);
+  detail::RequireUsableAxis(input, axis2, kFunc);
+  detail::RequireRank2OpMatchesAxis(input.GetIndex(axis1), op1, kFunc);
+  detail::RequireRank2OpMatchesAxis(input.GetIndex(axis2), op2, kFunc);
+  detail::RequireRawDataIfBlocksPresent(input, kFunc, "input");
+  detail::RequireRawDataIfBlocksPresent(op1, kFunc, "op1");
+  detail::RequireRawDataIfBlocksPresent(op2, kFunc, "op2");
+
+#ifdef USE_GPU
+  QLTensor<ElemT, QNT> first_output;
+  AxisOpStats first_stats;
+  AxisOpStats second_stats;
+  ApplyRank2ToAxisPreserveOrder<Rank2AxisApplyGemmMode::kBatch>(
+      input,
+      op1,
+      axis1,
+      first_output,
+      stats == nullptr ? nullptr : &first_stats
+  );
+  ApplyRank2ToAxisPreserveOrder<Rank2AxisApplyGemmMode::kBatch>(
+      first_output,
+      op2,
+      axis2,
+      out,
+      stats == nullptr ? nullptr : &second_stats
+  );
+  if (stats != nullptr) {
+    detail::AddAxisOpStats(stats, first_stats);
+    detail::AddAxisOpStats(stats, second_stats);
+    ++stats->two_rank2_intermediate_rebuilds;
+  }
+  return;
+#endif
+
+  const auto output_indexes =
+      detail::TwoRank2OutputIndexes(input, axis1, op1, axis2, op2);
+  const auto output_blk_coors_s =
+      detail::GenerateTwoRank2OutputBlockCoors(input,
+                                               op1,
+                                               axis1,
+                                               op2,
+                                               axis2,
+                                               output_indexes);
+  out = QLTensor<ElemT, QNT>(output_indexes);
+  if (stats != nullptr) {
+    ++stats->output_tensor_rebuilds;
+    ++stats->two_rank2_fused_hits;
+  }
+  if (!output_blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  }
+  if (output_blk_coors_s.empty()) {
+    return;
+  }
+  detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
+
+  const auto &input_bsdt = input.GetBlkSparDataTen();
+  const auto &op1_bsdt = op1.GetBlkSparDataTen();
+  const auto &op2_bsdt = op2.GetBlkSparDataTen();
+  auto &output_bsdt = out.GetBlkSparDataTen();
+  const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
+  const ElemT *op1_data = op1_bsdt.GetActualRawDataPtr();
+  const ElemT *op2_data = op2_bsdt.GetActualRawDataPtr();
+  ElemT *output_data = output_bsdt.GetActualRawDataPtr();
+  const auto &op1_blocks = op1_bsdt.GetBlkIdxDataBlkMap();
+  const auto &op2_blocks = op2_bsdt.GetBlkIdxDataBlkMap();
+  const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
+  const auto op1_blk_idxs_by_input_sector =
+      detail::Rank2OpBlockIndicesByInputSector(op1);
+  const auto op2_blk_idxs_by_input_sector =
+      detail::Rank2OpBlockIndicesByInputSector(op2);
+
+  for (const auto &input_entry : input_bsdt.GetBlkIdxDataBlkMap()) {
+    const auto &input_blk = input_entry.second;
+    const auto &op1_blk_idxs =
+        op1_blk_idxs_by_input_sector[input_blk.blk_coors[axis1]];
+    const auto &op2_blk_idxs =
+        op2_blk_idxs_by_input_sector[input_blk.blk_coors[axis2]];
+    for (const size_t op1_blk_idx : op1_blk_idxs) {
+      const auto &op1_blk = op1_blocks.at(op1_blk_idx);
+      for (const size_t op2_blk_idx : op2_blk_idxs) {
+        const auto &op2_blk = op2_blocks.at(op2_blk_idx);
+        CoorsT output_blk_coors = input_blk.blk_coors;
+        output_blk_coors[axis1] = op1_blk.blk_coors[1];
+        output_blk_coors[axis2] = op2_blk.blk_coors[1];
+        const size_t output_blk_idx =
+            output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
+        const auto &output_blk = output_blocks.at(output_blk_idx);
+        detail::AddTwoRank2AxesBlock(
+            input_data + input_blk.data_offset,
+            op1_data + op1_blk.data_offset,
+            op2_data + op2_blk.data_offset,
+            output_data + output_blk.data_offset,
+            input_blk.shape,
+            op1_blk.shape,
+            op2_blk.shape,
+            output_blk.shape,
+            axis1,
+            axis2,
+            stats
+        );
+      }
+    }
+  }
+}
+
+/**
+ * @brief Apply one rank-2 operator, then consume the owned output in-place with
+ *        an axis diagonal operator.
+ */
+template<typename ElemT, typename QNT>
+void ApplyRank2ThenAxisDiagonalPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    size_t rank2_axis,
+    size_t diagonal_axis,
+    const AxisDiagonalOp<ElemT, QNT> &diagonal,
+    QLTensor<ElemT, QNT> &out,
+    AxisOpStats *stats = nullptr
+) {
+  ApplyRank2ToAxisPreserveOrder(input,
+                                rank2_op,
+                                rank2_axis,
+                                out,
+                                stats);
+  ApplyAxisDiagonalInPlace(out, diagonal_axis, diagonal);
+  if (stats != nullptr) {
+    ++stats->in_place_scale_hits;
+  }
+}
+
+/**
+ * @brief Apply one rank-2 operator, then consume the owned output in-place with
+ *        sector scalars.
+ */
+template<typename ElemT, typename QNT>
+void ApplyRank2ThenAxisSectorScalarsPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    size_t rank2_axis,
+    const AxisSectorScalar<ElemT, QNT> &scale,
+    QLTensor<ElemT, QNT> &out,
+    AxisOpStats *stats = nullptr
+) {
+  ApplyRank2ToAxisPreserveOrder(input,
+                                rank2_op,
+                                rank2_axis,
+                                out,
+                                stats);
+  ScaleAxisSectorsInPlace(out, scale);
+  if (stats != nullptr) {
+    ++stats->in_place_scale_hits;
+  }
+}
+
+/**
+ * @brief Apply two fused rank-2 operators, then consume the owned output
+ *        in-place with an axis diagonal operator.
+ */
+template<typename ElemT, typename QNT>
+void ApplyTwoRank2ThenAxisDiagonalPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &op1,
+    size_t axis1,
+    const QLTensor<ElemT, QNT> &op2,
+    size_t axis2,
+    size_t diagonal_axis,
+    const AxisDiagonalOp<ElemT, QNT> &diagonal,
+    QLTensor<ElemT, QNT> &out,
+    AxisOpStats *stats = nullptr
+) {
+  ApplyTwoRank2ToAxesPreserveOrder(input,
+                                   op1,
+                                   axis1,
+                                   op2,
+                                   axis2,
+                                   out,
+                                   stats);
+  ApplyAxisDiagonalInPlace(out, diagonal_axis, diagonal);
+  if (stats != nullptr) {
+    ++stats->in_place_scale_hits;
+  }
+}
+
+/**
+ * @brief Apply two fused rank-2 operators, then consume the owned output
+ *        in-place with sector scalars.
+ */
+template<typename ElemT, typename QNT>
+void ApplyTwoRank2ThenAxisSectorScalarsPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &op1,
+    size_t axis1,
+    const QLTensor<ElemT, QNT> &op2,
+    size_t axis2,
+    const AxisSectorScalar<ElemT, QNT> &scale,
+    QLTensor<ElemT, QNT> &out,
+    AxisOpStats *stats = nullptr
+) {
+  ApplyTwoRank2ToAxesPreserveOrder(input,
+                                   op1,
+                                   axis1,
+                                   op2,
+                                   axis2,
+                                   out,
+                                   stats);
+  ScaleAxisSectorsInPlace(out, scale);
+  if (stats != nullptr) {
+    ++stats->in_place_scale_hits;
   }
 }
 

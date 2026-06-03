@@ -56,13 +56,27 @@ using Rank4Tensor = QLTensor<QLTEN_Double, U1QN>;
 
 void FillStoredBlocks(Rank4Tensor &tensor, const double base) {
   auto &bsdt = tensor.GetBlkSparDataTen();
-  auto *data = bsdt.GetActualRawDataPtr();
   for (const auto &entry : bsdt.GetBlkIdxDataBlkMap()) {
     const auto &block = entry.second;
-    for (size_t i = 0; i < block.size; ++i) {
-      data[block.data_offset + i] =
+    CoorsT sector_offsets(block.shape.size(), 0);
+    for (size_t axis = 0; axis < block.shape.size(); ++axis) {
+      const auto &index = tensor.GetIndex(axis);
+      for (size_t sector = 0; sector < block.blk_coors[axis]; ++sector) {
+        sector_offsets[axis] += index.GetQNSct(sector).dim();
+      }
+    }
+    size_t local_linear_index = 0;
+    for (const auto &local_coors : GenAllCoors(block.shape)) {
+      CoorsT coors(local_coors.size());
+      for (size_t axis = 0; axis < local_coors.size(); ++axis) {
+        coors[axis] = sector_offsets[axis] + local_coors[axis];
+      }
+      tensor.SetElem(
+          coors,
           base + static_cast<double>(entry.first + 1) * 0.25 +
-          static_cast<double>(i + 1) * 0.03125;
+          static_cast<double>(local_linear_index + 1) * 0.03125
+      );
+      ++local_linear_index;
     }
   }
 }
@@ -148,6 +162,28 @@ size_t ExpectedRank2GemmFlops(
       const size_t output_axis_dim = op_blk.shape[1];
       expected += outer_size * output_axis_dim * inner_size *
                   (2 * input_axis_dim + 2);
+    }
+  }
+  return expected;
+}
+
+size_t ExpectedRank2BlockPairCount(
+    const Rank4Tensor &input,
+    const Rank4Tensor &rank2_op,
+    const size_t target_axis
+) {
+  size_t expected = 0;
+  const auto &input_blocks =
+      input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &op_blocks =
+      rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  for (const auto &input_entry : input_blocks) {
+    const auto &input_blk = input_entry.second;
+    for (const auto &op_entry : op_blocks) {
+      const auto &op_blk = op_entry.second;
+      if (op_blk.blk_coors[0] == input_blk.blk_coors[target_axis]) {
+        ++expected;
+      }
     }
   }
   return expected;
@@ -373,6 +409,327 @@ TEST_F(DmrgAxisOpsTest, ApplyRank2ToAxisPreserveOrderUsesGemmFlopAccounting) {
   dmrg::ApplyRank2ToAxisPreserveOrder(input, rank2_op, 2, output);
 
   EXPECT_EQ(flop, ExpectedRank2GemmFlops(input, rank2_op, 2));
+}
+
+TEST_F(DmrgAxisOpsTest, ApplyRank2ToBoundaryAxesReportsGemmFastPathStats) {
+  const auto qnm1 = U1QN(-1);
+  const auto qnp1 = U1QN(1);
+  const IndexT state_index(
+      {QNSctT(qnm1, 1), QNSctT(qn0, 2), QNSctT(qnp1, 1)},
+      TenIndexDirType::OUT);
+  const IndexT op_output_index(
+      {QNSctT(qnm1, 2), QNSctT(qn0, 1), QNSctT(qnp1, 2)},
+      TenIndexDirType::OUT);
+  Rank4Tensor input({state_index, state_index, state_index, state_index});
+  input.Fill(qn0, 0.0);
+  FillStoredBlocks(input, 10.0);
+
+  Rank4Tensor rank2_op({InverseIndex(state_index), op_output_index});
+  rank2_op.Fill(qn0, 0.0);
+  FillStoredBlocks(rank2_op, 0.5);
+
+  for (const size_t target_axis : {size_t(0), input.Rank() - 1}) {
+    Rank4Tensor output;
+    dmrg::AxisOpStats stats;
+    dmrg::ApplyRank2ToAxisPreserveOrder(
+        input, rank2_op, target_axis, output, &stats);
+
+    EXPECT_EQ(stats.output_tensor_rebuilds, 1U);
+    EXPECT_EQ(stats.gemm_calls,
+              ExpectedRank2BlockPairCount(input, rank2_op, target_axis));
+    EXPECT_EQ(stats.boundary_axis_fast_path_hits, stats.gemm_calls);
+    EXPECT_EQ(stats.rank2_topology_block_pair_visits, stats.gemm_calls);
+    EXPECT_GT(stats.rank2_sector_index_hits, 0U);
+    EXPECT_EQ(stats.layout_copy_calls, 0U);
+    EXPECT_EQ(stats.layout_transpose_calls, 0U);
+    EXPECT_EQ(stats.transpose_prepare_calls, 0U);
+    EXPECT_EQ(stats.raw_data_copy_bytes, 0U);
+  }
+}
+
+TEST_F(DmrgAxisOpsTest, ApplyRank2ToMiddleAxisCanUseBatchGemmStrategy) {
+  const auto qnm1 = U1QN(-1);
+  const auto qnp1 = U1QN(1);
+  const IndexT state_index(
+      {QNSctT(qnm1, 1), QNSctT(qn0, 2), QNSctT(qnp1, 1)},
+      TenIndexDirType::OUT);
+  const IndexT op_output_index(
+      {QNSctT(qnm1, 2), QNSctT(qn0, 1), QNSctT(qnp1, 2)},
+      TenIndexDirType::OUT);
+  Rank4Tensor input({state_index, state_index, state_index, state_index});
+  input.Fill(qn0, 0.0);
+  FillStoredBlocks(input, 10.0);
+
+  Rank4Tensor rank2_op({InverseIndex(state_index), op_output_index});
+  rank2_op.Fill(qn0, 0.0);
+  FillStoredBlocks(rank2_op, 0.5);
+
+  Rank4Tensor loop_output;
+  dmrg::AxisOpStats loop_stats;
+  dmrg::ApplyRank2ToAxisPreserveOrder(
+      input, rank2_op, 2, loop_output, &loop_stats);
+
+  Rank4Tensor batch_output;
+  dmrg::AxisOpStats batch_stats;
+  dmrg::ApplyRank2ToAxisPreserveOrder<
+      dmrg::Rank2AxisApplyGemmMode::kBatch>(
+      input, rank2_op, 2, batch_output, &batch_stats);
+
+  ExpectTensorElementsNear(batch_output, loop_output, 2);
+  EXPECT_EQ(loop_stats.batch_gemm_calls, 0U);
+  EXPECT_GT(batch_stats.batch_gemm_calls, 0U);
+  EXPECT_EQ(batch_stats.batched_gemm_items, loop_stats.gemm_calls);
+  EXPECT_EQ(batch_stats.gemm_calls, loop_stats.gemm_calls);
+  EXPECT_EQ(batch_stats.boundary_axis_fast_path_hits, 0U);
+  EXPECT_EQ(batch_stats.layout_copy_calls, 0U);
+  EXPECT_EQ(batch_stats.layout_transpose_calls, 0U);
+#ifdef USE_GPU
+  EXPECT_EQ(batch_stats.batch_gemm_fallback_calls, 0U);
+  EXPECT_EQ(batch_stats.batch_gemm_workspace_bytes, 0U);
+#endif
+}
+
+TEST_F(DmrgAxisOpsTest, ApplyTwoRank2ToAxesPreserveOrderMatchesSequential) {
+  const auto qnm1 = U1QN(-1);
+  const auto qnp1 = U1QN(1);
+  const IndexT state_index(
+      {QNSctT(qnm1, 1), QNSctT(qn0, 2), QNSctT(qnp1, 1)},
+      TenIndexDirType::OUT);
+  const IndexT op1_output_index(
+      {QNSctT(qnm1, 2), QNSctT(qn0, 1), QNSctT(qnp1, 2)},
+      TenIndexDirType::OUT);
+  const IndexT op2_output_index(
+      {QNSctT(qnm1, 1), QNSctT(qn0, 3), QNSctT(qnp1, 1)},
+      TenIndexDirType::OUT);
+  Rank4Tensor input({state_index, state_index, state_index, state_index});
+  input.Fill(qn0, 0.0);
+  FillStoredBlocks(input, 10.0);
+
+  Rank4Tensor op1({InverseIndex(state_index), op1_output_index});
+  op1.Fill(qn0, 0.0);
+  FillStoredBlocks(op1, 0.5);
+  Rank4Tensor op2({InverseIndex(state_index), op2_output_index});
+  op2.Fill(qn0, 0.0);
+  FillStoredBlocks(op2, 1.5);
+
+  Rank4Tensor first_output;
+  Rank4Tensor reference;
+  dmrg::ApplyRank2ToAxisPreserveOrder(input, op1, 0, first_output);
+  dmrg::ApplyRank2ToAxisPreserveOrder(first_output, op2, 1, reference);
+
+  Rank4Tensor output;
+  dmrg::AxisOpStats stats;
+  dmrg::ApplyTwoRank2ToAxesPreserveOrder(
+      input, op1, 0, op2, 1, output, &stats);
+
+  ExpectTensorElementsNear(output, reference, 0);
+  EXPECT_EQ(output.GetIndex(0), op1_output_index);
+  EXPECT_EQ(output.GetIndex(1), op2_output_index);
+  EXPECT_EQ(output.GetIndex(2), state_index);
+  EXPECT_EQ(output.GetIndex(3), state_index);
+#ifdef USE_GPU
+  EXPECT_EQ(stats.two_rank2_fused_hits, 0U);
+  EXPECT_EQ(stats.two_rank2_intermediate_rebuilds, 1U);
+  EXPECT_EQ(stats.output_tensor_rebuilds, 2U);
+  EXPECT_EQ(stats.fused_element_updates, 0U);
+  EXPECT_GT(stats.gemm_calls, 0U);
+#else
+  EXPECT_EQ(stats.two_rank2_fused_hits, 1U);
+  EXPECT_EQ(stats.two_rank2_intermediate_rebuilds, 0U);
+  EXPECT_EQ(stats.output_tensor_rebuilds, 1U);
+  EXPECT_GT(stats.fused_element_updates, 0U);
+  EXPECT_EQ(stats.gemm_calls, 0U);
+#endif
+  EXPECT_EQ(stats.layout_transpose_calls, 0U);
+}
+
+TEST_F(DmrgAxisOpsTest, ApplyAxisDiagonalPreserveOrderCanConsumeOwnedTensor) {
+  auto input = MakeInput();
+  dmrg::AxisDiagonalOp<QLTEN_Double, U1QN> op{
+      phys_in,
+      {{0.0, -1.0}, {0.5, 3.0, -4.0}}
+  };
+
+  Tensor out_of_place;
+  dmrg::ApplyAxisDiagonalPreserveOrder(
+      input, 1, op, out_of_place, dmrg::AxisApplyStorageMode::kOutOfPlace);
+
+  Tensor owned = input;
+  dmrg::AxisOpStats stats;
+  dmrg::ApplyAxisDiagonalPreserveOrder(
+      owned, 1, op, owned,
+      dmrg::AxisApplyStorageMode::kConsumeOwnedInPlace, &stats);
+
+  ASSERT_EQ(owned.GetIndexes(), out_of_place.GetIndexes());
+  EXPECT_EQ(stats.in_place_scale_hits, 1U);
+  EXPECT_EQ(stats.output_tensor_rebuilds, 0U);
+  EXPECT_EQ(stats.raw_data_copy_bytes, 0U);
+  for (const auto &coors : GenAllCoors(out_of_place.GetShape())) {
+    EXPECT_DOUBLE_EQ(owned.GetElem(coors), out_of_place.GetElem(coors));
+  }
+}
+
+TEST_F(DmrgAxisOpsTest, ApplyAxisSectorScalarsPreserveOrderCopyAndConsume) {
+  auto input = MakeInput();
+  const auto input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  dmrg::AxisSectorScalar<QLTEN_Double, U1QN> scale{1, {2.0, -3.0}};
+
+  Tensor copied;
+  dmrg::AxisOpStats copied_stats;
+  dmrg::ApplyAxisSectorScalarsPreserveOrder(
+      input, scale, copied, dmrg::AxisApplyStorageMode::kOutOfPlace,
+      &copied_stats);
+
+  Tensor owned = input;
+  dmrg::AxisOpStats owned_stats;
+  dmrg::ApplyAxisSectorScalarsPreserveOrder(
+      owned, scale, owned, dmrg::AxisApplyStorageMode::kConsumeOwnedInPlace,
+      &owned_stats);
+
+  ASSERT_EQ(copied.GetIndexes(), input.GetIndexes());
+  ASSERT_EQ(owned.GetIndexes(), input.GetIndexes());
+  EXPECT_EQ(copied.GetBlkSparDataTen().GetBlkIdxDataBlkMap().size(),
+            input_blocks.size());
+  EXPECT_EQ(owned.GetBlkSparDataTen().GetBlkIdxDataBlkMap().size(),
+            input_blocks.size());
+  EXPECT_EQ(copied_stats.output_tensor_rebuilds, 1U);
+  EXPECT_EQ(copied_stats.raw_data_copy_bytes,
+            input.GetBlkSparDataTen().GetActualRawDataSize() *
+                sizeof(QLTEN_Double));
+  EXPECT_GT(copied_stats.direct_scaled_copy_calls, 0U);
+  EXPECT_EQ(copied_stats.in_place_scale_hits, 0U);
+  EXPECT_EQ(owned_stats.output_tensor_rebuilds, 0U);
+  EXPECT_EQ(owned_stats.raw_data_copy_bytes, 0U);
+  EXPECT_EQ(owned_stats.in_place_scale_hits, 1U);
+  for (const auto &coors : GenAllCoors(copied.GetShape())) {
+    EXPECT_DOUBLE_EQ(owned.GetElem(coors), copied.GetElem(coors));
+  }
+
+  Tensor empty(input.GetIndexes());
+  Tensor empty_output;
+  dmrg::AxisOpStats empty_stats;
+  dmrg::ApplyAxisSectorScalarsPreserveOrder(
+      empty, scale, empty_output, dmrg::AxisApplyStorageMode::kOutOfPlace,
+      &empty_stats);
+  EXPECT_EQ(empty_output.GetIndexes(), empty.GetIndexes());
+  EXPECT_TRUE(empty_output.GetBlkSparDataTen().GetBlkIdxDataBlkMap().empty());
+  EXPECT_EQ(empty_stats.raw_data_copy_bytes, 0U);
+}
+
+TEST_F(DmrgAxisOpsTest, ApplyRank2ThenDiagonalConsumesOwnedOutput) {
+  const auto qnm1 = U1QN(-1);
+  const auto qnp1 = U1QN(1);
+  const IndexT state_index(
+      {QNSctT(qnm1, 1), QNSctT(qn0, 2), QNSctT(qnp1, 1)},
+      TenIndexDirType::OUT);
+  const IndexT op_output_index(
+      {QNSctT(qnm1, 2), QNSctT(qn0, 1), QNSctT(qnp1, 2)},
+      TenIndexDirType::OUT);
+  Rank4Tensor input({state_index, state_index, state_index, state_index});
+  input.Fill(qn0, 0.0);
+  FillStoredBlocks(input, 10.0);
+
+  Rank4Tensor rank2_op({InverseIndex(state_index), op_output_index});
+  rank2_op.Fill(qn0, 0.0);
+  FillStoredBlocks(rank2_op, 0.5);
+  dmrg::AxisDiagonalOp<QLTEN_Double, U1QN> diag{
+      state_index,
+      {{2.0}, {-1.0, 0.5}, {3.0}}
+  };
+
+  Rank4Tensor reference;
+  dmrg::ApplyRank2ToAxisPreserveOrder(input, rank2_op, 0, reference);
+  dmrg::ApplyAxisDiagonalInPlace(reference, 1, diag);
+
+  Rank4Tensor output;
+  dmrg::AxisOpStats stats;
+  dmrg::ApplyRank2ThenAxisDiagonalPreserveOrder(
+      input, rank2_op, 0, 1, diag, output, &stats);
+
+  ExpectTensorElementsNear(output, reference, 0);
+  EXPECT_EQ(stats.output_tensor_rebuilds, 1U);
+  EXPECT_EQ(stats.in_place_scale_hits, 1U);
+  EXPECT_EQ(stats.raw_data_copy_bytes, 0U);
+}
+
+TEST_F(DmrgAxisOpsTest, ApplyRank2ThenSectorScalarsConsumesOwnedOutput) {
+  const auto qnm1 = U1QN(-1);
+  const auto qnp1 = U1QN(1);
+  const IndexT state_index(
+      {QNSctT(qnm1, 1), QNSctT(qn0, 2), QNSctT(qnp1, 1)},
+      TenIndexDirType::OUT);
+  const IndexT op_output_index(
+      {QNSctT(qnm1, 2), QNSctT(qn0, 1), QNSctT(qnp1, 2)},
+      TenIndexDirType::OUT);
+  Rank4Tensor input({state_index, state_index, state_index, state_index});
+  input.Fill(qn0, 0.0);
+  FillStoredBlocks(input, 10.0);
+
+  Rank4Tensor rank2_op({InverseIndex(state_index), op_output_index});
+  rank2_op.Fill(qn0, 0.0);
+  FillStoredBlocks(rank2_op, 0.5);
+  dmrg::AxisSectorScalar<QLTEN_Double, U1QN> scale{1, {2.0, -3.0, 0.5}};
+
+  Rank4Tensor reference;
+  dmrg::ApplyRank2ToAxisPreserveOrder(input, rank2_op, 0, reference);
+  dmrg::ScaleAxisSectorsInPlace(reference, scale);
+
+  Rank4Tensor output;
+  dmrg::AxisOpStats stats;
+  dmrg::ApplyRank2ThenAxisSectorScalarsPreserveOrder(
+      input, rank2_op, 0, scale, output, &stats);
+
+  ExpectTensorElementsNear(output, reference, 0);
+  EXPECT_EQ(stats.output_tensor_rebuilds, 1U);
+  EXPECT_EQ(stats.in_place_scale_hits, 1U);
+  EXPECT_EQ(stats.raw_data_copy_bytes, 0U);
+}
+
+TEST_F(DmrgAxisOpsTest, ApplyTwoRank2ThenSectorScalarsConsumesOwnedOutput) {
+  const auto qnm1 = U1QN(-1);
+  const auto qnp1 = U1QN(1);
+  const IndexT state_index(
+      {QNSctT(qnm1, 1), QNSctT(qn0, 2), QNSctT(qnp1, 1)},
+      TenIndexDirType::OUT);
+  const IndexT op1_output_index(
+      {QNSctT(qnm1, 2), QNSctT(qn0, 1), QNSctT(qnp1, 2)},
+      TenIndexDirType::OUT);
+  const IndexT op2_output_index(
+      {QNSctT(qnm1, 1), QNSctT(qn0, 3), QNSctT(qnp1, 1)},
+      TenIndexDirType::OUT);
+  Rank4Tensor input({state_index, state_index, state_index, state_index});
+  input.Fill(qn0, 0.0);
+  FillStoredBlocks(input, 10.0);
+
+  Rank4Tensor op1({InverseIndex(state_index), op1_output_index});
+  op1.Fill(qn0, 0.0);
+  FillStoredBlocks(op1, 0.5);
+  Rank4Tensor op2({InverseIndex(state_index), op2_output_index});
+  op2.Fill(qn0, 0.0);
+  FillStoredBlocks(op2, 1.5);
+  dmrg::AxisSectorScalar<QLTEN_Double, U1QN> scale{2, {2.0, -3.0, 0.5}};
+
+  Rank4Tensor reference;
+  dmrg::ApplyTwoRank2ToAxesPreserveOrder(input, op1, 0, op2, 1, reference);
+  dmrg::ScaleAxisSectorsInPlace(reference, scale);
+
+  Rank4Tensor output;
+  dmrg::AxisOpStats stats;
+  dmrg::ApplyTwoRank2ThenAxisSectorScalarsPreserveOrder(
+      input, op1, 0, op2, 1, scale, output, &stats);
+
+  ExpectTensorElementsNear(output, reference, 0);
+#ifdef USE_GPU
+  EXPECT_EQ(stats.output_tensor_rebuilds, 2U);
+  EXPECT_EQ(stats.two_rank2_fused_hits, 0U);
+  EXPECT_EQ(stats.two_rank2_intermediate_rebuilds, 1U);
+#else
+  EXPECT_EQ(stats.output_tensor_rebuilds, 1U);
+  EXPECT_EQ(stats.two_rank2_fused_hits, 1U);
+  EXPECT_EQ(stats.two_rank2_intermediate_rebuilds, 0U);
+#endif
+  EXPECT_EQ(stats.in_place_scale_hits, 1U);
+  EXPECT_EQ(stats.raw_data_copy_bytes, 0U);
 }
 
 TEST_F(DmrgAxisOpsTest, MoveHeadAxisToTailMatchesTensorTranspose) {

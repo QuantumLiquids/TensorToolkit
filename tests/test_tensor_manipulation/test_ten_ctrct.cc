@@ -978,3 +978,50 @@ TEST_F(TestContraction, ContractContiguousAxesAllSidesMatchBoolWrapper) {
   dten_3d_s3.Random(qn0);
   RunTestContractContiguousAxesAllSides(dten_3d_s, {1, 2}, dten_3d_s3, {0, 1});
 }
+
+TEST_F(TestContraction, ContractTailHeadContiguousMatchesGenericContract) {
+  dten_3d_s.Random(qn0);
+  dten_3d_s3.Random(qn0);
+
+  DQLTensor generic_result;
+  Contract(&dten_3d_s, &dten_3d_s3, {{1, 2}, {0, 1}}, &generic_result);
+
+  DQLTensor tail_head_result;
+  ContiguousContractStats stats;
+  ContractTailHeadContiguous(
+      dten_3d_s, dten_3d_s3, 1, 0, 2, tail_head_result, &stats);
+
+  EXPECT_EQ(tail_head_result.GetIndexes(), generic_result.GetIndexes());
+  DQLTensor diff = tail_head_result + (-generic_result);
+  EXPECT_NEAR(diff.Get2Norm() / std::max(generic_result.Get2Norm(), 1e-5),
+              0.0, GetEpsilon<QLTEN_Double>() * 10);
+  EXPECT_EQ(stats.transpose_prepare_calls, 0U);
+  EXPECT_EQ(stats.transpose_prepare_bytes, 0U);
+  EXPECT_GT(stats.raw_data_contract_tasks, 0U);
+  EXPECT_GT(stats.gemm_calls, 0U);
+}
+
+TEST_F(TestContraction, ContractContiguousAxesReportsTransposePrepareStats) {
+  dten_3d_s.Random(qn0);
+  auto dten_3d_s2 = dten_3d_s;
+  dten_3d_s2.Random(qn0);
+
+  DQLTensor tail_head_result;
+  ContiguousContractStats tail_head_stats;
+  ContractContiguousAxes<QLTEN_Double, U1QN, CtrctSide::Tail, CtrctSide::Head>(
+      dten_3d_s, dten_3d_s2, 2, 0, 1, tail_head_result, &tail_head_stats);
+
+  DQLTensor head_head_result;
+  ContiguousContractStats head_head_stats;
+  ContractContiguousAxes<QLTEN_Double, U1QN, CtrctSide::Head, CtrctSide::Head>(
+      dten_3d_s, dten_3d_s2, 1, 0, 1, head_head_result, &head_head_stats);
+
+  EXPECT_EQ(tail_head_stats.transpose_prepare_calls, 0U);
+  EXPECT_EQ(tail_head_stats.transpose_prepare_bytes, 0U);
+  EXPECT_GT(tail_head_stats.raw_data_contract_tasks, 0U);
+  EXPECT_GT(tail_head_stats.gemm_calls, 0U);
+  EXPECT_GT(head_head_stats.transpose_prepare_calls, 0U);
+  EXPECT_GT(head_head_stats.transpose_prepare_bytes, 0U);
+  EXPECT_GT(head_head_stats.raw_data_contract_tasks, 0U);
+  EXPECT_GT(head_head_stats.gemm_calls, 0U);
+}
