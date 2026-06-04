@@ -25,8 +25,12 @@
 #define QLTEN_TENSOR_MANIPULATION_CONTRACT_CONTIGUOUS_AXES_H
 
 #include <set>
+#include <stdexcept>
+#include <unordered_set>
 
 #include "qlten/framework/bases/executor.h"
+#include "qlten/framework/hp_numeric/blas_level1.h"  // VectorCopy, VectorScale, VectorScaleCopy
+#include "qlten/framework/hp_numeric/blas_level3.h"  // MatMultiply
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_ctrct.h"  // CheckContractionIndicesMatch
 
@@ -57,7 +61,135 @@ struct ContiguousContractStats {
   size_t raw_data_contract_tasks = 0;
   /// Number of GEMM calls issued by the matrix-based executor.
   size_t gemm_calls = 0;
+  /// Number of direct contract-accumulate calls.
+  size_t accumulate_calls = 0;
+  /// Number of GEMM calls issued by direct contract-accumulate.
+  size_t accumulate_gemm_calls = 0;
+  /// Number of times the destination tensor shell/topology is rebuilt.
+  size_t output_tensor_rebuilds = 0;
+  /// Bytes of full temporary output raw data avoided by direct accumulation.
+  size_t temporary_output_bytes_avoided = 0;
+  /// Number of times an existing output is expanded to union block topology.
+  size_t output_topology_expansions = 0;
+  /// Bytes copied while expanding an existing output topology.
+  size_t output_expand_copy_bytes = 0;
+  /// Number of new blocks inserted while expanding output topology.
+  size_t output_expand_new_blocks = 0;
+  /// Bytes scaled on output blocks not touched by the current contraction.
+  size_t output_untouched_scale_bytes = 0;
 };
+
+namespace detail {
+
+class ContractAccumulateLayoutMismatch : public std::invalid_argument {
+ public:
+  explicit ContractAccumulateLayoutMismatch(const std::string &message)
+      : std::invalid_argument(message) {}
+};
+
+template<typename TenElemT, typename QNT>
+IndexVec<QNT> MakeContractResultIndexes(
+    const QLTensor<TenElemT, QNT> &pa,
+    const QLTensor<TenElemT, QNT> &pb,
+    const std::vector<std::vector<size_t>> &saved_axes_set
+) {
+  const auto &a_saved_axes = saved_axes_set[0];
+  const auto &b_saved_axes = saved_axes_set[1];
+  IndexVec<QNT> result_indexes;
+  result_indexes.reserve(a_saved_axes.size() + b_saved_axes.size());
+  const auto &a_indexes = pa.GetIndexes();
+  const auto &b_indexes = pb.GetIndexes();
+  for (size_t axis : a_saved_axes) {
+    result_indexes.push_back(a_indexes[axis]);
+  }
+  for (size_t axis : b_saved_axes) {
+    result_indexes.push_back(b_indexes[axis]);
+  }
+  return result_indexes;
+}
+
+template<typename TenElemT, typename QNT>
+size_t RawDataBytesFromBlockTopology(
+    const BlockSparseDataTensor<TenElemT, QNT> &bsdt
+) {
+  size_t elem_count = 0;
+  for (const auto &blk_idx_data_blk : bsdt.GetBlkIdxDataBlkMap()) {
+    elem_count += blk_idx_data_blk.second.size;
+  }
+  return elem_count * sizeof(TenElemT);
+}
+
+template<typename TenElemT, typename QNT>
+size_t RawDataElementCountFromBlockTopology(
+    const QLTensor<TenElemT, QNT> &tensor
+) {
+  if (tensor.IsScalar()) {
+    return 1;
+  }
+  size_t elem_count = 0;
+  for (const auto &blk_idx_data_blk :
+       tensor.GetBlkSparDataTen().GetBlkIdxDataBlkMap()) {
+    elem_count += blk_idx_data_blk.second.size;
+  }
+  return elem_count;
+}
+
+inline void CheckRawDataTaskRange(
+    const size_t offset,
+    const size_t size,
+    const size_t capacity,
+    const char *name
+) {
+  if (offset > capacity || size > capacity - offset) {
+    throw std::out_of_range(
+        std::string("ContractTailHeadContiguousAccumulate ") + name +
+        " raw-data task is out of bounds.");
+  }
+}
+
+template<typename TenElemT, typename QNT>
+bool SameBlockTopology(
+    const BlockSparseDataTensor<TenElemT, QNT> &lhs,
+    const BlockSparseDataTensor<TenElemT, QNT> &rhs
+) {
+  const auto &lhs_blocks = lhs.GetBlkIdxDataBlkMap();
+  const auto &rhs_blocks = rhs.GetBlkIdxDataBlkMap();
+  if (lhs_blocks.size() != rhs_blocks.size()) {
+    return false;
+  }
+  auto lhs_it = lhs_blocks.begin();
+  auto rhs_it = rhs_blocks.begin();
+  for (; lhs_it != lhs_blocks.end(); ++lhs_it, ++rhs_it) {
+    if (lhs_it->first != rhs_it->first ||
+        lhs_it->second.blk_coors != rhs_it->second.blk_coors ||
+        lhs_it->second.shape != rhs_it->second.shape ||
+        lhs_it->second.data_offset != rhs_it->second.data_offset) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template<typename TenElemT, typename QNT>
+void InsertOutputBlockUnion(
+    const BlockSparseDataTensor<TenElemT, QNT> &old_bsdt,
+    const BlockSparseDataTensor<TenElemT, QNT> &required_bsdt,
+    QLTensor<TenElemT, QNT> *expanded
+) {
+  auto &expanded_bsdt = expanded->GetBlkSparDataTen();
+  for (const auto &blk_idx_data_blk : old_bsdt.GetBlkIdxDataBlkMap()) {
+    expanded_bsdt.DataBlkInsert(blk_idx_data_blk.second.blk_coors, false);
+  }
+  const auto &expanded_blocks = expanded_bsdt.GetBlkIdxDataBlkMap();
+  for (const auto &blk_idx_data_blk : required_bsdt.GetBlkIdxDataBlkMap()) {
+    if (expanded_blocks.find(blk_idx_data_blk.first) ==
+        expanded_blocks.end()) {
+      expanded_bsdt.DataBlkInsert(blk_idx_data_blk.second.blk_coors, false);
+    }
+  }
+}
+
+}  // namespace detail
 
 /**
  * @tparam TenElemT Type of the tensor elements.
@@ -80,7 +212,11 @@ class MatrixBasedTensorContractionExecutor : public Executor {
       const size_t b_ctrct_axes_start,
       const size_t ctrct_axes_size,
       QLTensor<TenElemT, QNT> *,
-      ContiguousContractStats *stats = nullptr
+      ContiguousContractStats *stats = nullptr,
+      const bool accumulate = false,
+      const TenElemT alpha = TenElemT(1),
+      const TenElemT beta = TenElemT(0),
+      const bool allow_output_topology_expansion = true
   );
 
   void Execute(void) override;
@@ -89,6 +225,19 @@ class MatrixBasedTensorContractionExecutor : public Executor {
   void GenerateDataBlk_();
 
   void TransposePrepare_();
+
+  void ExecuteContractAccumulate_(
+      const TenElemT *a_raw_data,
+      const TenElemT *b_raw_data
+  );
+
+  void ValidateRawDataTaskBounds_() const;
+
+  void ExpandOutputTopology_(
+      const QLTensor<TenElemT, QNT> &task_topology
+  );
+
+  void ScaleUntouchedOutputBlocks_();
 
   void ExecutePost_();//clear transpose data;
 
@@ -120,6 +269,13 @@ class MatrixBasedTensorContractionExecutor : public Executor {
   TenElemT *b_trans_data_ = nullptr;
   std::vector<RawDataCtrctTask> raw_data_ctrct_tasks_;
   ContiguousContractStats *stats_;
+  bool accumulate_;
+  TenElemT alpha_;
+  TenElemT beta_;
+  bool allow_output_topology_expansion_;
+  bool output_topology_expanded_ = false;
+  std::unordered_set<size_t> touched_output_blk_idxs_;
+  std::unordered_set<size_t> new_output_blk_idxs_;
 };
 
 /**
@@ -154,7 +310,11 @@ MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::MatrixBasedTe
     const size_t b_ctrct_axes_start,
     const size_t ctrct_axes_size,
     QLTensor<TenElemT, QNT> *pc,
-    ContiguousContractStats *stats
+    ContiguousContractStats *stats,
+    const bool accumulate,
+    const TenElemT alpha,
+    const TenElemT beta,
+    const bool allow_output_topology_expansion
 ) : pa_(pa), pb_(pb), pc_(pc),
     a_ctrct_axes_start_(a_ctrct_axes_start),
     b_ctrct_axes_start_(b_ctrct_axes_start),
@@ -164,7 +324,11 @@ MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::MatrixBasedTe
     saved_axes_set_(2),
     a_trans_critical_axe_((ASide == CtrctSide::Tail) ? a_ctrct_axes_end_ : a_ctrct_axes_start),
     b_trans_critical_axe_((BSide == CtrctSide::Head) ? b_ctrct_axes_start : b_ctrct_axes_end_),
-    stats_(stats) {}
+    stats_(stats),
+    accumulate_(accumulate),
+    alpha_(alpha),
+    beta_(beta),
+    allow_output_topology_expansion_(allow_output_topology_expansion) {}
 
 template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
 void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::GenerateDataBlk_() {
@@ -192,16 +356,117 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::Generate
          "Contraction index mismatch! See debug output above for details.");
 #endif
 
-  TenCtrctInitResTen(pa_, pb_, saved_axes_set_, pc_);  //note the order of saved_axes_set_
-  raw_data_ctrct_tasks_ = pc_->GetBlkSparDataTen().DataBlkGenForTenCtrct(
-      pa_->GetBlkSparDataTen(),
-      pb_->GetBlkSparDataTen(),
-      ctrct_axes_set,
-      saved_axes_set_
-  );
+  size_t contract_result_bytes = 0;
+  if (!accumulate_) {
+    TenCtrctInitResTen(pa_, pb_, saved_axes_set_, pc_);  //note the order of saved_axes_set_
+    if (stats_ != nullptr) {
+      ++stats_->output_tensor_rebuilds;
+    }
+    raw_data_ctrct_tasks_ = pc_->GetBlkSparDataTen().DataBlkGenForTenCtrct(
+        pa_->GetBlkSparDataTen(),
+        pb_->GetBlkSparDataTen(),
+        ctrct_axes_set,
+        saved_axes_set_
+    );
+  } else if (pc_->IsDefault()) {
+    if (beta_ != TenElemT(0)) {
+      throw std::invalid_argument(
+          "ContractTailHeadContiguousAccumulate requires beta == 0 "
+          "when output is default.");
+    }
+    TenCtrctInitResTen(pa_, pb_, saved_axes_set_, pc_);
+    if (stats_ != nullptr) {
+      ++stats_->output_tensor_rebuilds;
+    }
+    raw_data_ctrct_tasks_ = pc_->GetBlkSparDataTen().DataBlkGenForTenCtrct(
+        pa_->GetBlkSparDataTen(),
+        pb_->GetBlkSparDataTen(),
+        ctrct_axes_set,
+        saved_axes_set_
+    );
+    contract_result_bytes =
+        detail::RawDataBytesFromBlockTopology(pc_->GetBlkSparDataTen());
+  } else {
+    const auto expected_indexes =
+        detail::MakeContractResultIndexes(*pa_, *pb_, saved_axes_set_);
+    if (pc_->GetIndexes() != expected_indexes) {
+      throw detail::ContractAccumulateLayoutMismatch(
+          "ContractTailHeadContiguousAccumulate output indexes are not "
+          "compatible with the contraction result.");
+    }
+    QLTensor<TenElemT, QNT> task_topology(expected_indexes);
+    raw_data_ctrct_tasks_ =
+        task_topology.GetBlkSparDataTen().DataBlkGenForTenCtrct(
+            pa_->GetBlkSparDataTen(),
+            pb_->GetBlkSparDataTen(),
+            ctrct_axes_set,
+            saved_axes_set_
+        );
+    const auto &task_bsdt = task_topology.GetBlkSparDataTen();
+    contract_result_bytes =
+        detail::RawDataBytesFromBlockTopology(task_bsdt);
+    if (pc_->IsScalar()) {
+      for (auto &task : raw_data_ctrct_tasks_) {
+        task.c_data_offset = 0;
+      }
+    } else {
+      auto &out_bsdt = pc_->GetBlkSparDataTen();
+      const auto &required_blocks = task_bsdt.GetBlkIdxDataBlkMap();
+      const auto &out_blocks = out_bsdt.GetBlkIdxDataBlkMap();
+      bool needs_output_topology_expansion = false;
+      for (const auto &[blk_idx, required_blk] : required_blocks) {
+        touched_output_blk_idxs_.insert(blk_idx);
+        const auto out_it = out_blocks.find(blk_idx);
+        if (out_it == out_blocks.end()) {
+          needs_output_topology_expansion = true;
+          continue;
+        }
+        if (out_it->second.blk_coors != required_blk.blk_coors ||
+            out_it->second.shape != required_blk.shape) {
+          throw detail::ContractAccumulateLayoutMismatch(
+              "ContractTailHeadContiguousAccumulate output block shape is "
+              "not compatible with the contraction result.");
+        }
+      }
+      if (needs_output_topology_expansion) {
+        if (!allow_output_topology_expansion_) {
+          throw detail::ContractAccumulateLayoutMismatch(
+              "ContractTailHeadContiguousAccumulate output block topology "
+              "requires expansion.");
+        }
+        ExpandOutputTopology_(task_topology);
+      }
+      const auto &updated_out_blocks =
+          pc_->GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+      for (auto &task : raw_data_ctrct_tasks_) {
+        task.c_data_offset =
+            updated_out_blocks.at(task.c_blk_idx).data_offset;
+      }
+    }
+  }
+  if (accumulate_) {
+    for (const auto &task : raw_data_ctrct_tasks_) {
+      touched_output_blk_idxs_.insert(task.c_blk_idx);
+    }
+    RawDataCtrctTask::SortTasksByCBlkIdx(raw_data_ctrct_tasks_);
+    if (pc_->IsScalar() && !raw_data_ctrct_tasks_.empty()) {
+      contract_result_bytes = sizeof(TenElemT);
+    }
+    if (stats_ != nullptr) {
+      ++stats_->accumulate_calls;
+      stats_->temporary_output_bytes_avoided +=
+          contract_result_bytes;
+    }
+  }
   if (stats_ != nullptr) {
     stats_->raw_data_contract_tasks = raw_data_ctrct_tasks_.size();
     stats_->gemm_calls = raw_data_ctrct_tasks_.size();
+    if (accumulate_) {
+      stats_->accumulate_gemm_calls = raw_data_ctrct_tasks_.size();
+    }
+  }
+  if (accumulate_) {
+    ValidateRawDataTaskBounds_();
   }
 }
 
@@ -275,6 +540,248 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::ExecuteP
 }
 
 template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::ValidateRawDataTaskBounds_() const {
+  const size_t a_raw_size = pa_->GetBlkSparDataTen().GetActualRawDataSize();
+  const size_t b_raw_size = pb_->GetBlkSparDataTen().GetActualRawDataSize();
+  const size_t c_raw_size = detail::RawDataElementCountFromBlockTopology(*pc_);
+  for (const auto &task : raw_data_ctrct_tasks_) {
+    detail::CheckRawDataTaskRange(
+        task.a_data_offset, task.m * task.k, a_raw_size, "lhs");
+    detail::CheckRawDataTaskRange(
+        task.b_data_offset, task.k * task.n, b_raw_size, "rhs");
+    detail::CheckRawDataTaskRange(
+        task.c_data_offset, task.m * task.n, c_raw_size, "output");
+  }
+}
+
+template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::ExpandOutputTopology_(
+    const QLTensor<TenElemT, QNT> &task_topology
+) {
+  const auto &old_bsdt = pc_->GetBlkSparDataTen();
+  const auto &old_blocks = old_bsdt.GetBlkIdxDataBlkMap();
+  const auto &required_blocks =
+      task_topology.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const TenElemT *old_raw_data = old_bsdt.GetActualRawDataPtr();
+
+  QLTensor<TenElemT, QNT> expanded(pc_->GetIndexes());
+  detail::InsertOutputBlockUnion(old_bsdt,
+                                 task_topology.GetBlkSparDataTen(),
+                                 &expanded);
+  auto &expanded_bsdt = expanded.GetBlkSparDataTen();
+  expanded_bsdt.Allocate(beta_ == TenElemT(0));
+  TenElemT *expanded_raw_data = expanded_bsdt.GetActualRawDataPtr();
+  const auto &expanded_blocks = expanded_bsdt.GetBlkIdxDataBlkMap();
+
+  for (const auto &[blk_idx, old_blk] : old_blocks) {
+    const auto expanded_it = expanded_blocks.find(blk_idx);
+    if (expanded_it == expanded_blocks.end()) {
+      throw std::out_of_range(
+          "ContractTailHeadContiguousAccumulate failed to preserve an "
+          "existing output block during topology expansion.");
+    }
+    if (beta_ == TenElemT(0)) {
+      continue;
+    }
+    if (old_raw_data == nullptr) {
+      throw std::invalid_argument(
+          "ContractTailHeadContiguousAccumulate requires allocated output "
+          "raw data when expanding topology with nonzero beta.");
+    }
+    TenElemT *dst = expanded_raw_data + expanded_it->second.data_offset;
+    const TenElemT *src = old_raw_data + old_blk.data_offset;
+    const bool touched =
+        touched_output_blk_idxs_.find(blk_idx) !=
+        touched_output_blk_idxs_.end();
+    if (touched || beta_ == TenElemT(1)) {
+      hp_numeric::VectorCopy(src, old_blk.size, dst);
+    } else {
+      hp_numeric::VectorScaleCopy(src, old_blk.size, dst, beta_);
+      if (stats_ != nullptr) {
+        stats_->output_untouched_scale_bytes +=
+            old_blk.size * sizeof(TenElemT);
+      }
+    }
+    if (stats_ != nullptr) {
+      stats_->output_expand_copy_bytes += old_blk.size * sizeof(TenElemT);
+    }
+  }
+
+  for (const auto &[blk_idx, required_blk] : required_blocks) {
+    if (old_blocks.find(blk_idx) == old_blocks.end()) {
+      new_output_blk_idxs_.insert(blk_idx);
+      if (stats_ != nullptr) {
+        ++stats_->output_expand_new_blocks;
+      }
+    }
+  }
+  if (stats_ != nullptr) {
+    ++stats_->output_topology_expansions;
+    ++stats_->output_tensor_rebuilds;
+  }
+  output_topology_expanded_ = true;
+  *pc_ = std::move(expanded);
+}
+
+template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::ScaleUntouchedOutputBlocks_() {
+  if (output_topology_expanded_ || beta_ == TenElemT(1) || pc_->IsDefault()) {
+    return;
+  }
+  auto &bsdt_c = pc_->GetBlkSparDataTen();
+  TenElemT *raw_data = bsdt_c.GetActualRawDataPtr();
+  if (raw_data == nullptr) {
+    return;
+  }
+  // Scalar tensors have raw data but no block map. If there is no contraction
+  // task, the scalar value is an untouched output block for accumulate
+  // semantics and still needs the beta scale.
+  if (pc_->IsScalar()) {
+    if (raw_data_ctrct_tasks_.empty() &&
+        bsdt_c.GetActualRawDataSize() == 1) {
+      hp_numeric::VectorScale(raw_data, 1, beta_);
+      if (stats_ != nullptr) {
+        stats_->output_untouched_scale_bytes += sizeof(TenElemT);
+      }
+    }
+    return;
+  }
+  for (const auto &[blk_idx, data_blk] : bsdt_c.GetBlkIdxDataBlkMap()) {
+    if (touched_output_blk_idxs_.find(blk_idx) !=
+        touched_output_blk_idxs_.end()) {
+      continue;
+    }
+    hp_numeric::VectorScale(raw_data + data_blk.data_offset,
+                            data_blk.size,
+                            beta_);
+    if (stats_ != nullptr) {
+      stats_->output_untouched_scale_bytes +=
+          data_blk.size * sizeof(TenElemT);
+    }
+  }
+}
+
+template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
+void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::ExecuteContractAccumulate_(
+    const TenElemT *a_raw_data,
+    const TenElemT *b_raw_data
+) {
+  auto &bsdt_c = pc_->GetBlkSparDataTen();
+  if (bsdt_c.GetActualRawDataSize() == 0) {
+    if (beta_ != TenElemT(0)) {
+      throw std::invalid_argument(
+          "ContractTailHeadContiguousAccumulate requires allocated output "
+          "raw data unless beta == 0.");
+    }
+    if (pc_->IsScalar()) {
+      bsdt_c.Fill(TenElemT(0));
+    } else {
+      const bool has_untouched_blocks =
+          touched_output_blk_idxs_.size() <
+          bsdt_c.GetBlkIdxDataBlkMap().size();
+      bsdt_c.Allocate(has_untouched_blocks);
+    }
+  }
+  ScaleUntouchedOutputBlocks_();
+  if (raw_data_ctrct_tasks_.empty()) {
+    return;
+  }
+#ifdef QLTEN_TIMING_MODE
+  Timer contract_according_task_timer("mat_based_ctrct_accumulate_task");
+#endif
+
+#ifndef  USE_GPU
+  auto QLBlasNoTrans = CblasNoTrans;
+  auto QLBlasTrans = CblasTrans;
+#else
+  auto QLBlasNoTrans = CUBLAS_OP_N;
+  auto QLBlasTrans = CUBLAS_OP_T;
+#endif
+
+  auto *c_raw_data = bsdt_c.GetActualRawDataPtr();
+  size_t previous_c_blk_idx = raw_data_ctrct_tasks_[0].c_blk_idx;
+  bool first_task_for_c_block = true;
+  for (const auto &task : raw_data_ctrct_tasks_) {
+    if (task.c_blk_idx != previous_c_blk_idx) {
+      previous_c_blk_idx = task.c_blk_idx;
+      first_task_for_c_block = true;
+    }
+    const TenElemT *a_data = a_raw_data + task.a_data_offset;
+    const TenElemT *b_data = b_raw_data + task.b_data_offset;
+    double over_all_f_ex_sign = task.f_ex_sign;
+    if constexpr (Fermionicable<QNT>::IsFermionic()) {
+      if (a_trans_data_blk_idx_map_to_fermion_sign_.size() > 0) {
+        over_all_f_ex_sign
+            *= a_trans_data_blk_idx_map_to_fermion_sign_.at(task.a_blk_idx);
+      }
+      if (b_trans_data_blk_idx_map_to_fermion_sign_.size() > 0) {
+        over_all_f_ex_sign
+            *= b_trans_data_blk_idx_map_to_fermion_sign_.at(task.b_blk_idx);
+      }
+    }
+
+    const TenElemT task_alpha = alpha_ * TenElemT(over_all_f_ex_sign);
+    const TenElemT first_beta =
+        (new_output_blk_idxs_.find(task.c_blk_idx) !=
+         new_output_blk_idxs_.end())
+            ? TenElemT(0)
+            : beta_;
+    const TenElemT task_beta =
+        first_task_for_c_block ? first_beta : TenElemT(1);
+    if constexpr (ASide == CtrctSide::Tail && BSide == CtrctSide::Head) {
+      hp_numeric::MatMultiply(
+          task_alpha,
+          a_data,
+          b_data,
+          task.m, task.k, task.n,
+          task_beta,
+          c_raw_data + task.c_data_offset
+      );
+    } else if constexpr (ASide == CtrctSide::Tail && BSide == CtrctSide::Tail) {
+      hp_numeric::MatMultiply(
+          task_alpha,
+          a_data,
+          QLBlasNoTrans,
+          b_data,
+          QLBlasTrans,
+          task.m, task.k, task.n,
+          task.k, task.k,
+          task_beta,
+          c_raw_data + task.c_data_offset
+      );
+    } else if constexpr (ASide == CtrctSide::Head && BSide == CtrctSide::Head) {
+      hp_numeric::MatMultiply(
+          task_alpha,
+          a_data,
+          QLBlasTrans,
+          b_data,
+          QLBlasNoTrans,
+          task.m, task.k, task.n,
+          task.m, task.n,
+          task_beta,
+          c_raw_data + task.c_data_offset
+      );
+    } else {
+      hp_numeric::MatMultiply(
+          task_alpha,
+          a_data,
+          QLBlasTrans,
+          b_data,
+          QLBlasTrans,
+          task.m, task.k, task.n,
+          task.m, task.k,
+          task_beta,
+          c_raw_data + task.c_data_offset
+      );
+    }
+    first_task_for_c_block = false;
+  }
+#ifdef QLTEN_TIMING_MODE
+  contract_according_task_timer.PrintElapsed();
+#endif
+}
+
+template<typename TenElemT, typename QNT, CtrctSide ASide, CtrctSide BSide>
 void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::Execute() {
 #ifdef QLTEN_TIMING_MODE
   Timer gen_datablk_timer("mat_based_ctrct_gen_data_blk");
@@ -308,16 +815,20 @@ void MatrixBasedTensorContractionExecutor<TenElemT, QNT, ASide, BSide>::Execute(
   Timer contract_according_task_timer("mat_based_ctrct_do_task");
 #endif
 
-  bsdt_c.template CtrctAccordingTask<
-      ASide == CtrctSide::Tail,
-      BSide == CtrctSide::Head
-  >(
-      a_raw_data,
-      b_raw_data,
-      raw_data_ctrct_tasks_,
-      a_trans_data_blk_idx_map_to_fermion_sign_,
-      b_trans_data_blk_idx_map_to_fermion_sign_
-  );
+  if (accumulate_) {
+    ExecuteContractAccumulate_(a_raw_data, b_raw_data);
+  } else {
+    bsdt_c.template CtrctAccordingTask<
+        ASide == CtrctSide::Tail,
+        BSide == CtrctSide::Head
+    >(
+        a_raw_data,
+        b_raw_data,
+        raw_data_ctrct_tasks_,
+        a_trans_data_blk_idx_map_to_fermion_sign_,
+        b_trans_data_blk_idx_map_to_fermion_sign_
+    );
+  }
 #ifdef QLTEN_TIMING_MODE
   contract_according_task_timer.PrintElapsed();
 #endif
@@ -416,6 +927,117 @@ void ContractTailHeadContiguous(
   ContractContiguousAxes<TenElemT, QNT, CtrctSide::Tail, CtrctSide::Head>(
       pa, pb,
       a_ctrct_axes_start, b_ctrct_axes_start, ctrct_axes_size, pc, stats);
+}
+
+/**
+ * @brief Accumulate a tail/head contiguous contraction into an existing output.
+ *
+ * Computes
+ *   `pc = beta * pc + alpha * ContractTailHeadContiguous(pa, pb, ...)`
+ * without constructing a full temporary result tensor.  If `pc` is default,
+ * `beta` must be zero and the output shell/block topology is initialized.
+ *
+ * For an existing `pc`, the indexes must match the contraction result.  Its
+ * block topology may be a superset: blocks produced by the current contraction
+ * are updated through GEMM, while extra blocks are scaled only by `beta`.  If
+ * required contraction-result blocks are missing, this API expands `pc` to the
+ * union topology, copies or scales the old blocks as needed, and writes the new
+ * blocks directly through GEMM with an effective first-task beta of zero.  The
+ * expansion avoids the separate full contraction-result temporary but still
+ * rebuilds `pc`; use `TryContractTailHeadContiguousAccumulate` for a no-rebuild
+ * hot path probe.
+ *
+ * The Tail/Head case keeps the no-transpose matrix-product fast path used by
+ * `ContractTailHeadContiguous`.
+ */
+template<typename TenElemT, typename QNT>
+void ContractTailHeadContiguousAccumulate(
+    const QLTensor<TenElemT, QNT> &pa,
+    const QLTensor<TenElemT, QNT> &pb,
+    const size_t a_ctrct_axes_start,
+    const size_t b_ctrct_axes_start,
+    const size_t ctrct_axes_size,
+    const TenElemT alpha,
+    const TenElemT beta,
+    QLTensor<TenElemT, QNT> &pc,
+    ContiguousContractStats *stats = nullptr
+) {
+  if (stats != nullptr) {
+    *stats = ContiguousContractStats{};
+  }
+  if (&pc == &pa || &pc == &pb) {
+    throw std::invalid_argument(
+        "ContractTailHeadContiguousAccumulate does not support aliasing "
+        "between output and input tensors.");
+  }
+  auto executor =
+      MatrixBasedTensorContractionExecutor<
+          TenElemT, QNT, CtrctSide::Tail, CtrctSide::Head>(
+          &pa, &pb,
+          a_ctrct_axes_start, b_ctrct_axes_start, ctrct_axes_size,
+          &pc, stats,
+          true,
+          alpha,
+          beta
+      );
+  executor.Execute();
+}
+
+/**
+ * @brief Try to accumulate a tail/head contiguous contraction.
+ *
+ * This is the no-output-topology-expansion probe for the same mathematical
+ * operation as `ContractTailHeadContiguousAccumulate`.  It returns true and
+ * performs the accumulation when `pc` is default with `beta == 0`, or when an
+ * existing `pc` already contains every block required by the contraction result
+ * with matching block shapes.  Extra existing blocks are allowed and are scaled
+ * by `beta`.
+ *
+ * It returns false without modifying `pc` when the indexes are incompatible,
+ * a required block is missing, or a required block shape is incompatible.
+ * Bounds failures, aliasing, invalid beta for a default output, and other
+ * non-layout errors still throw so memory-safety defects are not hidden.
+ */
+template<typename TenElemT, typename QNT>
+bool TryContractTailHeadContiguousAccumulate(
+    const QLTensor<TenElemT, QNT> &pa,
+    const QLTensor<TenElemT, QNT> &pb,
+    const size_t a_ctrct_axes_start,
+    const size_t b_ctrct_axes_start,
+    const size_t ctrct_axes_size,
+    const TenElemT alpha,
+    const TenElemT beta,
+    QLTensor<TenElemT, QNT> &pc,
+    ContiguousContractStats *stats = nullptr
+) {
+  if (stats != nullptr) {
+    *stats = ContiguousContractStats{};
+  }
+  if (&pc == &pa || &pc == &pb) {
+    throw std::invalid_argument(
+        "TryContractTailHeadContiguousAccumulate does not support aliasing "
+        "between output and input tensors.");
+  }
+  try {
+    auto executor =
+        MatrixBasedTensorContractionExecutor<
+            TenElemT, QNT, CtrctSide::Tail, CtrctSide::Head>(
+            &pa, &pb,
+            a_ctrct_axes_start, b_ctrct_axes_start, ctrct_axes_size,
+            &pc, stats,
+            true,
+            alpha,
+            beta,
+            false
+        );
+    executor.Execute();
+    return true;
+  } catch (const detail::ContractAccumulateLayoutMismatch &) {
+    if (stats != nullptr) {
+      *stats = ContiguousContractStats{};
+    }
+    return false;
+  }
 }
 
 /**

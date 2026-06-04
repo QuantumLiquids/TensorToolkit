@@ -748,3 +748,99 @@ TEST_F(TestContraction, ContractContiguousAxesAllSidesMatchBoolWrapper) {
   zten_3d_s3.Random(qn0);
   RunTestFermionContractContiguousAxesAllSides(zten_3d_s, {1, 2}, zten_3d_s3, {0, 1});
 }
+
+template<typename TenElemT, typename QNT>
+void ExpectFermionTensorNear(
+    const QLTensor<TenElemT, QNT> &actual,
+    const QLTensor<TenElemT, QNT> &expected,
+    const typename RealTypeTrait<TenElemT>::type eps
+) {
+  using RealT = typename RealTypeTrait<TenElemT>::type;
+  EXPECT_EQ(actual.GetIndexes(), expected.GetIndexes());
+  QLTensor<TenElemT, QNT> diff = actual + (-expected);
+  const auto denom = std::max(expected.GetQuasi2Norm(), RealT(1e-8));
+  EXPECT_NEAR(diff.GetQuasi2Norm() / denom, 0.0, eps);
+}
+
+template<typename TenElemT, typename QNT>
+void ExpectFermionSameBlockTopology(
+    const QLTensor<TenElemT, QNT> &lhs,
+    const QLTensor<TenElemT, QNT> &rhs
+) {
+  const auto &lhs_blocks = lhs.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &rhs_blocks = rhs.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  ASSERT_EQ(lhs_blocks.size(), rhs_blocks.size());
+  auto lhs_it = lhs_blocks.begin();
+  auto rhs_it = rhs_blocks.begin();
+  for (; lhs_it != lhs_blocks.end(); ++lhs_it, ++rhs_it) {
+    EXPECT_EQ(lhs_it->first, rhs_it->first);
+    EXPECT_EQ(lhs_it->second.blk_coors, rhs_it->second.blk_coors);
+    EXPECT_EQ(lhs_it->second.shape, rhs_it->second.shape);
+  }
+}
+
+template<typename TenElemT, typename QNT>
+void RunFermionContractTailHeadContiguousRepeatedAccumulateAfterContractInitCase(
+    const QLTensor<TenElemT, QNT> &lhs,
+    const QLTensor<TenElemT, QNT> &rhs,
+    const TenElemT alpha
+) {
+  using TenT = QLTensor<TenElemT, QNT>;
+  const auto eps = FermionGetEpsilon<TenElemT>() * 100;
+
+  TenT tmp;
+  ContractTailHeadContiguous(lhs, rhs, 2, 0, 2, tmp);
+
+  TenT out;
+  ContractTailHeadContiguous(lhs, rhs, 2, 0, 2, out);
+  TenT expected = tmp;
+  for (size_t i = 0; i < 4; ++i) {
+    ContiguousContractStats stats;
+    ContractTailHeadContiguousAccumulate(
+        lhs, rhs, 2, 0, 2, alpha, TenElemT(1), out, &stats);
+    expected = expected + (tmp * alpha);
+    ExpectFermionTensorNear(out, expected, eps);
+    ExpectFermionSameBlockTopology(out, tmp);
+    EXPECT_EQ(stats.transpose_prepare_calls, 0U);
+    EXPECT_EQ(stats.transpose_prepare_bytes, 0U);
+    EXPECT_EQ(stats.output_tensor_rebuilds, 0U);
+    EXPECT_EQ(stats.accumulate_calls, 1U);
+    EXPECT_EQ(stats.accumulate_gemm_calls, stats.gemm_calls);
+  }
+}
+
+TEST_F(TestContraction, ContractTailHeadContiguousAccumulateFermionRepeated) {
+  DQLTensor left_rank4({
+      idx_out_l,
+      idx_out_s,
+      idx_out_s,
+      idx_out_l
+  });
+  DQLTensor left_state({
+      idx_in_s,
+      idx_in_l,
+      idx_out_s,
+      idx_out_l
+  });
+  left_rank4.Random(qn0);
+  left_state.Random(qn0);
+  RunFermionContractTailHeadContiguousRepeatedAccumulateAfterContractInitCase(
+      left_rank4, left_state, QLTEN_Double(0.625));
+
+  ZQLTensor right_state({
+      idx_in_l,
+      idx_in_s,
+      idx_out_s,
+      idx_out_l
+  });
+  ZQLTensor right_rank4({
+      idx_in_s,
+      idx_in_l,
+      idx_out_s,
+      idx_out_l
+  });
+  right_state.Random(qn0);
+  right_rank4.Random(qn0);
+  RunFermionContractTailHeadContiguousRepeatedAccumulateAfterContractInitCase(
+      right_state, right_rank4, QLTEN_Complex(0.5, -0.25));
+}

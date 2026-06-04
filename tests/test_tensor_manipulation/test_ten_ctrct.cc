@@ -1025,3 +1025,443 @@ TEST_F(TestContraction, ContractContiguousAxesReportsTransposePrepareStats) {
   EXPECT_GT(head_head_stats.raw_data_contract_tasks, 0U);
   EXPECT_GT(head_head_stats.gemm_calls, 0U);
 }
+
+template<typename TenElemT, typename QNT>
+void ExpectTensorNear(
+    const QLTensor<TenElemT, QNT> &actual,
+    const QLTensor<TenElemT, QNT> &expected,
+    const typename RealTypeTrait<TenElemT>::type eps
+) {
+  using RealT = typename RealTypeTrait<TenElemT>::type;
+  EXPECT_EQ(actual.GetIndexes(), expected.GetIndexes());
+  QLTensor<TenElemT, QNT> diff = actual + (-expected);
+  const auto denom = std::max(expected.Get2Norm(), RealT(1e-8));
+  EXPECT_NEAR(diff.Get2Norm() / denom, 0.0, eps);
+}
+
+template<typename TenElemT, typename QNT>
+void ExpectSameBlockTopology(
+    const QLTensor<TenElemT, QNT> &lhs,
+    const QLTensor<TenElemT, QNT> &rhs
+) {
+  const auto &lhs_blocks = lhs.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &rhs_blocks = rhs.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  ASSERT_EQ(lhs_blocks.size(), rhs_blocks.size());
+  auto lhs_it = lhs_blocks.begin();
+  auto rhs_it = rhs_blocks.begin();
+  for (; lhs_it != lhs_blocks.end(); ++lhs_it, ++rhs_it) {
+    EXPECT_EQ(lhs_it->first, rhs_it->first);
+    EXPECT_EQ(lhs_it->second.blk_coors, rhs_it->second.blk_coors);
+    EXPECT_EQ(lhs_it->second.shape, rhs_it->second.shape);
+  }
+}
+
+inline void PrintContiguousAccumulateStats(
+    const char *label,
+    const ContiguousContractStats &stats
+) {
+  std::cout << label
+            << " transpose_prepare_calls=" << stats.transpose_prepare_calls
+            << " raw_data_contract_tasks=" << stats.raw_data_contract_tasks
+            << " gemm_calls=" << stats.gemm_calls
+            << " accumulate_calls=" << stats.accumulate_calls
+            << " accumulate_gemm_calls=" << stats.accumulate_gemm_calls
+            << " output_tensor_rebuilds=" << stats.output_tensor_rebuilds
+            << " temporary_output_bytes_avoided="
+            << stats.temporary_output_bytes_avoided
+            << " output_topology_expansions="
+            << stats.output_topology_expansions
+            << " output_expand_copy_bytes="
+            << stats.output_expand_copy_bytes
+            << " output_expand_new_blocks="
+            << stats.output_expand_new_blocks
+            << " output_untouched_scale_bytes="
+            << stats.output_untouched_scale_bytes
+            << std::endl;
+}
+
+template<typename TenElemT, typename QNT>
+void RunContractTailHeadContiguousAccumulateCase(
+    const QLTensor<TenElemT, QNT> &lhs,
+    const QLTensor<TenElemT, QNT> &rhs,
+    const TenElemT alpha
+) {
+  using TenT = QLTensor<TenElemT, QNT>;
+  const auto eps = GetEpsilon<TenElemT>() * 100;
+
+  TenT tmp;
+  ContractTailHeadContiguous(lhs, rhs, 2, 0, 2, tmp);
+
+  TenT first_accum;
+  ContiguousContractStats first_stats;
+  ContractTailHeadContiguousAccumulate(
+      lhs, rhs, 2, 0, 2, alpha, TenElemT(0), first_accum, &first_stats);
+  PrintContiguousAccumulateStats("first_accumulate", first_stats);
+  TenT first_expected = tmp * alpha;
+  ExpectTensorNear(first_accum, first_expected, eps);
+  ExpectSameBlockTopology(first_accum, tmp);
+  EXPECT_EQ(first_stats.transpose_prepare_calls, 0U);
+  EXPECT_EQ(first_stats.transpose_prepare_bytes, 0U);
+  EXPECT_EQ(first_stats.accumulate_calls, 1U);
+  EXPECT_EQ(first_stats.output_tensor_rebuilds, 1U);
+  EXPECT_GT(first_stats.accumulate_gemm_calls, 0U);
+  EXPECT_EQ(first_stats.accumulate_gemm_calls, first_stats.gemm_calls);
+  EXPECT_GT(first_stats.temporary_output_bytes_avoided, 0U);
+
+  TenT repeated_accum = first_accum;
+  ContiguousContractStats repeated_stats;
+  ContractTailHeadContiguousAccumulate(
+      lhs, rhs, 2, 0, 2, alpha, TenElemT(1), repeated_accum, &repeated_stats);
+  PrintContiguousAccumulateStats("repeated_accumulate", repeated_stats);
+  TenT repeated_expected = first_expected + (tmp * alpha);
+  ExpectTensorNear(repeated_accum, repeated_expected, eps);
+  ExpectSameBlockTopology(repeated_accum, tmp);
+  EXPECT_EQ(repeated_stats.transpose_prepare_calls, 0U);
+  EXPECT_EQ(repeated_stats.transpose_prepare_bytes, 0U);
+  EXPECT_EQ(repeated_stats.accumulate_calls, 1U);
+  EXPECT_EQ(repeated_stats.output_tensor_rebuilds, 0U);
+  EXPECT_GT(repeated_stats.accumulate_gemm_calls, 0U);
+  EXPECT_EQ(repeated_stats.accumulate_gemm_calls, repeated_stats.gemm_calls);
+  EXPECT_GT(repeated_stats.temporary_output_bytes_avoided, 0U);
+}
+
+template<typename TenElemT, typename QNT>
+void RunContractTailHeadContiguousRepeatedAccumulateAfterContractInitCase(
+    const QLTensor<TenElemT, QNT> &lhs,
+    const QLTensor<TenElemT, QNT> &rhs,
+    const TenElemT alpha
+) {
+  using TenT = QLTensor<TenElemT, QNT>;
+  const auto eps = GetEpsilon<TenElemT>() * 100;
+
+  TenT tmp;
+  ContractTailHeadContiguous(lhs, rhs, 2, 0, 2, tmp);
+
+  TenT out;
+  ContractTailHeadContiguous(lhs, rhs, 2, 0, 2, out);
+  TenT expected = tmp;
+  for (size_t i = 0; i < 4; ++i) {
+    ContiguousContractStats stats;
+    ContractTailHeadContiguousAccumulate(
+        lhs, rhs, 2, 0, 2, alpha, TenElemT(1), out, &stats);
+    expected = expected + (tmp * alpha);
+    ExpectTensorNear(out, expected, eps);
+    ExpectSameBlockTopology(out, tmp);
+    EXPECT_EQ(stats.transpose_prepare_calls, 0U);
+    EXPECT_EQ(stats.transpose_prepare_bytes, 0U);
+    EXPECT_EQ(stats.output_tensor_rebuilds, 0U);
+    EXPECT_EQ(stats.accumulate_calls, 1U);
+    EXPECT_EQ(stats.accumulate_gemm_calls, stats.gemm_calls);
+  }
+}
+
+TEST_F(TestContraction, ContractTailHeadContiguousAccumulateLeftMaterialized) {
+  DQLTensor rank4({
+      idx_out_l,
+      idx_out_s,
+      idx_out_s,
+      idx_out_l
+  });
+  DQLTensor state({
+      idx_in_s,
+      idx_in_l,
+      idx_out_s,
+      idx_out_l
+  });
+  rank4.Random(qn0);
+  state.Random(qn0);
+
+  RunContractTailHeadContiguousAccumulateCase(rank4, state, QLTEN_Double(1.75));
+  RunContractTailHeadContiguousRepeatedAccumulateAfterContractInitCase(
+      rank4, state, QLTEN_Double(0.625));
+}
+
+TEST_F(TestContraction, ContractTailHeadContiguousAccumulateRightMaterialized) {
+  DQLTensor state({
+      idx_in_l,
+      idx_in_s,
+      idx_out_s,
+      idx_out_l
+  });
+  DQLTensor rank4({
+      idx_in_s,
+      idx_in_l,
+      idx_out_s,
+      idx_out_l
+  });
+  state.Random(qn0);
+  rank4.Random(qn0);
+
+  RunContractTailHeadContiguousAccumulateCase(state, rank4, QLTEN_Double(0.375));
+  RunContractTailHeadContiguousRepeatedAccumulateAfterContractInitCase(
+      state, rank4, QLTEN_Double(1.125));
+}
+
+TEST_F(TestContraction, TryContractTailHeadContiguousAccumulateMismatchIsNoOp) {
+  DQLTensor state({
+      idx_in_l,
+      idx_in_s,
+      idx_out_s,
+      idx_out_l
+  });
+  DQLTensor rank4({
+      idx_in_s,
+      idx_in_l,
+      idx_out_s,
+      idx_out_l
+  });
+  state.Random(qn0);
+  rank4.Random(qn0);
+
+  DQLTensor out;
+  ContractTailHeadContiguous(state, rank4, 2, 0, 2, out);
+  DQLTensor before = out;
+
+  DQLTensor mismatched_state(state.GetIndexes());
+  DQLTensor mismatched_rank4(rank4.GetIndexes());
+  mismatched_state.Random(qnp2);
+  mismatched_rank4.Random(qnp2);
+  ContiguousContractStats stats;
+  const bool accumulated = TryContractTailHeadContiguousAccumulate(
+      mismatched_state, mismatched_rank4, 2, 0, 2,
+      QLTEN_Double(1), QLTEN_Double(1), out, &stats);
+
+  EXPECT_FALSE(accumulated);
+  ExpectTensorNear(out, before, GetEpsilon<QLTEN_Double>() * 10);
+  EXPECT_EQ(stats.accumulate_calls, 0U);
+  EXPECT_EQ(stats.accumulate_gemm_calls, 0U);
+  EXPECT_EQ(stats.output_tensor_rebuilds, 0U);
+}
+
+TEST_F(TestContraction, ContractTailHeadContiguousAccumulateScalesScalarNoTaskOutput) {
+  DQLTensor lhs({idx_out_s});
+  DQLTensor rhs({idx_in_s});
+  DQLTensor out(IndexVec<U1QN>{});
+  out() = QLTEN_Double(7);
+
+  ContiguousContractStats scale_stats;
+  ContractTailHeadContiguousAccumulate(
+      lhs, rhs, 0, 0, 1,
+      QLTEN_Double(3), QLTEN_Double(2), out, &scale_stats);
+
+  EXPECT_NEAR(out(), QLTEN_Double(14), GetEpsilon<QLTEN_Double>());
+  EXPECT_EQ(scale_stats.raw_data_contract_tasks, 0U);
+  EXPECT_EQ(scale_stats.accumulate_gemm_calls, 0U);
+  EXPECT_EQ(scale_stats.output_untouched_scale_bytes, sizeof(QLTEN_Double));
+
+  ContiguousContractStats zero_stats;
+  ContractTailHeadContiguousAccumulate(
+      lhs, rhs, 0, 0, 1,
+      QLTEN_Double(3), QLTEN_Double(0), out, &zero_stats);
+
+  EXPECT_NEAR(out(), QLTEN_Double(0), GetEpsilon<QLTEN_Double>());
+  EXPECT_EQ(zero_stats.raw_data_contract_tasks, 0U);
+  EXPECT_EQ(zero_stats.accumulate_gemm_calls, 0U);
+  EXPECT_EQ(zero_stats.output_untouched_scale_bytes, sizeof(QLTEN_Double));
+}
+
+TEST_F(TestContraction, ContractTailHeadContiguousAccumulateUpdatesExistingScalarOutput) {
+  DQLTensor lhs({idx_out_s});
+  lhs.Random(qn0);
+  const DQLTensor rhs = Dag(lhs);
+
+  DQLTensor tmp;
+  ContractTailHeadContiguous(lhs, rhs, 0, 0, 1, tmp);
+  ASSERT_TRUE(tmp.IsScalar());
+
+  DQLTensor first_out(IndexVec<U1QN>{});
+  ContiguousContractStats first_stats;
+  ContractTailHeadContiguousAccumulate(
+      lhs, rhs, 0, 0, 1,
+      QLTEN_Double(3), QLTEN_Double(0), first_out, &first_stats);
+  EXPECT_NEAR(first_out(), QLTEN_Double(3) * tmp(),
+              GetEpsilon<QLTEN_Double>() * 100);
+  EXPECT_GT(first_stats.raw_data_contract_tasks, 0U);
+  EXPECT_EQ(first_stats.accumulate_gemm_calls,
+            first_stats.raw_data_contract_tasks);
+  EXPECT_EQ(first_stats.output_tensor_rebuilds, 0U);
+  EXPECT_EQ(first_stats.temporary_output_bytes_avoided,
+            sizeof(QLTEN_Double));
+
+  DQLTensor out(IndexVec<U1QN>{});
+  out() = QLTEN_Double(5);
+
+  ContiguousContractStats stats;
+  ContractTailHeadContiguousAccumulate(
+      lhs, rhs, 0, 0, 1,
+      QLTEN_Double(3), QLTEN_Double(2), out, &stats);
+
+  const QLTEN_Double expected = QLTEN_Double(2) * QLTEN_Double(5) +
+                                QLTEN_Double(3) * tmp();
+  EXPECT_NEAR(out(), expected, GetEpsilon<QLTEN_Double>() * 100);
+  EXPECT_GT(stats.raw_data_contract_tasks, 0U);
+  EXPECT_EQ(stats.accumulate_gemm_calls, stats.raw_data_contract_tasks);
+  EXPECT_EQ(stats.output_tensor_rebuilds, 0U);
+  EXPECT_EQ(stats.output_untouched_scale_bytes, 0U);
+  EXPECT_EQ(stats.temporary_output_bytes_avoided, sizeof(QLTEN_Double));
+
+  DQLTensor try_out(IndexVec<U1QN>{});
+  try_out() = QLTEN_Double(5);
+  ContiguousContractStats try_stats;
+  const bool accumulated = TryContractTailHeadContiguousAccumulate(
+      lhs, rhs, 0, 0, 1,
+      QLTEN_Double(3), QLTEN_Double(2), try_out, &try_stats);
+  EXPECT_TRUE(accumulated);
+  EXPECT_NEAR(try_out(), expected, GetEpsilon<QLTEN_Double>() * 100);
+  EXPECT_GT(try_stats.raw_data_contract_tasks, 0U);
+  EXPECT_EQ(try_stats.accumulate_gemm_calls,
+            try_stats.raw_data_contract_tasks);
+  EXPECT_EQ(try_stats.output_tensor_rebuilds, 0U);
+  EXPECT_EQ(try_stats.temporary_output_bytes_avoided, sizeof(QLTEN_Double));
+}
+
+TEST_F(TestContraction, ContractTailHeadContiguousAccumulateScalesSupersetBlocks) {
+  DQLTensor state({
+      idx_in_l,
+      idx_in_s,
+      idx_out_s,
+      idx_out_l
+  });
+  DQLTensor rank4({
+      idx_in_s,
+      idx_in_l,
+      idx_out_s,
+      idx_out_l
+  });
+  state.Random(qn0);
+  rank4.Random(qn0);
+
+  DQLTensor contract_result;
+  ContractTailHeadContiguous(state, rank4, 2, 0, 2, contract_result);
+  DQLTensor extra(contract_result.GetIndexes());
+  extra.Random(qnp1);
+  DQLTensor out = contract_result + extra;
+  ASSERT_GT(out.GetQNBlkNum(), contract_result.GetQNBlkNum());
+  const DQLTensor before = out;
+
+  ContiguousContractStats stats;
+  ContractTailHeadContiguousAccumulate(
+      state, rank4, 2, 0, 2,
+      QLTEN_Double(0.5), QLTEN_Double(2.0), out, &stats);
+  PrintContiguousAccumulateStats("superset_accumulate", stats);
+
+  DQLTensor expected = (before * QLTEN_Double(2.0)) +
+                       (contract_result * QLTEN_Double(0.5));
+  ExpectTensorNear(out, expected, GetEpsilon<QLTEN_Double>() * 100);
+  EXPECT_EQ(stats.transpose_prepare_calls, 0U);
+  EXPECT_EQ(stats.transpose_prepare_bytes, 0U);
+  EXPECT_EQ(stats.output_topology_expansions, 0U);
+  EXPECT_EQ(stats.output_expand_copy_bytes, 0U);
+  EXPECT_GT(stats.output_untouched_scale_bytes, 0U);
+}
+
+TEST_F(TestContraction, ContractTailHeadContiguousAccumulateExpandsOutputTopology) {
+  DQLTensor state({
+      idx_in_l,
+      idx_in_s,
+      idx_out_s,
+      idx_out_l
+  });
+  DQLTensor rank4({
+      idx_in_s,
+      idx_in_l,
+      idx_out_s,
+      idx_out_l
+  });
+  state.Random(qn0);
+  rank4.Random(qn0);
+
+  DQLTensor contract_result;
+  ContractTailHeadContiguous(state, rank4, 2, 0, 2, contract_result);
+  DQLTensor out(contract_result.GetIndexes());
+  out.Random(qnp1);
+  ASSERT_LT(out.GetQNBlkNum(), (out + contract_result).GetQNBlkNum());
+  const DQLTensor before = out;
+
+  ContiguousContractStats try_stats;
+  DQLTensor try_out = out;
+  const bool try_accumulated = TryContractTailHeadContiguousAccumulate(
+      state, rank4, 2, 0, 2,
+      QLTEN_Double(0.5), QLTEN_Double(2.0), try_out, &try_stats);
+  EXPECT_FALSE(try_accumulated);
+  ExpectTensorNear(try_out, before, GetEpsilon<QLTEN_Double>() * 10);
+
+  ContiguousContractStats stats;
+  ContractTailHeadContiguousAccumulate(
+      state, rank4, 2, 0, 2,
+      QLTEN_Double(0.5), QLTEN_Double(2.0), out, &stats);
+  PrintContiguousAccumulateStats("expanded_accumulate", stats);
+
+  DQLTensor expected = (before * QLTEN_Double(2.0)) +
+                       (contract_result * QLTEN_Double(0.5));
+  ExpectTensorNear(out, expected, GetEpsilon<QLTEN_Double>() * 100);
+  EXPECT_EQ(stats.transpose_prepare_calls, 0U);
+  EXPECT_EQ(stats.transpose_prepare_bytes, 0U);
+  EXPECT_GT(stats.output_topology_expansions, 0U);
+  EXPECT_GT(stats.output_expand_copy_bytes, 0U);
+  EXPECT_GT(stats.output_expand_new_blocks, 0U);
+}
+
+TEST_F(TestContraction, ContractTailHeadContiguousAccumulateComplexAlpha) {
+  ZQLTensor rank4({
+      idx_out_l,
+      idx_out_s,
+      idx_out_s,
+      idx_out_l
+  });
+  ZQLTensor state({
+      idx_in_s,
+      idx_in_l,
+      idx_out_s,
+      idx_out_l
+  });
+  rank4.Random(qn0);
+  state.Random(qn0);
+
+  RunContractTailHeadContiguousAccumulateCase(
+      rank4, state, QLTEN_Complex(0.5, -0.25));
+}
+
+TEST(TestContractTailHeadContiguousAccumulate, U1U1BlockSparseMultipleBlocks) {
+  using U1U1QN = QN<U1QNVal, U1QNVal>;
+  using U1U1Index = Index<U1U1QN>;
+  using U1U1QNSct = QNSector<U1U1QN>;
+  using U1U1Ten = QLTensor<QLTEN_Double, U1U1QN>;
+
+  U1U1QN qn0({
+      QNCard("n", U1QNVal(0)),
+      QNCard("sz", U1QNVal(0))
+  });
+  U1U1QN qnp({
+      QNCard("n", U1QNVal(1)),
+      QNCard("sz", U1QNVal(1))
+  });
+  U1U1QN qnm({
+      QNCard("n", U1QNVal(-1)),
+      QNCard("sz", U1QNVal(-1))
+  });
+  U1U1Index idx_in({
+      U1U1QNSct(qnm, 2),
+      U1U1QNSct(qn0, 3),
+      U1U1QNSct(qnp, 2)
+  }, TenIndexDirType::IN);
+  U1U1Index idx_out = InverseIndex(idx_in);
+  U1U1Ten lhs({
+      idx_out,
+      idx_out,
+      idx_out,
+      idx_out
+  });
+  U1U1Ten rhs({
+      idx_in,
+      idx_in,
+      idx_out,
+      idx_out
+  });
+  lhs.Random(qn0);
+  rhs.Random(qn0);
+
+  RunContractTailHeadContiguousAccumulateCase(lhs, rhs, QLTEN_Double(1.25));
+  RunContractTailHeadContiguousRepeatedAccumulateAfterContractInitCase(
+      lhs, rhs, QLTEN_Double(0.75));
+}

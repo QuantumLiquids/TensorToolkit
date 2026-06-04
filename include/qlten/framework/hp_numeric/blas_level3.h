@@ -110,6 +110,29 @@ inline void MatMultiply(
 }
 
 inline void MatMultiply(
+    const QLTEN_Complex alpha,
+    const QLTEN_Complex *a,
+    const QLTEN_Complex *b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const QLTEN_Complex beta,
+    QLTEN_Complex *c) {
+  cblas_zgemm(
+      CblasRowMajor, CblasNoTrans, CblasNoTrans,
+      m, n, k,
+      &alpha,
+      a, k,
+      b, n,
+      &beta,
+      c, n
+  );
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (8 * k + 8);
+#endif
+}
+
+inline void MatMultiply(
     const float alpha,
     const QLTEN_ComplexFloat *a,
     const QLTEN_ComplexFloat *b,
@@ -123,6 +146,29 @@ inline void MatMultiply(
       CblasRowMajor, CblasNoTrans, CblasNoTrans,
       m, n, k,
       &alpha_complex,
+      a, k,
+      b, n,
+      &beta,
+      c, n
+  );
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (8 * k + 8);
+#endif
+}
+
+inline void MatMultiply(
+    const QLTEN_ComplexFloat alpha,
+    const QLTEN_ComplexFloat *a,
+    const QLTEN_ComplexFloat *b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const QLTEN_ComplexFloat beta,
+    QLTEN_ComplexFloat *c) {
+  cblas_cgemm(
+      CblasRowMajor, CblasNoTrans, CblasNoTrans,
+      m, n, k,
+      &alpha,
       a, k,
       b, n,
       &beta,
@@ -216,6 +262,33 @@ inline void MatMultiply(
 }
 
 inline void MatMultiply(
+    const QLTEN_Complex alpha,
+    const QLTEN_Complex *a,
+    const CBLAS_TRANSPOSE cblas_transpose_a,
+    const QLTEN_Complex *b,
+    const CBLAS_TRANSPOSE cblas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const size_t ldb,
+    const QLTEN_Complex beta,
+    QLTEN_Complex *c) {
+  cblas_zgemm(
+      CblasRowMajor, cblas_transpose_a, cblas_transpose_b,
+      m, n, k,
+      &alpha,
+      a, lda,
+      b, ldb,
+      &beta,
+      c, n
+  );
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (8 * k + 8);
+#endif
+}
+
+inline void MatMultiply(
     const float alpha,
     const QLTEN_ComplexFloat *a,
     const CBLAS_TRANSPOSE cblas_transpose_a,
@@ -233,6 +306,33 @@ inline void MatMultiply(
       CblasRowMajor, cblas_transpose_a, cblas_transpose_b,
       m, n, k,
       &alpha_complex,
+      a, lda,
+      b, ldb,
+      &beta,
+      c, n
+  );
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (8 * k + 8);
+#endif
+}
+
+inline void MatMultiply(
+    const QLTEN_ComplexFloat alpha,
+    const QLTEN_ComplexFloat *a,
+    const CBLAS_TRANSPOSE cblas_transpose_a,
+    const QLTEN_ComplexFloat *b,
+    const CBLAS_TRANSPOSE cblas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const size_t ldb,
+    const QLTEN_ComplexFloat beta,
+    QLTEN_ComplexFloat *c) {
+  cblas_cgemm(
+      CblasRowMajor, cblas_transpose_a, cblas_transpose_b,
+      m, n, k,
+      &alpha,
       a, lda,
       b, ldb,
       &beta,
@@ -737,6 +837,36 @@ inline void MatMultiply(
 #endif
 }
 
+inline void MatMultiply(
+    const QLTEN_ComplexFloat alpha,
+    const QLTEN_ComplexFloat *a,
+    const QLTEN_ComplexFloat *b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const QLTEN_ComplexFloat beta,
+    QLTEN_ComplexFloat *c) {
+
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+
+  auto status = cublasCgemm(
+      handle,
+      CUBLAS_OP_N, CUBLAS_OP_N,
+      n, m, k,
+      reinterpret_cast<const cuComplex *>(&alpha),
+      reinterpret_cast<const cuComplex *>(b), n,
+      reinterpret_cast<const cuComplex *>(a), k,
+      reinterpret_cast<const cuComplex *>(&beta),
+      reinterpret_cast<cuComplex *>(c), n
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasCgemm failed: " << cublasGetErrorString(status) << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * k * 8;
+#endif
+}
+
 ///< C = alpha * A * B + beta * C
 inline void MatMultiply(
     const double alpha,
@@ -765,6 +895,35 @@ inline void MatMultiply(
 
 #ifdef QLTEN_COUNT_FLOPS
   flop += m * n * k * 8;  // Adjust FLOP count based on operations
+#endif
+}
+
+inline void MatMultiply(
+    const QLTEN_Complex alpha,
+    const QLTEN_Complex *a,
+    const QLTEN_Complex *b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const QLTEN_Complex beta,
+    QLTEN_Complex *c) {
+
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+  auto status = cublasZgemm(
+      handle,
+      CUBLAS_OP_N, CUBLAS_OP_N,
+      n, m, k,
+      reinterpret_cast<const cuDoubleComplex *>(&alpha),
+      reinterpret_cast<const cuDoubleComplex *>(b), n,
+      reinterpret_cast<const cuDoubleComplex *>(a), k,
+      reinterpret_cast<const cuDoubleComplex *>(&beta),
+      reinterpret_cast<cuDoubleComplex *>(c), n
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasZgemm failed: " << cublasGetErrorString(status) << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * k * 8;
 #endif
 }
 
@@ -838,6 +997,39 @@ inline void MatMultiply(
 }
 
 inline void MatMultiply(
+    const QLTEN_ComplexFloat alpha,
+    const QLTEN_ComplexFloat *a,
+    const cublasOperation_t cblas_transpose_a,
+    const QLTEN_ComplexFloat *b,
+    const cublasOperation_t cblas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const size_t ldb,
+    const QLTEN_ComplexFloat beta,
+    QLTEN_ComplexFloat *c) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+
+  auto status = cublasCgemm(
+      handle,
+      cblas_transpose_b, cblas_transpose_a,
+      n, m, k,
+      reinterpret_cast<const cuComplex *>(&alpha),
+      reinterpret_cast<const cuComplex *>(b), ldb,
+      reinterpret_cast<const cuComplex *>(a), lda,
+      reinterpret_cast<const cuComplex *>(&beta),
+      reinterpret_cast<cuComplex *>(c), n
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasCgemm failed!" << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (8 * k + 8);
+#endif
+}
+
+inline void MatMultiply(
     const double alpha,
     const QLTEN_Double *a,
     const cublasOperation_t cblas_transpose_a,
@@ -871,6 +1063,38 @@ inline void MatMultiply(
   }
 #ifdef QLTEN_COUNT_FLOPS
   flop += m * n * (2 * k + 2);
+#endif
+}
+
+inline void MatMultiply(
+    const QLTEN_Complex alpha,
+    const QLTEN_Complex *a,
+    const cublasOperation_t cblas_transpose_a,
+    const QLTEN_Complex *b,
+    const cublasOperation_t cblas_transpose_b,
+    const size_t m,
+    const size_t k,
+    const size_t n,
+    const size_t lda,
+    const size_t ldb,
+    const QLTEN_Complex beta,
+    QLTEN_Complex *c) {
+  cublasHandle_t &handle = CublasHandleManager::GetHandle();
+  auto status = cublasZgemm(
+      handle,
+      cblas_transpose_b, cblas_transpose_a,
+      n, m, k,
+      reinterpret_cast<const cuDoubleComplex *>(&alpha),
+      reinterpret_cast<const cuDoubleComplex *>(b), ldb,
+      reinterpret_cast<const cuDoubleComplex *>(a), lda,
+      reinterpret_cast<const cuDoubleComplex *>(&beta),
+      reinterpret_cast<cuDoubleComplex *>(c), n
+  );
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasZgemm failed!" << std::endl;
+  }
+#ifdef QLTEN_COUNT_FLOPS
+  flop += m * n * (8 * k + 8);
 #endif
 }
 
