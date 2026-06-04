@@ -5,6 +5,7 @@
 #ifndef QLTEN_MPI_TENSOR_MANIPULATION_ALL_H
 #define QLTEN_MPI_TENSOR_MANIPULATION_ALL_H
 
+#include "qlten/mpi_tensor_manipulation/reduction/mpi_reduce_sum.h" // MPI_ReduceSum, MPI_AllreduceSum
 #include "qlten/mpi_tensor_manipulation/ten_decomp/mpi_svd.h" // MPISVDMaster, MPISVDSlave
 
 #endif /* ifndef QLTEN_MPI_TENSOR_MANIPULATION_ALL_H */

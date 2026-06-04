@@ -115,6 +115,26 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
       size_t *,
       const MPI_Comm &);
   using MPISVDSlaveFn = void (*)(const MPI_Comm &);
+  using MPIReduceSumFn = void (*)(
+      const Tensor &,
+      Tensor *,
+      int,
+      const MPI_Comm &);
+  using MPIReduceSumWithModeFn = void (*)(
+      const Tensor &,
+      Tensor *,
+      int,
+      const MPI_Comm &,
+      qlten::MPIReduceSumRootMode);
+  using MPIAllreduceSumFn = void (*)(
+      const Tensor &,
+      Tensor *,
+      const MPI_Comm &);
+  using MPIReduceSumPlan = qlten::MPIReduceSumPlan<qlten::QLTEN_Double, QNT>;
+  using MakeMPIReduceSumPlanFn = MPIReduceSumPlan (*)(
+      const Tensor &,
+      int,
+      const MPI_Comm &);
 
   static_assert(std::is_same<decltype(static_cast<ContractFn>(
                                  &qlten::Contract<qlten::QLTEN_Double, QNT>)),
@@ -164,6 +184,24 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
                                  &qlten::MPISVDSlave<qlten::QLTEN_Double>)),
                              MPISVDSlaveFn>::value,
                 "qlten/qlten.h should expose MPI SVD slave entry point.");
+  static_assert(std::is_same<decltype(static_cast<MPIReduceSumFn>(
+                                 &qlten::MPI_ReduceSum<qlten::QLTEN_Double, QNT>)),
+                             MPIReduceSumFn>::value,
+                "qlten/qlten.h should expose MPI tensor reduce-sum.");
+  static_assert(std::is_same<decltype(static_cast<MPIReduceSumWithModeFn>(
+                                 &qlten::MPI_ReduceSum<qlten::QLTEN_Double, QNT>)),
+                             MPIReduceSumWithModeFn>::value,
+                "qlten/qlten.h should expose MPI tensor reduce-sum root modes.");
+  static_assert(std::is_same<decltype(static_cast<MPIAllreduceSumFn>(
+                                 &qlten::MPI_AllreduceSum<qlten::QLTEN_Double, QNT>)),
+                             MPIAllreduceSumFn>::value,
+                "qlten/qlten.h should expose MPI tensor allreduce-sum.");
+  static_assert(std::is_same<decltype(static_cast<MakeMPIReduceSumPlanFn>(
+                                 &qlten::MakeMPIReduceSumPlan<qlten::QLTEN_Double, QNT>)),
+                             MakeMPIReduceSumPlanFn>::value,
+                "qlten/qlten.h should expose MPI tensor reduce-sum plan creation.");
+  static_assert(std::is_enum<qlten::MPIReduceSumRootMode>::value,
+                "qlten/qlten.h should expose MPI reduce-sum root modes.");
 
   SUCCEED();
 }

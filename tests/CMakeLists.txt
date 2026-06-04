@@ -256,6 +256,11 @@ if (NOT QLTEN_USE_GPU)
             "" "" "" "2"
     )
 
+    add_mpi_unittest(test_ten_mpi_reduce_sum
+            "test_tensor_mpi/test_ten_mpi_reduce_sum.cc"
+            "" "" "" "3"
+    )
+
 
     # Test mpi svd performance
     add_mpi_unittest(test_mpi_svd
