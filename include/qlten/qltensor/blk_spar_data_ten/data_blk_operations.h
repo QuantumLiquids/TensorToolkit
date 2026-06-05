@@ -24,13 +24,53 @@
 #include "qlten/utility/timer.h"
 #include <omp.h>
 
+#include <algorithm>    // max, min, stable_sort
 #include <cstring>      // memcpy
+#include <limits>       // numeric_limits
+#include <vector>       // vector
 #ifdef Release
 #define NDEBUG
 #endif
 #include <cassert>     // assert
 
 namespace qlten {
+namespace detail {
+
+inline long double EstimateDataBlkSVDWork(const size_t rows, const size_t cols) {
+  const auto k = static_cast<long double>(std::min(rows, cols));
+  const auto l = static_cast<long double>(std::max(rows, cols));
+  return k * k * l;
+}
+
+inline int DataBlkSVDMPITag(const size_t idx, const int offset) {
+  assert(idx <= static_cast<size_t>(std::numeric_limits<int>::max() - offset));
+  return static_cast<int>(idx) + offset;
+}
+
+template<typename QNT>
+std::vector<size_t> MakeDataBlkSVDTaskOrder(
+    const IdxDataBlkMatMap<QNT> &idx_data_blk_mat_map
+) {
+  std::vector<size_t> task_order;
+  task_order.reserve(idx_data_blk_mat_map.size());
+  for (const auto &idx_data_blk_mat : idx_data_blk_mat_map) {
+    task_order.push_back(idx_data_blk_mat.first);
+  }
+  std::stable_sort(task_order.begin(), task_order.end(),
+                   [&idx_data_blk_mat_map](const size_t lhs, const size_t rhs) {
+                     const auto &lhs_blk = idx_data_blk_mat_map.at(lhs);
+                     const auto &rhs_blk = idx_data_blk_mat_map.at(rhs);
+                     const auto lhs_work = EstimateDataBlkSVDWork(lhs_blk.rows, lhs_blk.cols);
+                     const auto rhs_work = EstimateDataBlkSVDWork(rhs_blk.rows, rhs_blk.cols);
+                     if (lhs_work == rhs_work) {
+                       return lhs < rhs;
+                     }
+                     return lhs_work > rhs_work;
+                   });
+  return task_order;
+}
+
+}  // namespace detail
 
 /**
 Insert a new data block. User can decide whether allocate the memory.
@@ -721,63 +761,66 @@ BlockSparseDataTensor<ElemT, QNT>::DataBlkDecompSVDMaster(
   int mpi_size;
   MPI_Comm_size(comm, &mpi_size);
   const int worker_num = mpi_size - 1;
+  if (worker_num == 0) {
+    return DataBlkDecompSVD(idx_data_blk_mat_map);
+  }
   /**
    * Send package: (idx, m, n, mat)
    * Recv package: (idx, m, n, u, s, v)
    */
   size_t m, n; //m : rows; n : cols;
-  int idx; // data blk idx
-  for (auto &[idx_next, data_blk_mat_next] : idx_data_blk_mat_map) {
+  size_t idx; // data blk idx
+  const auto task_order = detail::MakeDataBlkSVDTaskOrder(idx_data_blk_mat_map);
+  for (const auto idx_next : task_order) {
+    const auto &data_blk_mat_next = idx_data_blk_mat_map.at(idx_next);
     // Wait for a worker to become available
-    MPI_Status status;
-    HANDLE_MPI_ERROR(::MPI_Recv(&idx, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &status));
-    size_t worker_id = status.MPI_SOURCE;
+    MPI_Status status = hp_numeric::MPI_Recv(idx, MPI_ANY_SOURCE, MPI_ANY_TAG, comm);
+    const int worker_id = status.MPI_SOURCE;
     if (status.MPI_TAG > 0) { //valid results
-      hp_numeric::MPI_Recv(m, worker_id, idx + 14, comm);
-      hp_numeric::MPI_Recv(n, worker_id, idx + 15, comm);
+      hp_numeric::MPI_Recv(m, worker_id, detail::DataBlkSVDMPITag(idx, 14), comm);
+      hp_numeric::MPI_Recv(n, worker_id, detail::DataBlkSVDMPITag(idx, 15), comm);
       const size_t ld = std::min(m, n);
       typename RealTypeTrait<ElemT>::type *s = (typename RealTypeTrait<ElemT>::type *) qlten::QLMalloc(ld * sizeof(typename RealTypeTrait<ElemT>::type));
       ElemT *u = (ElemT *) qlten::QLMalloc((ld * m) * sizeof(ElemT));
       ElemT *vt = (ElemT *) qlten::QLMalloc((ld * n) * sizeof(ElemT));
       const size_t k = m > n ? n : m;
-      hp_numeric::MPI_Recv(u, ld * m, worker_id, idx + 16, comm);
-      hp_numeric::MPI_Recv(s, ld, worker_id, idx + 17, comm);
-      hp_numeric::MPI_Recv(vt, ld * n, worker_id, idx + 18, comm);
+      hp_numeric::MPI_Recv(u, ld * m, worker_id, detail::DataBlkSVDMPITag(idx, 16), comm);
+      hp_numeric::MPI_Recv(s, ld, worker_id, detail::DataBlkSVDMPITag(idx, 17), comm);
+      hp_numeric::MPI_Recv(vt, ld * n, worker_id, detail::DataBlkSVDMPITag(idx, 18), comm);
       idx_svd_res_map[idx] = DataBlkMatSvdRes<ElemT>(m, n, k, u, s, vt);
     }
     // Distribute data to available worker
     ElemT *mat = RawDataGenDenseDataBlkMat_(data_blk_mat_next);
     size_t data_length = data_blk_mat_next.rows * data_blk_mat_next.cols;
-    HANDLE_MPI_ERROR(::MPI_Send(&idx_next, 1, MPI_INT, worker_id, idx_next + 6, comm)); // The tag should be positive
-    hp_numeric::MPI_Send(data_blk_mat_next.rows, worker_id, idx_next + 7, comm);
-    hp_numeric::MPI_Send(data_blk_mat_next.cols, worker_id, idx_next + 8, comm);
-    hp_numeric::MPI_Send(mat, data_length, worker_id, idx_next + 9, comm);
+    hp_numeric::MPI_Send(idx_next, worker_id, detail::DataBlkSVDMPITag(idx_next, 6), comm); // The tag should be positive
+    hp_numeric::MPI_Send(data_blk_mat_next.rows, worker_id, detail::DataBlkSVDMPITag(idx_next, 7), comm);
+    hp_numeric::MPI_Send(data_blk_mat_next.cols, worker_id, detail::DataBlkSVDMPITag(idx_next, 8), comm);
+    hp_numeric::MPI_Send(mat, data_length, worker_id, detail::DataBlkSVDMPITag(idx_next, 9), comm);
     qlten::QLFree(mat);
   }
 
   // Send termination signal to each rank when they submit their last job
   for (int num_terminated = 0; num_terminated < worker_num; num_terminated++) {
     // Wait for a worker to become available
-    MPI_Status status;
-    HANDLE_MPI_ERROR(::MPI_Recv(&idx, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &status));
-    size_t worker_id = status.MPI_SOURCE;
+    MPI_Status status = hp_numeric::MPI_Recv(idx, MPI_ANY_SOURCE, MPI_ANY_TAG, comm);
+    const int worker_id = status.MPI_SOURCE;
     // If a matrix was decomposed
     if (status.MPI_TAG > 0) {
-      hp_numeric::MPI_Recv(m, worker_id, idx + 14, comm);
-      hp_numeric::MPI_Recv(n, worker_id, idx + 15, comm);
+      hp_numeric::MPI_Recv(m, worker_id, detail::DataBlkSVDMPITag(idx, 14), comm);
+      hp_numeric::MPI_Recv(n, worker_id, detail::DataBlkSVDMPITag(idx, 15), comm);
       const size_t ld = std::min(m, n);
       typename RealTypeTrait<ElemT>::type *s = (typename RealTypeTrait<ElemT>::type *) qlten::QLMalloc(ld * sizeof(typename RealTypeTrait<ElemT>::type));
       ElemT *u = (ElemT *) qlten::QLMalloc((ld * m) * sizeof(ElemT));
       ElemT *vt = (ElemT *) qlten::QLMalloc((ld * n) * sizeof(ElemT));
       const size_t k = m > n ? n : m;
-      hp_numeric::MPI_Recv(u, ld * m, worker_id, idx + 16, comm);
-      hp_numeric::MPI_Recv(s, ld, worker_id, idx + 17, comm);
-      hp_numeric::MPI_Recv(vt, ld * n, worker_id, idx + 18, comm);
+      hp_numeric::MPI_Recv(u, ld * m, worker_id, detail::DataBlkSVDMPITag(idx, 16), comm);
+      hp_numeric::MPI_Recv(s, ld, worker_id, detail::DataBlkSVDMPITag(idx, 17), comm);
+      hp_numeric::MPI_Recv(vt, ld * n, worker_id, detail::DataBlkSVDMPITag(idx, 18), comm);
       idx_svd_res_map[idx] = DataBlkMatSvdRes<ElemT>(m, n, k, u, s, vt);
     }
 
     // Send termination signal (tag = 0); workers receive the variable as idx
-    HANDLE_MPI_ERROR(::MPI_Send(&num_terminated, 1, MPI_INT, worker_id, 0, comm));
+    hp_numeric::MPI_Send(static_cast<size_t>(num_terminated), worker_id, 0, comm);
   }
   ::MPI_Barrier(comm);
 #ifdef QLTEN_MPI_TIMING_MODE
@@ -849,7 +892,7 @@ void DataBlkDecompSVDSlave(const MPI_Comm &comm) {
    * Recv package: (idx, m, n, mat)
    * Send package: (idx, m, n, u, s, v)
    */
-  MPI_Send(&idx, 1, MPI_INT, hp_numeric::kMPIMasterRank, 0, comm); // The signal I'm available
+  hp_numeric::MPI_Send(idx, hp_numeric::kMPIMasterRank, 0, comm); // The signal I'm available
 
 #ifdef QLTEN_MPI_TIMING_MODE
   Timer slave_total_work_timer("worker " + std::to_string(consumer_rank) + " total work");
@@ -860,18 +903,18 @@ void DataBlkDecompSVDSlave(const MPI_Comm &comm) {
   do {
     // Wait for a job
     MPI_Status status;
-    MPI_Recv(&idx, 1, MPI_INT, hp_numeric::kMPIMasterRank, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+    status = hp_numeric::MPI_Recv(idx, hp_numeric::kMPIMasterRank, MPI_ANY_TAG, comm);
     if (status.MPI_TAG == 0) {
       terminated = true;
     } else {
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Restart();
 #endif
-      hp_numeric::MPI_Recv(m, hp_numeric::kMPIMasterRank, idx + 7, comm);
-      hp_numeric::MPI_Recv(n, hp_numeric::kMPIMasterRank, idx + 8, comm);
+      hp_numeric::MPI_Recv(m, hp_numeric::kMPIMasterRank, detail::DataBlkSVDMPITag(idx, 7), comm);
+      hp_numeric::MPI_Recv(n, hp_numeric::kMPIMasterRank, detail::DataBlkSVDMPITag(idx, 8), comm);
       size_t data_size = m * n;
       ElemT *mat = (ElemT *) qlten::QLMalloc(data_size * sizeof(ElemT));
-      hp_numeric::MPI_Recv(mat, data_size, hp_numeric::kMPIMasterRank, idx + 9, comm);
+      hp_numeric::MPI_Recv(mat, data_size, hp_numeric::kMPIMasterRank, detail::DataBlkSVDMPITag(idx, 9), comm);
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Suspend();
 #endif
@@ -885,12 +928,12 @@ void DataBlkDecompSVDSlave(const MPI_Comm &comm) {
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Restart();
 #endif
-      MPI_Send(&idx, 1, MPI_INT, hp_numeric::kMPIMasterRank, idx + 13, comm); // The tag should be positive
-      hp_numeric::MPI_Send(m, hp_numeric::kMPIMasterRank, idx + 14, comm);
-      hp_numeric::MPI_Send(n, hp_numeric::kMPIMasterRank, idx + 15, comm);
-      hp_numeric::MPI_Send(u, ld * m, hp_numeric::kMPIMasterRank, idx + 16, comm);
-      hp_numeric::MPI_Send(s, ld, hp_numeric::kMPIMasterRank, idx + 17, comm);
-      hp_numeric::MPI_Send(vt, ld * n, hp_numeric::kMPIMasterRank, idx + 18, comm);
+      hp_numeric::MPI_Send(idx, hp_numeric::kMPIMasterRank, detail::DataBlkSVDMPITag(idx, 13), comm); // The tag should be positive
+      hp_numeric::MPI_Send(m, hp_numeric::kMPIMasterRank, detail::DataBlkSVDMPITag(idx, 14), comm);
+      hp_numeric::MPI_Send(n, hp_numeric::kMPIMasterRank, detail::DataBlkSVDMPITag(idx, 15), comm);
+      hp_numeric::MPI_Send(u, ld * m, hp_numeric::kMPIMasterRank, detail::DataBlkSVDMPITag(idx, 16), comm);
+      hp_numeric::MPI_Send(s, ld, hp_numeric::kMPIMasterRank, detail::DataBlkSVDMPITag(idx, 17), comm);
+      hp_numeric::MPI_Send(vt, ld * n, hp_numeric::kMPIMasterRank, detail::DataBlkSVDMPITag(idx, 18), comm);
 #ifdef QLTEN_MPI_TIMING_MODE
       slave_commu_timer.Suspend();
 #endif

@@ -156,6 +156,27 @@ TEST_F(TestMPISvd, SVD_RandState) {
 
 }
 
+TEST_F(TestMPISvd, TaskOrderPrefersLargestEstimatedSvdWork) {
+  if (rank != hp_numeric::kMPIMasterRank) {
+    return;
+  }
+
+  IdxDataBlkMatMap<U1QN> tasks;
+  tasks[0].rows = 2;
+  tasks[0].cols = 20;   // work ~= 80
+  tasks[1].rows = 8;
+  tasks[1].cols = 8;    // work ~= 512
+  tasks[2].rows = 4;
+  tasks[2].cols = 12;   // work ~= 192
+
+  const auto task_order = detail::MakeDataBlkSVDTaskOrder(tasks);
+
+  ASSERT_EQ(task_order.size(), 3);
+  EXPECT_EQ(task_order[0], 1);
+  EXPECT_EQ(task_order[1], 2);
+  EXPECT_EQ(task_order[2], 0);
+}
+
 int main(int argc, char *argv[]) {
   MPI_Init(NULL, NULL);
   int result = 0;

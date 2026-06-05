@@ -271,4 +271,12 @@ if (NOT QLTEN_USE_GPU)
             "test_tensor_mpi/test_mpi_svd.cc"
             "" "" "" "3"
     )
+    add_test(
+            NAME test_mpi_svd_single_rank
+            COMMAND ${MPIEXEC_EXECUTABLE}
+            ${MPIEXEC_NUMPROC_FLAG} 1
+            $<TARGET_FILE:test_mpi_svd>)
+    set_tests_properties(test_mpi_svd_single_rank
+            PROPERTIES
+            ENVIRONMENT "OMPI_MCA_rmaps_base_oversubscribe=1")
 endif ()
