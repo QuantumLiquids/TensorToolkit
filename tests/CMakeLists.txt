@@ -183,6 +183,10 @@ add_unittest(test_ten_linear_combine
         "test_tensor_manipulation/test_ten_linear_combine.cc"
         "" "" ""
 )
+add_unittest(test_tensor_op_cost
+        "test_tensor_manipulation/test_tensor_op_cost.cc"
+        "" "" ""
+)
 # Test tensor contraction.
 add_unittest(test_ten_ctrct
         "test_tensor_manipulation/test_ten_ctrct.cc"

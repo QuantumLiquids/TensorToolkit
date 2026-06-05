@@ -26,6 +26,8 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
 
   using TensorContractionExecutor =
       qlten::TensorContractionExecutor<qlten::QLTEN_Double, QNT>;
+  using TensorCost = qlten::TensorOpCost<QNT>;
+  using TensorLayout = qlten::BlockSparseTensorLayout<QNT>;
   using TensorSVDExecutor = qlten::TensorSVDExecutor<qlten::QLTEN_Double, QNT>;
   using TensorQRExecutor = qlten::TensorQRExecutor<qlten::QLTEN_Double, QNT>;
   using TensorLQExecutor = qlten::TensorLQExecutor<qlten::QLTEN_Double, QNT>;
@@ -53,6 +55,19 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
       const Tensor *,
       const std::vector<std::vector<size_t>> &,
       Tensor *);
+  using EstimateContractCostFn = TensorCost (*)(
+      const Tensor &,
+      const Tensor &,
+      const std::vector<std::vector<size_t>> &);
+  using EstimateRank2AxisApplyCostFn = TensorCost (*)(
+      const Tensor &,
+      const Tensor &,
+      size_t,
+      qlten::dmrg::Rank2AxisApplyGemmMode);
+  using EstimateTensorLinearCombineCostFn = TensorCost (*)(
+      const std::vector<const Tensor *> &);
+  using MakeTensorShellFromLayoutFn = Tensor (*)(
+      const TensorLayout &);
   using SVDFn = void (*)(
       const Tensor *,
       size_t,
@@ -140,6 +155,25 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
                                  &qlten::Contract<qlten::QLTEN_Double, QNT>)),
                              ContractFn>::value,
                 "qlten/qlten.h should expose Contract.");
+  static_assert(std::is_same<decltype(std::declval<TensorCost>().output_layout),
+                             TensorLayout>::value,
+                "qlten/qlten.h should expose tensor cost layout metadata.");
+  static_assert(std::is_same<decltype(static_cast<EstimateContractCostFn>(
+                                 &qlten::EstimateContractCost<qlten::QLTEN_Double, QNT>)),
+                             EstimateContractCostFn>::value,
+                "qlten/qlten.h should expose EstimateContractCost.");
+  static_assert(std::is_same<decltype(static_cast<EstimateRank2AxisApplyCostFn>(
+                                 &qlten::EstimateRank2AxisApplyCost<qlten::QLTEN_Double, QNT>)),
+                             EstimateRank2AxisApplyCostFn>::value,
+                "qlten/qlten.h should expose EstimateRank2AxisApplyCost.");
+  static_assert(std::is_same<decltype(static_cast<EstimateTensorLinearCombineCostFn>(
+                                 &qlten::EstimateTensorLinearCombineCost<qlten::QLTEN_Double, QNT>)),
+                             EstimateTensorLinearCombineCostFn>::value,
+                "qlten/qlten.h should expose EstimateTensorLinearCombineCost.");
+  static_assert(std::is_same<decltype(static_cast<MakeTensorShellFromLayoutFn>(
+                                 &qlten::MakeTensorShellFromLayout<qlten::QLTEN_Double, QNT>)),
+                             MakeTensorShellFromLayoutFn>::value,
+                "qlten/qlten.h should expose MakeTensorShellFromLayout.");
   static_assert(std::is_same<decltype(static_cast<SVDFn>(
                                  &qlten::SVD<qlten::QLTEN_Double, QNT>)),
                              SVDFn>::value,

@@ -19,6 +19,7 @@
 #include "qlten/tensor_manipulation/ten_linear_combine.h"     // LinearCombine
 #include "qlten/tensor_manipulation/ten_ctrct.h"              // Contract, TensorContractionExecutor
 #include "qlten/tensor_manipulation/contract_contiguous_axes.h"        // ContractContiguousAxes (+ legacy Contract wrapper)
+#include "qlten/tensor_manipulation/tensor_op_cost.h"        // Tensor primitive cost estimators
 #include "qlten/tensor_manipulation/ten_decomp/ten_svd.h"     // SVD, TensorSVDExecutor
 #include "qlten/tensor_manipulation/ten_decomp/ten_qr.h"      // QR, TensorQRExecutor
 #include "qlten/tensor_manipulation/ten_decomp/ten_lq.h"      // LQ
