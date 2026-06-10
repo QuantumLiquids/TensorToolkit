@@ -68,6 +68,8 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
       const std::vector<const Tensor *> &);
   using MakeTensorShellFromLayoutFn = Tensor (*)(
       const TensorLayout &);
+  using ZerosLikeWithSameBlocksFn = Tensor (*)(
+      const Tensor &);
   using SVDFn = void (*)(
       const Tensor *,
       size_t,
@@ -87,6 +89,21 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
       const Tensor *,
       const std::vector<size_t> &,
       Tensor *);
+  using ExtractDiagonalFn = Tensor (*)(
+      const Tensor &,
+      const std::vector<std::pair<size_t, size_t>> &);
+  using DiagonalOuterProductAccumulateFn = void (*)(
+      const Tensor &,
+      const Tensor &,
+      Tensor &,
+      qlten::QLTEN_Double,
+      qlten::QLTEN_Double);
+  using DiagonalTensorProductAccumulateFn = void (*)(
+      const Tensor &,
+      const Tensor &,
+      Tensor &,
+      qlten::QLTEN_Double,
+      qlten::QLTEN_Double);
   using AxisDiagonalFn = void (*)(
       const Tensor &,
       size_t,
@@ -174,6 +191,10 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
                                  &qlten::MakeTensorShellFromLayout<qlten::QLTEN_Double, QNT>)),
                              MakeTensorShellFromLayoutFn>::value,
                 "qlten/qlten.h should expose MakeTensorShellFromLayout.");
+  static_assert(std::is_same<decltype(static_cast<ZerosLikeWithSameBlocksFn>(
+                                 &qlten::ZerosLikeWithSameBlocks<qlten::QLTEN_Double, QNT>)),
+                             ZerosLikeWithSameBlocksFn>::value,
+                "qlten/qlten.h should expose zero tensor creation with cloned block pattern.");
   static_assert(std::is_same<decltype(static_cast<SVDFn>(
                                  &qlten::SVD<qlten::QLTEN_Double, QNT>)),
                              SVDFn>::value,
@@ -190,6 +211,18 @@ TEST(TestHeaderAggregation, QltenUmbrellaExportsDmrgAndMpiEntryPoints) {
                                  &qlten::dmrg::ExpandQNBlocks<qlten::QLTEN_Double, QNT>)),
                              ExpandFn>::value,
                 "qlten/qlten.h should expose DMRG block expansion.");
+  static_assert(std::is_same<decltype(static_cast<ExtractDiagonalFn>(
+                                 &qlten::ExtractDiagonal<qlten::QLTEN_Double, QNT>)),
+                             ExtractDiagonalFn>::value,
+                "qlten/qlten.h should expose tensor diagonal extraction.");
+  static_assert(std::is_same<decltype(static_cast<DiagonalOuterProductAccumulateFn>(
+                                 &qlten::DiagonalOuterProductAccumulate<qlten::QLTEN_Double, QNT>)),
+                             DiagonalOuterProductAccumulateFn>::value,
+                "qlten/qlten.h should expose diagonal outer-product accumulation.");
+  static_assert(std::is_same<decltype(static_cast<DiagonalTensorProductAccumulateFn>(
+                                 &qlten::DiagonalTensorProductAccumulate<qlten::QLTEN_Double, QNT>)),
+                             DiagonalTensorProductAccumulateFn>::value,
+                "qlten/qlten.h should expose diagonal tensor-product accumulation.");
   static_assert(std::is_same<decltype(static_cast<AxisDiagonalFn>(
                                  &qlten::dmrg::ApplyAxisDiagonal<qlten::QLTEN_Double, QNT>)),
                              AxisDiagonalFn>::value,

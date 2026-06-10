@@ -199,6 +199,149 @@ void LinearCombine(
   ten_lin_cmb_exector.Execute();
 }
 
+/**
+In-place scaled tensor addition. \f$Y \leftarrow Y + \alpha X\f$.
+
+This is the tensor-level AXPY primitive. It updates existing destination blocks
+with backend BLAS/cuBLAS AXPY and only rebuilds storage when X contains blocks
+that are absent from Y.
+
+@param y Destination tensor. Indices must match X.
+@param alpha Scaling factor for X.
+@param x Source tensor.
+@return Reference to y.
+*/
+template<typename TenElemT, typename QNT>
+QLTensor<TenElemT, QNT> &AddScaledAssign(
+    QLTensor<TenElemT, QNT> &y,
+    const TenElemT alpha,
+    const QLTensor<TenElemT, QNT> &x
+) {
+  assert(!(y.IsDefault() || x.IsDefault()));
+  assert(y.GetIndexes() == x.GetIndexes());
+  y.GetBlkSparDataTen().AddScaledAssignIn(x.GetBlkSparDataTen(), alpha);
+  return y;
+}
+
+template<typename TenElemT, typename QNT>
+QLTensor<TenElemT, QNT> &AddScaledAssign(
+    QLTensor<TenElemT, QNT> *py,
+    const TenElemT alpha,
+    const QLTensor<TenElemT, QNT> *px
+) {
+  assert(py != nullptr);
+  assert(px != nullptr);
+  return AddScaledAssign(*py, alpha, *px);
+}
+
+template<typename QNT>
+QLTensor<QLTEN_Complex, QNT> &AddScaledAssign(
+    QLTensor<QLTEN_Complex, QNT> &y,
+    const QLTEN_Double alpha,
+    const QLTensor<QLTEN_Complex, QNT> &x
+) {
+  return AddScaledAssign(y, QLTEN_Complex(alpha), x);
+}
+
+template<typename QNT>
+QLTensor<QLTEN_Complex, QNT> &AddScaledAssign(
+    QLTensor<QLTEN_Complex, QNT> *py,
+    const QLTEN_Double alpha,
+    const QLTensor<QLTEN_Complex, QNT> *px
+) {
+  assert(py != nullptr);
+  assert(px != nullptr);
+  return AddScaledAssign(*py, alpha, *px);
+}
+
+template<typename QNT>
+QLTensor<QLTEN_ComplexFloat, QNT> &AddScaledAssign(
+    QLTensor<QLTEN_ComplexFloat, QNT> &y,
+    const QLTEN_Float alpha,
+    const QLTensor<QLTEN_ComplexFloat, QNT> &x
+) {
+  return AddScaledAssign(y, QLTEN_ComplexFloat(alpha), x);
+}
+
+template<typename QNT>
+QLTensor<QLTEN_ComplexFloat, QNT> &AddScaledAssign(
+    QLTensor<QLTEN_ComplexFloat, QNT> *py,
+    const QLTEN_Float alpha,
+    const QLTensor<QLTEN_ComplexFloat, QNT> *px
+) {
+  assert(py != nullptr);
+  assert(px != nullptr);
+  return AddScaledAssign(*py, alpha, *px);
+}
+
+/**
+BLAS-style alias for \f$Y \leftarrow \alpha X + Y\f$.
+
+@param alpha Scaling factor for X.
+@param x Source tensor.
+@param y Destination tensor.
+@return Reference to y.
+*/
+template<typename TenElemT, typename QNT>
+QLTensor<TenElemT, QNT> &Axpy(
+    const TenElemT alpha,
+    const QLTensor<TenElemT, QNT> &x,
+    QLTensor<TenElemT, QNT> &y
+) {
+  return AddScaledAssign(y, alpha, x);
+}
+
+template<typename TenElemT, typename QNT>
+QLTensor<TenElemT, QNT> &Axpy(
+    const TenElemT alpha,
+    const QLTensor<TenElemT, QNT> *px,
+    QLTensor<TenElemT, QNT> *py
+) {
+  assert(px != nullptr);
+  assert(py != nullptr);
+  return AddScaledAssign(*py, alpha, *px);
+}
+
+template<typename QNT>
+QLTensor<QLTEN_Complex, QNT> &Axpy(
+    const QLTEN_Double alpha,
+    const QLTensor<QLTEN_Complex, QNT> &x,
+    QLTensor<QLTEN_Complex, QNT> &y
+) {
+  return AddScaledAssign(y, alpha, x);
+}
+
+template<typename QNT>
+QLTensor<QLTEN_Complex, QNT> &Axpy(
+    const QLTEN_Double alpha,
+    const QLTensor<QLTEN_Complex, QNT> *px,
+    QLTensor<QLTEN_Complex, QNT> *py
+) {
+  assert(px != nullptr);
+  assert(py != nullptr);
+  return AddScaledAssign(*py, alpha, *px);
+}
+
+template<typename QNT>
+QLTensor<QLTEN_ComplexFloat, QNT> &Axpy(
+    const QLTEN_Float alpha,
+    const QLTensor<QLTEN_ComplexFloat, QNT> &x,
+    QLTensor<QLTEN_ComplexFloat, QNT> &y
+) {
+  return AddScaledAssign(y, alpha, x);
+}
+
+template<typename QNT>
+QLTensor<QLTEN_ComplexFloat, QNT> &Axpy(
+    const QLTEN_Float alpha,
+    const QLTensor<QLTEN_ComplexFloat, QNT> *px,
+    QLTensor<QLTEN_ComplexFloat, QNT> *py
+) {
+  assert(px != nullptr);
+  assert(py != nullptr);
+  return AddScaledAssign(*py, alpha, *px);
+}
+
 // Other function versions
 inline std::vector<QLTEN_Complex> ToCplxVec(
     const std::vector<QLTEN_Double> &real_v

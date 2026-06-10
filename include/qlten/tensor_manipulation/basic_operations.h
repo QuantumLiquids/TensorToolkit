@@ -16,6 +16,7 @@
 #include <iostream>     // cout, endl
 #include <iterator>     // next
 #include <cassert>     // assert
+#include <vector>      // vector
 
 #include "qlten/qltensor/qltensor.h"    // QLTensor
 #include "qlten/framework/hp_numeric/blas_level1.h"   // VectorConjDot
@@ -49,6 +50,49 @@ Calculate the quantum number divergence of a QLTensor by call QLTensor::Div().
 */
 template<typename ElemT, typename QNT>
 inline QNT Div(const QLTensor<ElemT, QNT> &t) { return t.Div(); }
+
+/**
+Create a zero tensor with the same indexes and stored block pattern as `t`.
+
+This copies only the block-sparse topology from `t`, allocates numeric storage
+for the copied blocks, and initializes every stored element to zero. It is
+intended for callers that need a writable result tensor with the same sparsity
+pattern without manually traversing block metadata.
+
+@param t Source tensor whose indexes and block pattern are cloned.
+@return A zero tensor with the same stored blocks as `t`.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> ZerosLikeWithSameBlocks(
+    const QLTensor<ElemT, QNT> &t
+) {
+  if (t.IsDefault()) {
+    return QLTensor<ElemT, QNT>();
+  }
+
+  QLTensor<ElemT, QNT> zeros(t.GetIndexes());
+  if (t.IsScalar()) {
+    zeros.SetElem({}, ElemT(0));
+    return zeros;
+  }
+
+  const auto &src_blocks = t.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  if (src_blocks.empty()) {
+    return zeros;
+  }
+
+  std::vector<size_t> block_indices;
+  std::vector<CoorsT> block_coords;
+  block_indices.reserve(src_blocks.size());
+  block_coords.reserve(src_blocks.size());
+  for (const auto &entry : src_blocks) {
+    block_indices.push_back(entry.first);
+    block_coords.push_back(entry.second.blk_coors);
+  }
+  zeros.GetBlkSparDataTen().DataBlksInsert(
+      block_indices, block_coords, true, true);
+  return zeros;
+}
 
 /**
 Convert a real QLTensor to a complex QLTensor.

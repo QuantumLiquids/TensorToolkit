@@ -9,6 +9,9 @@
 #include "gtest/gtest.h"
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_linear_combine.h"
+#include "qlten/utility/utils_inl.h"
+
+#include "../testing_utility.h"
 
 using namespace qlten;
 
@@ -70,6 +73,17 @@ void RunTestLinearCombinationCase(
   LinearCombine(coefs, pts, beta, res);
 
   EXPECT_EQ(*res, bnchmrk);
+}
+
+template<typename ElemT, typename QNT>
+void ExpectTensorNear(
+    const QLTensor<ElemT, QNT> &actual,
+    const QLTensor<ElemT, QNT> &expected
+) {
+  ASSERT_EQ(actual.GetIndexes(), expected.GetIndexes());
+  for (auto &coors : GenAllCoors(actual.GetShape())) {
+    GtestExpectNear(actual.GetElem(coors), expected.GetElem(coors), kEpsilon);
+  }
 }
 
 TEST_F(TestLinearCombination, 1TenCases) {
@@ -369,4 +383,48 @@ TEST_F(TestLinearCombination, 2TenCases) {
       &zten_res,
       zrand()
   );
+}
+
+TEST_F(TestLinearCombination, AddScaledAssignScalars) {
+  DQLTensor dy(IndexVec<U1QN>{});
+  DQLTensor dx(IndexVec<U1QN>{});
+  dy() = 2.0;
+  dx() = 3.0;
+  AddScaledAssign(dy, 4.0, dx);
+  EXPECT_DOUBLE_EQ(dy(), 14.0);
+
+  ZQLTensor zy(IndexVec<U1QN>{});
+  ZQLTensor zx(IndexVec<U1QN>{});
+  zy() = QLTEN_Complex(2.0, -1.0);
+  zx() = QLTEN_Complex(3.0, 2.0);
+  Axpy(QLTEN_Complex(0.5, -1.0), zx, zy);
+  EXPECT_COMPLEX_EQ(zy(), QLTEN_Complex(5.5, -3.0));
+}
+
+TEST_F(TestLinearCombination, AddScaledAssignUsesExistingLayoutInPlace) {
+  dten_2d_s.Random(qn0);
+  auto y = dten_2d_s;
+  auto x = dten_2d_s;
+  x.Random(qn0);
+  const QLTEN_Double alpha = -1.25;
+  auto expected = y + alpha * x;
+
+  const auto *raw_data_before = y.GetBlkSparDataTen().GetActualRawDataPtr();
+  AddScaledAssign(y, alpha, x);
+
+  ExpectTensorNear(y, expected);
+  EXPECT_EQ(y.GetBlkSparDataTen().GetActualRawDataPtr(), raw_data_before);
+}
+
+TEST_F(TestLinearCombination, AddScaledAssignInsertsMissingBlocks) {
+  dten_2d_s.Random(qn0);
+  auto y = dten_2d_s;
+  auto x = dten_2d_s;
+  x.Random(qnp1);
+  const QLTEN_Double alpha = 0.75;
+  auto expected = y + alpha * x;
+
+  AddScaledAssign(y, alpha, x);
+
+  ExpectTensorNear(y, expected);
 }

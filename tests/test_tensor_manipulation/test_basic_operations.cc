@@ -159,6 +159,41 @@ TEST_F(TestBasicTensorOperations, TestToComplex) {
   RunTestRealTensorToComplexCase(dten_3d_s, qnp1, 1);
 }
 
+TEST_F(TestBasicTensorOperations, ZerosLikeWithSameBlocksHandlesDefaultAndScalar) {
+  const auto default_zeros = ZerosLikeWithSameBlocks(dten_default);
+  EXPECT_TRUE(default_zeros.IsDefault());
+
+  dten_scalar() = 5.0;
+  const auto scalar_zeros = ZerosLikeWithSameBlocks(dten_scalar);
+  EXPECT_TRUE(scalar_zeros.IsScalar());
+  EXPECT_TRUE(scalar_zeros.HasActualData());
+  EXPECT_EQ(scalar_zeros.GetActualDataSize(), 1U);
+  EXPECT_DOUBLE_EQ(scalar_zeros(), 0.0);
+}
+
+TEST_F(TestBasicTensorOperations, ZerosLikeWithSameBlocksCopiesTopologyAndZerosData) {
+  dten_2d_s.Fill(qn0, 7.0);
+  const auto zeros = ZerosLikeWithSameBlocks(dten_2d_s);
+
+  EXPECT_EQ(zeros.GetIndexes(), dten_2d_s.GetIndexes());
+  EXPECT_TRUE(zeros.HasActualData());
+  EXPECT_EQ(zeros.GetActualDataSize(), dten_2d_s.GetActualDataSize());
+  const auto &zeros_blocks = zeros.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &src_blocks = dten_2d_s.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  ASSERT_EQ(zeros_blocks.size(), src_blocks.size());
+  for (const auto &entry : src_blocks) {
+    const auto zeros_it = zeros_blocks.find(entry.first);
+    ASSERT_NE(zeros_it, zeros_blocks.end());
+    EXPECT_EQ(zeros_it->second.blk_coors, entry.second.blk_coors);
+    EXPECT_EQ(zeros_it->second.shape, entry.second.shape);
+    EXPECT_EQ(zeros_it->second.data_offset, entry.second.data_offset);
+    EXPECT_EQ(zeros_it->second.size, entry.second.size);
+  }
+  for (const auto &coors : GenAllCoors(zeros.GetShape())) {
+    EXPECT_DOUBLE_EQ(zeros.GetElem(coors), 0.0);
+  }
+}
+
 template<typename QLTensorT>
 typename QLTensorT::value_type ContractInnerProductReference(
     const QLTensorT &bra,

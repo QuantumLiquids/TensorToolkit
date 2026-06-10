@@ -19,6 +19,7 @@
 #include "qlten/qltensor/blk_spar_data_ten/raw_data_operations.h"
 #include "qlten/framework/value_t.h"                                      // QLTEN_Double, QLTEN_Complex
 #include "qlten/framework/hp_numeric/ten_trans.h"                         // TensorTranspose
+#include "qlten/framework/hp_numeric/blas_level1.h"                       // VectorAddTo
 #include "qlten/framework/hp_numeric/blas_extensions.h"
 #include "qlten/framework/hp_numeric/lapack.h"
 #include "qlten/utility/utils_inl.h"                                      // CalcMultiDimDataOffsets, Reorder
@@ -668,6 +669,112 @@ void BlockSparseDataTensor<ElemT, QNT>::AddAndAssignIn(
   RawDataCopy_(raw_data_copy_tasks_this, this_pactual_raw_data_);
   qlten::QLFree(this_pactual_raw_data_);
   RawDataCopy_(raw_data_copy_tasks_rhs, rhs.pactual_raw_data_);
+}
+
+/**
+Add a scaled block sparse data tensor into this tensor.
+\f$this \leftarrow this + \alpha \cdot rhs\f$.
+
+@param rhs Block sparse data tensor on the right hand side.
+@param alpha Scaling factor for rhs.
+*/
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::AddScaledAssignIn(
+    const BlockSparseDataTensor &rhs,
+    const ElemT alpha
+) {
+  assert(ten_rank == rhs.ten_rank);
+  assert(blk_shape == rhs.blk_shape);
+  if (alpha == ElemT(0)) { return; }
+
+  if (IsScalar() && rhs.IsScalar()) {
+    ElemSet({}, ElemGet({}) + alpha * rhs.ElemGet({}));
+    return;
+  }
+
+  if (rhs.blk_idx_data_blk_map_.empty()) { return; }
+  assert(rhs.pactual_raw_data_ != nullptr);
+
+#ifndef NDEBUG
+  for (const auto &[blk_idx, rhs_data_blk] : rhs.blk_idx_data_blk_map_) {
+    const auto iter = blk_idx_data_blk_map_.find(blk_idx);
+    if (iter != blk_idx_data_blk_map_.end()) {
+      assert(iter->second.shape == rhs_data_blk.shape);
+      assert(iter->second.size == rhs_data_blk.size);
+    }
+  }
+#endif
+
+  bool rhs_has_missing_blocks = false;
+  for (const auto &[blk_idx, rhs_data_blk] : rhs.blk_idx_data_blk_map_) {
+    (void) rhs_data_blk;
+    if (blk_idx_data_blk_map_.find(blk_idx) == blk_idx_data_blk_map_.end()) {
+      rhs_has_missing_blocks = true;
+      break;
+    }
+  }
+
+  if (!rhs_has_missing_blocks) {
+    assert(pactual_raw_data_ != nullptr);
+    for (const auto &[blk_idx, rhs_data_blk] : rhs.blk_idx_data_blk_map_) {
+      const auto &data_blk = blk_idx_data_blk_map_.at(blk_idx);
+      hp_numeric::VectorAddTo(
+          rhs.pactual_raw_data_ + rhs_data_blk.data_offset,
+          rhs_data_blk.size,
+          pactual_raw_data_ + data_blk.data_offset,
+          alpha
+      );
+    }
+    return;
+  }
+
+  BlkIdxDataBlkMap this_blk_idx_data_blk_map(blk_idx_data_blk_map_);
+  ElemT *this_pactual_raw_data = pactual_raw_data_;
+  RawDataDiscard_();
+
+  std::vector<RawDataCopyTask> raw_data_copy_tasks_this;
+  raw_data_copy_tasks_this.reserve(this_blk_idx_data_blk_map.size());
+  for (auto &blk_idx_data_blk : this_blk_idx_data_blk_map) {
+    auto data_blk = blk_idx_data_blk.second;
+    raw_data_copy_tasks_this.push_back(
+        RawDataCopyTask(data_blk.blk_coors, data_blk.data_offset, data_blk.size)
+    );
+  }
+
+  std::vector<RawDataCopyAndScaleTask<ElemT>> raw_data_copy_tasks_rhs;
+  raw_data_copy_tasks_rhs.reserve(rhs.blk_idx_data_blk_map_.size());
+  for (const auto &[blk_idx, rhs_data_blk] : rhs.blk_idx_data_blk_map_) {
+    const bool copy_and_add =
+        blk_idx_data_blk_map_.find(blk_idx) != blk_idx_data_blk_map_.end();
+    if (!copy_and_add) {
+      DataBlkInsert(rhs_data_blk.blk_coors, false);
+    }
+    raw_data_copy_tasks_rhs.push_back(
+        RawDataCopyAndScaleTask<ElemT>(
+            rhs_data_blk.data_offset,
+            rhs_data_blk.size,
+            rhs_data_blk.blk_coors,
+            alpha,
+            copy_and_add
+        )
+    );
+  }
+
+  for (auto &task : raw_data_copy_tasks_this) {
+    task.dest_data_offset = blk_idx_data_blk_map_[
+        BlkCoorsToBlkIdx(task.src_blk_coors)
+    ].data_offset;
+  }
+
+  Allocate();
+  if (!raw_data_copy_tasks_this.empty()) {
+    assert(this_pactual_raw_data != nullptr);
+    RawDataCopy_(raw_data_copy_tasks_this, this_pactual_raw_data);
+  }
+  qlten::QLFree(this_pactual_raw_data);
+  for (auto &task : raw_data_copy_tasks_rhs) {
+    DataBlkCopyAndScale(task, rhs.pactual_raw_data_);
+  }
 }
 
 /**

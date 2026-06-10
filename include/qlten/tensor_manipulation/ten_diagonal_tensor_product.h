@@ -13,10 +13,12 @@
 #ifndef QLTEN_TENSOR_MANIPULATION_TEN_DIAGONAL_TENSOR_PRODUCT_H
 #define QLTEN_TENSOR_MANIPULATION_TEN_DIAGONAL_TENSOR_PRODUCT_H
 
+#include <cassert>      // assert
 #include <cstddef>      // size_t
 #include <sstream>      // ostringstream
 #include <stdexcept>    // invalid_argument, runtime_error
 #include <string>       // string
+#include <utility>      // pair
 #include <vector>       // vector
 
 #include "qlten/framework/value_t.h"      // QLTEN_Double, QLTEN_Complex
@@ -24,6 +26,7 @@
 #include "qlten/framework/hp_numeric/backend_selector.h"    // cblas_*gemm
 #endif
 #include "qlten/qltensor/qltensor.h"      // QLTensor
+#include "qlten/utility/utils_inl.h"      // CalcEffOneDimArrayOffset, CalcMultiDimDataOffsets
 
 #ifdef Release
 #define NDEBUG
@@ -74,6 +77,18 @@ void RequireSameIndexSpace(
     throw std::invalid_argument(
         std::string("DiagonalTensorProductAccumulate: ") + message
     );
+  }
+}
+
+template<typename QNT>
+void RequireSameIndexSpaceFor(
+    const Index<QNT> &lhs,
+    const Index<QNT> &rhs,
+    const char *context,
+    const std::string &message
+) {
+  if (!IndexSpaceEqualIgnoreDirection(lhs, rhs)) {
+    throw std::invalid_argument(std::string(context) + ": " + message);
   }
 }
 
@@ -234,6 +249,173 @@ ElemT DiagonalElementFromRank4Block(
               shape[3] + coor1];
 }
 
+inline std::string AxisPairToString(
+    const std::pair<size_t, size_t> &axis_pair
+) {
+  std::ostringstream oss;
+  oss << "(" << axis_pair.first << ", " << axis_pair.second << ")";
+  return oss.str();
+}
+
+template<typename ElemT, typename QNT>
+void ValidateDiagonalAxisPairs(
+    const QLTensor<ElemT, QNT> &tensor,
+    const std::vector<std::pair<size_t, size_t>> &axis_pairs,
+    const char *context
+) {
+  if (tensor.IsDefault()) {
+    throw std::invalid_argument(
+        std::string(context) + " requires a non-default tensor."
+    );
+  }
+  if (axis_pairs.empty() || tensor.Rank() != 2 * axis_pairs.size()) {
+    throw std::invalid_argument(
+        std::string(context) +
+        " requires disjoint axis pairs covering every tensor axis."
+    );
+  }
+
+  std::vector<bool> axis_used(tensor.Rank(), false);
+  for (const auto &axis_pair : axis_pairs) {
+    const size_t kept_axis = axis_pair.first;
+    const size_t diagonal_axis = axis_pair.second;
+    if (kept_axis >= tensor.Rank() || diagonal_axis >= tensor.Rank()) {
+      throw std::invalid_argument(
+          std::string(context) + ": axis pair " +
+          AxisPairToString(axis_pair) + " is out of range."
+      );
+    }
+    if (kept_axis == diagonal_axis) {
+      throw std::invalid_argument(
+          std::string(context) + ": axis pair " +
+          AxisPairToString(axis_pair) + " repeats the same axis."
+      );
+    }
+    if (axis_used[kept_axis] || axis_used[diagonal_axis]) {
+      throw std::invalid_argument(
+          std::string(context) + ": axis pair " +
+          AxisPairToString(axis_pair) + " overlaps a previous axis pair."
+      );
+    }
+    axis_used[kept_axis] = true;
+    axis_used[diagonal_axis] = true;
+    RequireSameIndexSpaceFor(
+        tensor.GetIndex(kept_axis),
+        tensor.GetIndex(diagonal_axis),
+        context,
+        "axis pair " + AxisPairToString(axis_pair) +
+        " must describe the same diagonal space."
+    );
+  }
+}
+
+template<typename ElemT, typename QNT>
+IndexVec<QNT> MakeDiagonalIndexes(
+    const QLTensor<ElemT, QNT> &tensor,
+    const std::vector<std::pair<size_t, size_t>> &axis_pairs
+) {
+  IndexVec<QNT> indexes;
+  indexes.reserve(axis_pairs.size());
+  for (const auto &axis_pair : axis_pairs) {
+    indexes.push_back(tensor.GetIndex(axis_pair.first));
+  }
+  return indexes;
+}
+
+template<typename QNT>
+bool IsDiagonalBlock(
+    const DataBlk<QNT> &data_blk,
+    const std::vector<std::pair<size_t, size_t>> &axis_pairs
+) {
+  for (const auto &axis_pair : axis_pairs) {
+    if (data_blk.blk_coors[axis_pair.first] !=
+        data_blk.blk_coors[axis_pair.second]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template<typename QNT>
+CoorsT MakeDiagonalBlockCoors(
+    const DataBlk<QNT> &data_blk,
+    const std::vector<std::pair<size_t, size_t>> &axis_pairs
+) {
+  CoorsT blk_coors;
+  blk_coors.reserve(axis_pairs.size());
+  for (const auto &axis_pair : axis_pairs) {
+    blk_coors.push_back(data_blk.blk_coors[axis_pair.first]);
+  }
+  return blk_coors;
+}
+
+template<typename QNT>
+void ValidateExtractedDiagonalBlockShape(
+    const DataBlk<QNT> &src_blk,
+    const DataBlk<QNT> &out_blk,
+    const std::vector<std::pair<size_t, size_t>> &axis_pairs,
+    const char *context
+) {
+  if (out_blk.shape.size() != axis_pairs.size()) {
+    throw std::runtime_error(
+        std::string(context) + ": output block " +
+        CoorsToString(out_blk.blk_coors) + " has incompatible rank."
+    );
+  }
+  for (size_t i = 0; i < axis_pairs.size(); ++i) {
+    const size_t kept_axis = axis_pairs[i].first;
+    const size_t diagonal_axis = axis_pairs[i].second;
+    if (src_blk.shape[kept_axis] != src_blk.shape[diagonal_axis] ||
+        src_blk.shape[kept_axis] != out_blk.shape[i]) {
+      throw std::runtime_error(
+          std::string(context) + ": source block " +
+          CoorsToString(src_blk.blk_coors) +
+          " is not shape-compatible with output block " +
+          CoorsToString(out_blk.blk_coors) + "."
+      );
+    }
+  }
+}
+
+inline void FillFlatIdxCoors(
+    size_t flat_idx,
+    const ShapeT &shape,
+    const std::vector<size_t> &offsets,
+    CoorsT &coors
+) {
+  assert(coors.size() == shape.size());
+  for (size_t i = 0; i < shape.size(); ++i) {
+    coors[i] = flat_idx / offsets[i];
+    flat_idx %= offsets[i];
+  }
+}
+
+template<typename ElemT, typename QNT>
+void CopyExtractedDiagonalBlock(
+    const ElemT *src_block_data,
+    const DataBlk<QNT> &src_blk,
+    ElemT *out_block_data,
+    const DataBlk<QNT> &out_blk,
+    const std::vector<std::pair<size_t, size_t>> &axis_pairs,
+    const char *context
+) {
+  ValidateExtractedDiagonalBlockShape(src_blk, out_blk, axis_pairs, context);
+
+  const auto src_offsets = CalcMultiDimDataOffsets(src_blk.shape);
+  const auto out_offsets = CalcMultiDimDataOffsets(out_blk.shape);
+  CoorsT src_data_coors(src_blk.shape.size(), 0);
+  CoorsT out_data_coors(out_blk.shape.size(), 0);
+  for (size_t out_flat_idx = 0; out_flat_idx < out_blk.size; ++out_flat_idx) {
+    FillFlatIdxCoors(out_flat_idx, out_blk.shape, out_offsets, out_data_coors);
+    for (size_t i = 0; i < axis_pairs.size(); ++i) {
+      src_data_coors[axis_pairs[i].first] = out_data_coors[i];
+      src_data_coors[axis_pairs[i].second] = out_data_coors[i];
+    }
+    out_block_data[out_flat_idx] =
+        src_block_data[CalcEffOneDimArrayOffset(src_data_coors, src_offsets)];
+  }
+}
+
 template<typename QNT>
 void ValidateLeftBlockShape(
     const DataBlk<QNT> &left_blk,
@@ -325,6 +507,135 @@ void ApplyDiagonalTensorProductBlock(
 #endif
 
 template<typename ElemT, typename QNT>
+void ValidateDiagonalOuterProductInputs(
+    const QLTensor<ElemT, QNT> &left_diag,
+    const QLTensor<ElemT, QNT> &right_diag,
+    const QLTensor<ElemT, QNT> &out
+) {
+  if (left_diag.IsDefault() || right_diag.IsDefault() || out.IsDefault() ||
+      left_diag.Rank() == 0 || right_diag.Rank() == 0 ||
+      out.Rank() != left_diag.Rank() + right_diag.Rank()) {
+    throw std::invalid_argument(
+        "DiagonalOuterProductAccumulate requires non-scalar left/right "
+        "diagonal tensors and an output tensor whose rank is their rank sum."
+    );
+  }
+
+  for (size_t i = 0; i < left_diag.Rank(); ++i) {
+    RequireSameIndexSpaceFor(
+        out.GetIndex(i),
+        left_diag.GetIndex(i),
+        "DiagonalOuterProductAccumulate",
+        "out index " + std::to_string(i) +
+        " must match left_diag index " + std::to_string(i) + "."
+    );
+  }
+  for (size_t i = 0; i < right_diag.Rank(); ++i) {
+    RequireSameIndexSpaceFor(
+        out.GetIndex(left_diag.Rank() + i),
+        right_diag.GetIndex(i),
+        "DiagonalOuterProductAccumulate",
+        "out index " + std::to_string(left_diag.Rank() + i) +
+        " must match right_diag index " + std::to_string(i) + "."
+    );
+  }
+}
+
+inline CoorsT SliceCoors(
+    const CoorsT &coors,
+    const size_t offset,
+    const size_t count
+) {
+  CoorsT sliced_coors;
+  sliced_coors.reserve(count);
+  for (size_t i = 0; i < count; ++i) {
+    sliced_coors.push_back(coors[offset + i]);
+  }
+  return sliced_coors;
+}
+
+template<typename QNT>
+void ValidateDiagonalOuterProductBlockShape(
+    const DataBlk<QNT> &left_blk,
+    const DataBlk<QNT> &right_blk,
+    const DataBlk<QNT> &out_blk
+) {
+  if (out_blk.shape.size() != left_blk.shape.size() + right_blk.shape.size()) {
+    throw std::runtime_error(
+        "DiagonalOuterProductAccumulate: output block " +
+        CoorsToString(out_blk.blk_coors) + " has incompatible rank."
+    );
+  }
+  for (size_t i = 0; i < left_blk.shape.size(); ++i) {
+    if (out_blk.shape[i] != left_blk.shape[i]) {
+      throw std::runtime_error(
+          "DiagonalOuterProductAccumulate: left_diag block " +
+          CoorsToString(left_blk.blk_coors) +
+          " is not shape-compatible with out block " +
+          CoorsToString(out_blk.blk_coors) + "."
+      );
+    }
+  }
+  for (size_t i = 0; i < right_blk.shape.size(); ++i) {
+    if (out_blk.shape[left_blk.shape.size() + i] != right_blk.shape[i]) {
+      throw std::runtime_error(
+          "DiagonalOuterProductAccumulate: right_diag block " +
+          CoorsToString(right_blk.blk_coors) +
+          " is not shape-compatible with out block " +
+          CoorsToString(out_blk.blk_coors) + "."
+      );
+    }
+  }
+}
+
+#ifndef USE_GPU
+template<typename ElemT, typename QNT>
+void ApplyDiagonalOuterProductBlock(
+    const ElemT *left_data,
+    const DataBlk<QNT> &left_blk,
+    const ElemT *right_data,
+    const DataBlk<QNT> &right_blk,
+    ElemT *out_data,
+    const DataBlk<QNT> &out_blk,
+    const ElemT alpha,
+    const ElemT beta
+) {
+  ValidateDiagonalOuterProductBlockShape(left_blk, right_blk, out_blk);
+
+  const size_t rows = left_blk.size;
+  const size_t cols = right_blk.size;
+  ElemT *out_block_data = out_data + out_blk.data_offset;
+  const ElemT *left_block_data = left_data + left_blk.data_offset;
+  const ElemT *right_block_data = right_data + right_blk.data_offset;
+
+  if (rows == 0 || cols == 0) {
+    return;
+  }
+
+  if (rows * cols < kDiagonalTensorProductBlasThreshold) {
+    for (size_t row = 0; row < rows; ++row) {
+      for (size_t col = 0; col < cols; ++col) {
+        const size_t out_offset = row * cols + col;
+        out_block_data[out_offset] =
+            beta * out_block_data[out_offset] +
+            alpha * left_block_data[row] * right_block_data[col];
+      }
+    }
+    return;
+  }
+
+  ScaleDataBlock(out_block_data, out_blk.size, beta);
+  GerUpdate(
+      alpha,
+      left_block_data, 1,
+      right_block_data, 1,
+      rows, cols,
+      out_block_data
+  );
+}
+#endif
+
+template<typename ElemT, typename QNT>
 void ValidateDiagonalTensorProductInputs(
     const QLTensor<ElemT, QNT> &left_op,
     const QLTensor<ElemT, QNT> &right_op,
@@ -373,6 +684,171 @@ void ValidateDiagonalTensorProductInputs(
 }
 
 }  // namespace detail
+
+/**
+Extract a block-sparse tensor diagonal using explicit axis pairs.
+
+Each axis pair `(kept_axis, diagonal_axis)` must describe the same index space,
+and the set of pairs must cover every input axis exactly once. The returned
+tensor keeps the indexes from `kept_axis` in the order provided by
+`axis_pairs`. Missing source diagonal blocks contribute no output block.
+*/
+template<typename ElemT, typename QNT>
+QLTensor<ElemT, QNT> ExtractDiagonal(
+    const QLTensor<ElemT, QNT> &tensor,
+    const std::vector<std::pair<size_t, size_t>> &axis_pairs
+) {
+#ifdef USE_GPU
+  throw std::runtime_error("ExtractDiagonal does not support GPU tensors yet.");
+#else
+  constexpr const char *context = "ExtractDiagonal";
+  detail::ValidateDiagonalAxisPairs(tensor, axis_pairs, context);
+
+  QLTensor<ElemT, QNT> diagonal(
+      detail::MakeDiagonalIndexes(tensor, axis_pairs));
+  const auto &src_bsdt = tensor.GetBlkSparDataTen();
+  const auto &src_blocks = src_bsdt.GetBlkIdxDataBlkMap();
+  if (src_blocks.empty()) {
+    return diagonal;
+  }
+
+  const ElemT *src_data = src_bsdt.GetActualRawDataPtr();
+  if (src_data == nullptr) {
+    throw std::runtime_error(
+        "ExtractDiagonal: source tensor has blocks but no raw data."
+    );
+  }
+
+  std::vector<CoorsT> diagonal_blk_coors_s;
+  diagonal_blk_coors_s.reserve(src_blocks.size());
+  for (const auto &src_entry : src_blocks) {
+    const auto &src_blk = src_entry.second;
+    if (detail::IsDiagonalBlock(src_blk, axis_pairs)) {
+      diagonal_blk_coors_s.push_back(
+          detail::MakeDiagonalBlockCoors(src_blk, axis_pairs));
+    }
+  }
+  if (diagonal_blk_coors_s.empty()) {
+    return diagonal;
+  }
+
+  auto &diagonal_bsdt = diagonal.GetBlkSparDataTen();
+  diagonal_bsdt.DataBlksInsert(diagonal_blk_coors_s, true, true);
+  const auto &diagonal_blocks = diagonal_bsdt.GetBlkIdxDataBlkMap();
+  ElemT *diagonal_data = diagonal_bsdt.GetActualRawDataPtr();
+  if (diagonal_data == nullptr) {
+    throw std::runtime_error(
+        "ExtractDiagonal: output tensor has blocks but no raw data."
+    );
+  }
+
+  for (const auto &src_entry : src_blocks) {
+    const auto &src_blk = src_entry.second;
+    if (!detail::IsDiagonalBlock(src_blk, axis_pairs)) {
+      continue;
+    }
+    const CoorsT diagonal_blk_coors =
+        detail::MakeDiagonalBlockCoors(src_blk, axis_pairs);
+    const size_t diagonal_blk_idx =
+        diagonal_bsdt.BlkCoorsToBlkIdx(diagonal_blk_coors);
+    const auto &diagonal_blk = diagonal_blocks.at(diagonal_blk_idx);
+    detail::CopyExtractedDiagonalBlock(
+        src_data + src_blk.data_offset,
+        src_blk,
+        diagonal_data + diagonal_blk.data_offset,
+        diagonal_blk,
+        axis_pairs,
+        context
+    );
+  }
+  return diagonal;
+#endif
+}
+
+/**
+Accumulate an outer product of two already extracted diagonal tensors.
+
+For every stored output block, this computes
+\f[
+out(l, r) = beta \cdot out(l, r) +
+            alpha \cdot left\_diag(l) \cdot right\_diag(r).
+\f]
+
+The output indexes must be the concatenation of the left and right diagonal
+index spaces. Missing left or right diagonal blocks contribute zero, and output
+blocks are never inserted or removed.
+*/
+template<typename ElemT, typename QNT>
+void DiagonalOuterProductAccumulate(
+    const QLTensor<ElemT, QNT> &left_diag,
+    const QLTensor<ElemT, QNT> &right_diag,
+    QLTensor<ElemT, QNT> &out,
+    ElemT alpha = ElemT(1),
+    ElemT beta = ElemT(1)
+) {
+#ifdef USE_GPU
+  throw std::runtime_error(
+      "DiagonalOuterProductAccumulate does not support GPU tensors yet."
+  );
+#else
+  detail::ValidateDiagonalOuterProductInputs(left_diag, right_diag, out);
+
+  const auto &left_bsdt = left_diag.GetBlkSparDataTen();
+  const auto &right_bsdt = right_diag.GetBlkSparDataTen();
+  auto &out_bsdt = out.GetBlkSparDataTen();
+
+  const auto &left_blocks = left_bsdt.GetBlkIdxDataBlkMap();
+  const auto &right_blocks = right_bsdt.GetBlkIdxDataBlkMap();
+  const auto &out_blocks = out_bsdt.GetBlkIdxDataBlkMap();
+
+  const ElemT *left_data = left_bsdt.GetActualRawDataPtr();
+  const ElemT *right_data = right_bsdt.GetActualRawDataPtr();
+  ElemT *out_data = out_bsdt.GetActualRawDataPtr();
+
+  if (!left_blocks.empty() && left_data == nullptr) {
+    throw std::runtime_error(
+        "DiagonalOuterProductAccumulate: left_diag has blocks but no raw data."
+    );
+  }
+  if (!right_blocks.empty() && right_data == nullptr) {
+    throw std::runtime_error(
+        "DiagonalOuterProductAccumulate: right_diag has blocks but no raw data."
+    );
+  }
+  if (!out_blocks.empty() && out_data == nullptr) {
+    throw std::runtime_error(
+        "DiagonalOuterProductAccumulate: out has blocks but no raw data."
+    );
+  }
+
+  const size_t left_rank = left_diag.Rank();
+  const size_t right_rank = right_diag.Rank();
+  for (const auto &out_entry : out_blocks) {
+    const auto &out_blk = out_entry.second;
+    const CoorsT left_blk_coors =
+        detail::SliceCoors(out_blk.blk_coors, 0, left_rank);
+    const CoorsT right_blk_coors =
+        detail::SliceCoors(out_blk.blk_coors, left_rank, right_rank);
+    const auto left_it = left_blocks.find(
+        left_bsdt.BlkCoorsToBlkIdx(left_blk_coors));
+    const auto right_it = right_blocks.find(
+        right_bsdt.BlkCoorsToBlkIdx(right_blk_coors));
+
+    if (left_it == left_blocks.end() || right_it == right_blocks.end() ||
+        alpha == ElemT(0)) {
+      detail::ScaleDataBlock(out_data + out_blk.data_offset, out_blk.size, beta);
+      continue;
+    }
+
+    detail::ApplyDiagonalOuterProductBlock(
+        left_data, left_it->second,
+        right_data, right_it->second,
+        out_data, out_blk,
+        alpha, beta
+    );
+  }
+#endif
+}
 
 /**
 Accumulate the diagonal of a tensor product into an existing rank-4 tensor.

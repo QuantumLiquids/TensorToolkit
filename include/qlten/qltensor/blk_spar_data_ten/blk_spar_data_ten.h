@@ -235,6 +235,8 @@ class BlockSparseDataTensor : public Streamable {
 
   void AddAndAssignIn(const BlockSparseDataTensor &);
 
+  void AddScaledAssignIn(const BlockSparseDataTensor &, const ElemT);
+
   void MultiplyByScalar(const ElemT);
 
   void CtrctTwoBSDTAndAssignIn(

@@ -181,6 +181,90 @@ TEST(TestDiagonalTensorProduct, SingleSectorAccumulatesOuterProduct) {
   }
 }
 
+TEST(TestDiagonalTensorProduct, ExtractDiagonalFromRank2UsesAxisPair) {
+  const auto qn0 = MakeQN(0);
+  const auto qn1 = MakeQN(1);
+  const IndexT space(
+      {QNSctT(qn0, 2), QNSctT(qn1, 1)}, TenIndexDirType::OUT);
+  DQLTensor op({space, InverseIndex(space)});
+
+  op.SetElem({0, 0}, QLTEN_Double(3));
+  op.SetElem({1, 1}, QLTEN_Double(5));
+  op.SetElem({2, 2}, QLTEN_Double(7));
+  op.SetElem({0, 1}, QLTEN_Double(999));
+
+  const auto diag = ExtractDiagonal(op, {{0, 1}});
+
+  ASSERT_EQ(diag.Rank(), 1);
+  EXPECT_EQ(diag.GetIndex(0), space);
+  EXPECT_DOUBLE_EQ(diag.GetElem({0}), 3);
+  EXPECT_DOUBLE_EQ(diag.GetElem({1}), 5);
+  EXPECT_DOUBLE_EQ(diag.GetElem({2}), 7);
+}
+
+TEST(TestDiagonalTensorProduct, ExtractDiagonalFromRank4SupportsAxisPairOrder) {
+  const auto qn0 = MakeQN(0);
+  const IndexT left_space({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+  const IndexT site_space({QNSctT(qn0, 3)}, TenIndexDirType::OUT);
+  DQLTensor op(
+      {left_space, site_space, InverseIndex(left_space), InverseIndex(site_space)});
+
+  for (size_t left = 0; left < left_space.dim(); ++left) {
+    for (size_t site = 0; site < site_space.dim(); ++site) {
+      op.SetElem(
+          {left, site, left, site},
+          QLTEN_Double(10 * (left + 1) + site)
+      );
+    }
+  }
+  op.SetElem({0, 1, 0, 2}, QLTEN_Double(999));
+
+  const auto diag = ExtractDiagonal(op, {{1, 3}, {0, 2}});
+
+  ASSERT_EQ(diag.Rank(), 2);
+  EXPECT_EQ(diag.GetIndex(0), site_space);
+  EXPECT_EQ(diag.GetIndex(1), left_space);
+  for (size_t site = 0; site < site_space.dim(); ++site) {
+    for (size_t left = 0; left < left_space.dim(); ++left) {
+      EXPECT_DOUBLE_EQ(
+          diag.GetElem({site, left}),
+          op.GetElem({left, site, left, site})
+      );
+    }
+  }
+}
+
+TEST(TestDiagonalTensorProduct, DiagonalOuterProductAccumulateUsesExtractedDiagonals) {
+  const auto qn0 = MakeQN(0);
+  const auto qn1 = MakeQN(1);
+  const IndexT lb_out(
+      {QNSctT(qn0, 2), QNSctT(qn1, 1)}, TenIndexDirType::OUT);
+  const IndexT ls_out({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+  const IndexT rs_out({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+  const IndexT rb_out({QNSctT(qn0, 1)}, TenIndexDirType::OUT);
+
+  DQLTensor left_diag({lb_out, ls_out});
+  DQLTensor right_diag({rs_out, rb_out});
+  DQLTensor out({lb_out, ls_out, rs_out, rb_out});
+
+  left_diag.SetElem({0, 0}, QLTEN_Double(2));
+  left_diag.SetElem({1, 1}, QLTEN_Double(3));
+  right_diag.SetElem({0, 0}, QLTEN_Double(5));
+  right_diag.SetElem({1, 0}, QLTEN_Double(7));
+  SetAllElements(out, QLTEN_Double(4));
+
+  DiagonalOuterProductAccumulate(
+      left_diag, right_diag, out, QLTEN_Double(1.5), QLTEN_Double(0.25));
+
+  for (const auto &coors : GenAllCoors(out.GetShape())) {
+    const auto expected = QLTEN_Double(1) +
+        QLTEN_Double(1.5) *
+            left_diag.GetElem({coors[0], coors[1]}) *
+            right_diag.GetElem({coors[2], coors[3]});
+    EXPECT_DOUBLE_EQ(out.GetElem(coors), expected);
+  }
+}
+
 TEST(TestDiagonalTensorProduct, AppliesAlphaAndBeta) {
   const auto qn0 = MakeQN(0);
   const IndexT lb_out({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
