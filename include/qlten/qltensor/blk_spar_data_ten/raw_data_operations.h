@@ -13,12 +13,14 @@
 */
 #ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATIONS_H
 #define QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATIONS_H
+#include <algorithm>    // copy
 #include <cmath>        // sqrt
 #include <cstdlib>      // malloc, free, calloc
 #include <cstring>      // memcpy, memset
 #include <limits>       // numeric_limits
 #include <stdexcept>    // runtime_error
 #include <string>       // to_string
+#include <vector>       // vector
 #include <omp.h>
 #include <cassert>     // assert
 
@@ -1219,5 +1221,272 @@ ElemT BlockSparseDataTensor<ElemT, QNT>::GetFirstNonZeroElement(void) const {
 }
 
 #endif //USE_GPU
+
+namespace detail {
+
+inline uint64_t FnvaOffsetBasis() { return 1469598103934665603ULL; }
+
+inline uint64_t FnvaPrime() { return 1099511628211ULL; }
+
+inline void FnvaAppendBytes(uint64_t &hash, const void *data, const size_t size) {
+  const auto *bytes = static_cast<const unsigned char *>(data);
+  for (size_t i = 0; i < size; ++i) {
+    hash ^= static_cast<uint64_t>(bytes[i]);
+    hash *= FnvaPrime();
+  }
+}
+
+template<typename T>
+inline void FnvaAppendPod(uint64_t &hash, const T &value) {
+  FnvaAppendBytes(hash, &value, sizeof(T));
+}
+
+template<typename ElemT>
+std::vector<ElemT> CopyRawDataToHostForInspection(
+    const ElemT *raw_data,
+    const size_t actual_raw_data_size,
+    const size_t raw_data_size
+) {
+  if (actual_raw_data_size != raw_data_size) {
+    throw std::runtime_error(
+        "BlockSparseDataTensor raw data allocation does not match block topology."
+    );
+  }
+  if (raw_data_size == 0) {
+    return {};
+  }
+  if (raw_data == nullptr) {
+    throw std::runtime_error(
+        "BlockSparseDataTensor has positive raw data size but null raw data pointer."
+    );
+  }
+  std::vector<ElemT> host_data(raw_data_size);
+#ifndef USE_GPU
+  std::copy(raw_data, raw_data + raw_data_size, host_data.begin());
+#else
+  HANDLE_CUDA_ERROR(cudaMemcpy(
+      host_data.data(),
+      raw_data,
+      raw_data_size * sizeof(ElemT),
+      cudaMemcpyDeviceToHost
+  ));
+#endif
+  return host_data;
+}
+
+template<typename ElemT>
+typename RealTypeTrait<ElemT>::type ScalarAbs(const ElemT &value) {
+  using qlten::abs;
+  return abs(value);
+}
+
+}  // namespace detail
+
+template<typename ElemT, typename QNT>
+bool BlockSparseDataTensor<ElemT, QNT>::HasSameBlockTopologyAs(
+    const BlockSparseDataTensor &rhs
+) const {
+  if (ten_rank != rhs.ten_rank || blk_shape != rhs.blk_shape) {
+    return false;
+  }
+  if (blk_idx_data_blk_map_.size() != rhs.blk_idx_data_blk_map_.size()) {
+    return false;
+  }
+  auto lhs_it = blk_idx_data_blk_map_.cbegin();
+  auto rhs_it = rhs.blk_idx_data_blk_map_.cbegin();
+  for (; lhs_it != blk_idx_data_blk_map_.cend(); ++lhs_it, ++rhs_it) {
+    if (lhs_it->first != rhs_it->first) {
+      return false;
+    }
+    const auto &lhs_blk = lhs_it->second;
+    const auto &rhs_blk = rhs_it->second;
+    if (lhs_blk.blk_coors != rhs_blk.blk_coors ||
+        lhs_blk.shape != rhs_blk.shape ||
+        lhs_blk.size != rhs_blk.size) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template<typename ElemT, typename QNT>
+bool BlockSparseDataTensor<ElemT, QNT>::IsExactlyZero(void) const {
+  const auto raw_data = detail::CopyRawDataToHostForInspection(
+      pactual_raw_data_,
+      actual_raw_data_size_,
+      raw_data_size_
+  );
+  for (const auto &elem : raw_data) {
+    if (elem != ElemT(0)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template<typename ElemT, typename QNT>
+bool BlockSparseDataTensor<ElemT, QNT>::IsZero(
+    const typename RealTypeTrait<ElemT>::type abs_tol
+) const {
+  if (abs_tol < typename RealTypeTrait<ElemT>::type(0)) {
+    throw std::invalid_argument("BlockSparseDataTensor::IsZero requires non-negative abs_tol.");
+  }
+  const auto raw_data = detail::CopyRawDataToHostForInspection(
+      pactual_raw_data_,
+      actual_raw_data_size_,
+      raw_data_size_
+  );
+  for (const auto &elem : raw_data) {
+    if (detail::ScalarAbs(elem) > abs_tol) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template<typename ElemT, typename QNT>
+bool BlockSparseDataTensor<ElemT, QNT>::TryGetExactScalarMultipleOf(
+    const BlockSparseDataTensor &basis,
+    ElemT *scalar
+) const {
+  if (!HasSameBlockTopologyAs(basis)) {
+    return false;
+  }
+
+  const auto lhs_data = detail::CopyRawDataToHostForInspection(
+      pactual_raw_data_,
+      actual_raw_data_size_,
+      raw_data_size_
+  );
+  const auto basis_data = detail::CopyRawDataToHostForInspection(
+      basis.pactual_raw_data_,
+      basis.actual_raw_data_size_,
+      basis.raw_data_size_
+  );
+  if (lhs_data.size() != basis_data.size()) {
+    return false;
+  }
+
+  bool scalar_found = false;
+  ElemT candidate = ElemT(0);
+  for (size_t i = 0; i < basis_data.size(); ++i) {
+    if (basis_data[i] != ElemT(0)) {
+      candidate = lhs_data[i] / basis_data[i];
+      scalar_found = true;
+      break;
+    }
+    if (lhs_data[i] != ElemT(0)) {
+      return false;
+    }
+  }
+  if (!scalar_found) {
+    return false;
+  }
+
+  for (size_t i = 0; i < basis_data.size(); ++i) {
+    if (basis_data[i] == ElemT(0)) {
+      if (lhs_data[i] != ElemT(0)) {
+        return false;
+      }
+    } else if (lhs_data[i] != candidate * basis_data[i]) {
+      return false;
+    }
+  }
+
+  if (scalar != nullptr) {
+    *scalar = candidate;
+  }
+  return true;
+}
+
+template<typename ElemT, typename QNT>
+bool BlockSparseDataTensor<ElemT, QNT>::TryGetScalarMultipleOf(
+    const BlockSparseDataTensor &basis,
+    ElemT *scalar,
+    const typename RealTypeTrait<ElemT>::type abs_tol,
+    const typename RealTypeTrait<ElemT>::type rel_tol
+) const {
+  if (abs_tol < typename RealTypeTrait<ElemT>::type(0)) {
+    throw std::invalid_argument(
+        "BlockSparseDataTensor::TryGetScalarMultipleOf requires non-negative abs_tol."
+    );
+  }
+  if (rel_tol < typename RealTypeTrait<ElemT>::type(0)) {
+    throw std::invalid_argument(
+        "BlockSparseDataTensor::TryGetScalarMultipleOf requires non-negative rel_tol."
+    );
+  }
+  if (!HasSameBlockTopologyAs(basis)) {
+    return false;
+  }
+
+  const auto lhs_data = detail::CopyRawDataToHostForInspection(
+      pactual_raw_data_,
+      actual_raw_data_size_,
+      raw_data_size_
+  );
+  const auto basis_data = detail::CopyRawDataToHostForInspection(
+      basis.pactual_raw_data_,
+      basis.actual_raw_data_size_,
+      basis.raw_data_size_
+  );
+  if (lhs_data.size() != basis_data.size()) {
+    return false;
+  }
+
+  bool scalar_found = false;
+  ElemT candidate = ElemT(0);
+  for (size_t i = 0; i < basis_data.size(); ++i) {
+    if (detail::ScalarAbs(basis_data[i]) > abs_tol) {
+      candidate = lhs_data[i] / basis_data[i];
+      scalar_found = true;
+      break;
+    }
+    if (detail::ScalarAbs(lhs_data[i]) > abs_tol) {
+      return false;
+    }
+  }
+  if (!scalar_found) {
+    return false;
+  }
+
+  for (size_t i = 0; i < basis_data.size(); ++i) {
+    if (detail::ScalarAbs(basis_data[i]) <= abs_tol) {
+      if (detail::ScalarAbs(lhs_data[i]) > abs_tol) {
+        return false;
+      }
+      continue;
+    }
+    const ElemT expected = candidate * basis_data[i];
+    const auto tolerance = abs_tol + rel_tol * detail::ScalarAbs(expected);
+    if (detail::ScalarAbs(lhs_data[i] - expected) > tolerance) {
+      return false;
+    }
+  }
+
+  if (scalar != nullptr) {
+    *scalar = candidate;
+  }
+  return true;
+}
+
+template<typename ElemT, typename QNT>
+uint64_t BlockSparseDataTensor<ElemT, QNT>::RawDataContentHash(void) const {
+  uint64_t hash = detail::FnvaOffsetBasis();
+  detail::FnvaAppendPod(hash, actual_raw_data_size_);
+  const auto raw_data = detail::CopyRawDataToHostForInspection(
+      pactual_raw_data_,
+      actual_raw_data_size_,
+      raw_data_size_
+  );
+  if (!raw_data.empty()) {
+    detail::FnvaAppendBytes(
+        hash,
+        raw_data.data(),
+        raw_data.size() * sizeof(ElemT)
+    );
+  }
+  return hash;
+}
 } /* qlten */
 #endif /* ifndef QLTEN_QLTENSOR_BLK_SPAR_DATA_TEN_RAW_DATA_OPERATIONS_H */

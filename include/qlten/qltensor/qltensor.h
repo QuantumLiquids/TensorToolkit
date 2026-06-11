@@ -23,6 +23,7 @@
 
 #include <vector>       // vector
 #include <iostream>     // istream, ostream
+#include <string>       // string
 
 namespace qlten {
 
@@ -435,6 +436,38 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
 
   /** @brief First non-zero element encountered in storage order. */
   ElemT GetFirstNonZeroElement(void) const { return pblk_spar_data_ten_->GetFirstNonZeroElement(); }
+
+  /**
+   * @brief Whether every stored element is exactly zero.
+   *
+   * Default tensors and tensors without stored raw data are considered exactly
+   * zero. If raw data size is positive but the raw storage state is invalid,
+   * this fails fast by throwing std::runtime_error.
+   */
+  bool IsExactlyZero(void) const;
+
+  /**
+   * @brief Whether every stored element has absolute value at most abs_tol.
+   */
+  bool IsZero(RealType abs_tol) const;
+
+  /**
+   * @brief Check whether this tensor is an exact scalar multiple of basis.
+   *
+   * Requires identical indices and block topology. If basis is exactly zero,
+   * returns false because the scalar is not uniquely defined.
+   */
+  bool TryGetExactScalarMultipleOf(const QLTensor &, ElemT *) const;
+
+  /**
+   * @brief Tolerant scalar-multiple check using absolute and relative residual tolerances.
+   */
+  bool TryGetScalarMultipleOf(const QLTensor &, ElemT *, RealType, RealType) const;
+
+  /**
+   * @brief Stable content fingerprint covering tensor shell and stored raw data.
+   */
+  std::string ContentFingerprint(void) const;
 
   // Operators overload.
   /**

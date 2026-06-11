@@ -13,6 +13,7 @@
 #include <complex>
 #include <limits>
 #include <streambuf>  // streambuf
+#include <string>
 
 //#define PLAIN_TRANSPOSE 1
 
@@ -151,6 +152,144 @@ TEST_F(TestQLTensor, HasActualData) {
   dten_scalar_with_data() = 1.0;
   EXPECT_TRUE(dten_scalar_with_data.HasActualData());
   EXPECT_NE(dten_scalar_with_data.GetActualDataSize(), 0);
+}
+
+TEST_F(TestQLTensor, IsExactlyZero) {
+  EXPECT_TRUE(dten_default.IsExactlyZero());
+  EXPECT_TRUE(dten_1d_s.IsExactlyZero());
+
+  DQLTensor zeros(dten_2d_s);
+  zeros.Fill(qn0, 0.0);
+  EXPECT_TRUE(zeros.HasActualData());
+  EXPECT_TRUE(zeros.IsExactlyZero());
+
+  DQLTensor nonzero(dten_2d_s);
+  nonzero(3, 3) = 1.0e-15;
+  EXPECT_FALSE(nonzero.IsExactlyZero());
+
+  ZQLTensor complex_zero(zten_2d_s);
+  complex_zero.Fill(qn0, QLTEN_Complex(0.0, 0.0));
+  EXPECT_TRUE(complex_zero.IsExactlyZero());
+  complex_zero(3, 3) = QLTEN_Complex(0.0, 1.0e-15);
+  EXPECT_FALSE(complex_zero.IsExactlyZero());
+}
+
+TEST_F(TestQLTensor, IsExactlyZeroFailsFastForBlockTopologyWithoutRawStorage) {
+  DQLTensor incomplete(dten_2d_s);
+  incomplete.GetBlkSparDataTen().DataBlkInsert({1, 1}, false);
+
+  EXPECT_THROW(incomplete.IsExactlyZero(), std::runtime_error);
+  EXPECT_THROW(incomplete.IsZero(0.0), std::runtime_error);
+  EXPECT_THROW(incomplete.ContentFingerprint(), std::runtime_error);
+}
+
+TEST_F(TestQLTensor, IsZeroWithTolerance) {
+  DQLTensor near_zero(dten_2d_s);
+  near_zero(3, 3) = 1.0e-8;
+  near_zero(4, 4) = -2.0e-8;
+
+  EXPECT_FALSE(near_zero.IsZero(1.0e-8));
+  EXPECT_TRUE(near_zero.IsZero(2.0e-8));
+
+  ZQLTensor complex_near_zero(zten_2d_s);
+  complex_near_zero(3, 3) = QLTEN_Complex(3.0e-9, 4.0e-9);
+  EXPECT_TRUE(complex_near_zero.IsZero(5.0e-9));
+  EXPECT_FALSE(complex_near_zero.IsZero(4.0e-9));
+}
+
+TEST_F(TestQLTensor, TryGetExactScalarMultipleOf) {
+  DQLTensor basis(dten_2d_s);
+  basis(3, 3) = 2.0;
+  basis(4, 4) = -5.0;
+
+  DQLTensor multiple = basis * 3.0;
+  double scalar = 0.0;
+  EXPECT_TRUE(multiple.TryGetExactScalarMultipleOf(basis, &scalar));
+  EXPECT_EQ(scalar, 3.0);
+
+  DQLTensor zero_tensor = basis * 0.0;
+  EXPECT_TRUE(zero_tensor.TryGetExactScalarMultipleOf(basis, &scalar));
+  EXPECT_EQ(scalar, 0.0);
+
+  DQLTensor changed_value = multiple;
+  changed_value(3, 3) = 7.0;
+  EXPECT_FALSE(changed_value.TryGetExactScalarMultipleOf(basis, &scalar));
+
+  DQLTensor basis_zero(dten_2d_s);
+  EXPECT_FALSE(multiple.TryGetExactScalarMultipleOf(basis_zero, &scalar));
+
+  DQLTensor extra_block = multiple;
+  extra_block(0, 1) = 1.0;
+  EXPECT_FALSE(extra_block.TryGetExactScalarMultipleOf(basis, &scalar));
+
+  DQLTensor different_indexes(dten_1d_s);
+  different_indexes(0) = 1.0;
+  EXPECT_FALSE(different_indexes.TryGetExactScalarMultipleOf(basis, &scalar));
+}
+
+TEST_F(TestQLTensor, TryGetExactScalarMultipleOfComplex) {
+  ZQLTensor basis(zten_2d_s);
+  basis(3, 3) = QLTEN_Complex(1.0, 2.0);
+  basis(4, 4) = QLTEN_Complex(-3.0, 1.0);
+
+  const QLTEN_Complex expected_scalar(2.0, -1.0);
+  ZQLTensor multiple = basis * expected_scalar;
+  QLTEN_Complex scalar(0.0, 0.0);
+  EXPECT_TRUE(multiple.TryGetExactScalarMultipleOf(basis, &scalar));
+  EXPECT_EQ(scalar, expected_scalar);
+
+  multiple(4, 4) = QLTEN_Complex(1.0, 1.0);
+  EXPECT_FALSE(multiple.TryGetExactScalarMultipleOf(basis, &scalar));
+}
+
+TEST_F(TestQLTensor, TryGetScalarMultipleOfWithTolerance) {
+  DQLTensor basis(dten_2d_s);
+  basis(3, 3) = 2.0;
+  basis(4, 4) = -5.0;
+
+  DQLTensor approximate = basis * 3.0;
+  approximate(3, 3) = 6.0 + 1.0e-8;
+
+  double scalar = 0.0;
+  EXPECT_FALSE(approximate.TryGetExactScalarMultipleOf(basis, &scalar));
+  EXPECT_TRUE(approximate.TryGetScalarMultipleOf(basis, &scalar, 3.0e-8, 0.0));
+  EXPECT_NEAR(scalar, 3.0 + 5.0e-9, 1.0e-15);
+  EXPECT_FALSE(approximate.TryGetScalarMultipleOf(basis, &scalar, 1.0e-10, 0.0));
+}
+
+TEST_F(TestQLTensor, TolerantZeroAndScalarMultipleRejectNegativeTolerances) {
+  DQLTensor basis(dten_2d_s);
+  basis(3, 3) = 2.0;
+  DQLTensor multiple = basis * 3.0;
+
+  double scalar = 0.0;
+  EXPECT_THROW(basis.IsZero(-1.0e-8), std::invalid_argument);
+  EXPECT_THROW(
+      multiple.TryGetScalarMultipleOf(basis, &scalar, -1.0e-8, 0.0),
+      std::invalid_argument
+  );
+  EXPECT_THROW(
+      multiple.TryGetScalarMultipleOf(basis, &scalar, 0.0, -1.0e-8),
+      std::invalid_argument
+  );
+}
+
+TEST_F(TestQLTensor, ContentFingerprint) {
+  EXPECT_EQ(dten_default.ContentFingerprint(), DQLTensor().ContentFingerprint());
+
+  DQLTensor lhs(dten_2d_s);
+  lhs(3, 3) = 2.0;
+  lhs(4, 4) = -5.0;
+
+  DQLTensor rhs(lhs);
+  EXPECT_EQ(lhs.ContentFingerprint(), rhs.ContentFingerprint());
+
+  rhs(4, 4) = -4.0;
+  EXPECT_NE(lhs.ContentFingerprint(), rhs.ContentFingerprint());
+
+  DQLTensor different_indexes(dten_1d_s);
+  different_indexes(0) = 2.0;
+  EXPECT_NE(lhs.ContentFingerprint(), different_indexes.ContentFingerprint());
 }
 
 template<typename ElemT, typename QNT>

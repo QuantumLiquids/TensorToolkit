@@ -19,6 +19,8 @@
 #include <algorithm>    // is_sorted
 #include <cstring>      // memcpy
 #include <cstdint>      // uint8_t, uint64_t
+#include <iomanip>      // setw, setfill
+#include <sstream>      // ostringstream
 #include <stdexcept>    // runtime_error
 #include <type_traits>  // is_same_v
 
@@ -480,6 +482,85 @@ auto QLTensor<ElemT, QNT>::GetQuasi2Norm(void) const {
   assert(!IsDefault());
   auto norm = pblk_spar_data_ten_->Quasi2Norm();
   return norm;
+}
+
+template<typename ElemT, typename QNT>
+bool QLTensor<ElemT, QNT>::IsExactlyZero(void) const {
+  if (IsDefault()) {
+    return true;
+  }
+  return pblk_spar_data_ten_->IsExactlyZero();
+}
+
+template<typename ElemT, typename QNT>
+bool QLTensor<ElemT, QNT>::IsZero(const RealType abs_tol) const {
+  if (abs_tol < RealType(0)) {
+    throw std::invalid_argument("QLTensor::IsZero requires non-negative abs_tol.");
+  }
+  if (IsDefault()) {
+    return true;
+  }
+  return pblk_spar_data_ten_->IsZero(abs_tol);
+}
+
+template<typename ElemT, typename QNT>
+bool QLTensor<ElemT, QNT>::TryGetExactScalarMultipleOf(
+    const QLTensor &basis,
+    ElemT *scalar
+) const {
+  if (indexes_ != basis.indexes_ || IsDefault() || basis.IsDefault()) {
+    return false;
+  }
+  return pblk_spar_data_ten_->TryGetExactScalarMultipleOf(
+      *basis.pblk_spar_data_ten_,
+      scalar
+  );
+}
+
+template<typename ElemT, typename QNT>
+bool QLTensor<ElemT, QNT>::TryGetScalarMultipleOf(
+    const QLTensor &basis,
+    ElemT *scalar,
+    const RealType abs_tol,
+    const RealType rel_tol
+) const {
+  if (abs_tol < RealType(0)) {
+    throw std::invalid_argument("QLTensor::TryGetScalarMultipleOf requires non-negative abs_tol.");
+  }
+  if (rel_tol < RealType(0)) {
+    throw std::invalid_argument("QLTensor::TryGetScalarMultipleOf requires non-negative rel_tol.");
+  }
+  if (indexes_ != basis.indexes_ || IsDefault() || basis.IsDefault()) {
+    return false;
+  }
+  return pblk_spar_data_ten_->TryGetScalarMultipleOf(
+      *basis.pblk_spar_data_ten_,
+      scalar,
+      abs_tol,
+      rel_tol
+  );
+}
+
+template<typename ElemT, typename QNT>
+std::string QLTensor<ElemT, QNT>::ContentFingerprint(void) const {
+  uint64_t hash = detail::FnvaOffsetBasis();
+  static constexpr char kVersion[] = "QLTensorContentFingerprintV1";
+  detail::FnvaAppendBytes(hash, kVersion, sizeof(kVersion) - 1);
+  detail::FnvaAppendPod(hash, sizeof(ElemT));
+  if (IsDefault()) {
+    static constexpr char kDefault[] = "default";
+    detail::FnvaAppendBytes(hash, kDefault, sizeof(kDefault) - 1);
+  } else {
+    const auto shell = SerializeShell();
+    detail::FnvaAppendPod(hash, shell.size());
+    detail::FnvaAppendBytes(hash, shell.data(), shell.size());
+    const auto raw_hash = pblk_spar_data_ten_->RawDataContentHash();
+    detail::FnvaAppendPod(hash, raw_hash);
+  }
+  std::ostringstream oss;
+  oss << "qltensor-v1-" << std::hex << std::setw(16) << std::setfill('0')
+      << hash;
+  return oss.str();
 }
 
 /**

@@ -19,6 +19,7 @@
 #include <iostream>         // endl, istream, ostream
 #include <cassert>          // assert
 #include <random>
+#include <cstdint>          // uint64_t
 
 #include "qlten/framework/mem_ops.h"                                      // QLMemcpy, QLMalloc, QLFree, QLCalloc
 #include "qlten/framework/value_t.h"                                      // CoorsT, ShapeT
@@ -326,6 +327,29 @@ class BlockSparseDataTensor : public Streamable {
   auto GetMaxAbs(void) const;
 
   ElemT GetFirstNonZeroElement(void) const;
+
+  /** @brief Whether two block-sparse tensors have the same stored block layout. */
+  bool HasSameBlockTopologyAs(const BlockSparseDataTensor &) const;
+
+  /** @brief Whether every stored raw element is exactly zero. */
+  bool IsExactlyZero(void) const;
+
+  /** @brief Whether every stored raw element has absolute value at most abs_tol. */
+  bool IsZero(typename RealTypeTrait<ElemT>::type) const;
+
+  /** @brief Exact scalar-multiple check over matching block topology. */
+  bool TryGetExactScalarMultipleOf(const BlockSparseDataTensor &, ElemT *) const;
+
+  /** @brief Tolerant scalar-multiple check over matching block topology. */
+  bool TryGetScalarMultipleOf(
+      const BlockSparseDataTensor &,
+      ElemT *,
+      typename RealTypeTrait<ElemT>::type,
+      typename RealTypeTrait<ElemT>::type
+  ) const;
+
+  /** @brief Stable hash of raw-data size and stored raw bytes. */
+  uint64_t RawDataContentHash(void) const;
 
   // Operators overload
   bool operator==(const BlockSparseDataTensor &) const;
