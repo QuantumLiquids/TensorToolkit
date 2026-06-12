@@ -389,13 +389,27 @@ class BlockSparseDataTensor : public Streamable {
     return blk_idx_data_blk_map_;
   }
 
-  /// Get the pointer to actual raw data constant.
+  /**
+   * @brief Get the pointer to the stored raw data buffer.
+   *
+   * @warning The pointer refers to TensorToolkit-managed storage. Its address
+   *          space and valid operations depend on the configured backend.
+   *          Avoid host-only loops or architecture-specific pointer handling in
+   *          downstream code; prefer existing backend-aware helpers or request
+   *          a canonical upstream interface.
+   */
   const ElemT *GetActualRawDataPtr(void) const { return pactual_raw_data_; }
 
   /// Get the actual raw data size.
   size_t GetActualRawDataSize(void) const { return actual_raw_data_size_; }
 
-  ///Get the pointer to actual raw data
+  /**
+   * @brief Get the mutable pointer to the stored raw data buffer.
+   *
+   * @warning See the const overload. Mutating raw storage directly is an
+   *          internal/escape-hatch operation and must preserve the block-sparse
+   *          layout invariants.
+   */
   ElemT *GetActualRawDataPtr(void) { return pactual_raw_data_; }
 
   // Static members.
