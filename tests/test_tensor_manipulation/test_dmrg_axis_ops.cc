@@ -7,6 +7,7 @@
 
 #include <functional>  // multiplies
 #include <numeric>     // accumulate
+#include <set>         // set
 
 #include "gtest/gtest.h"
 #include "qlten/qltensor_all.h"
@@ -222,6 +223,23 @@ size_t ExpectedRank2ThenMonomialDirectGemmCount(
   return expected;
 }
 
+template<typename QNT>
+void ExpectTopologyCarriesPrecomputedBlockIndices(
+    const dmrg::detail::OutputBlockTopology &topology,
+    const IndexVec<QNT> &output_indexes
+) {
+  ASSERT_EQ(topology.blk_idxs.size(), topology.blk_coors_s.size());
+  ASSERT_FALSE(topology.blk_idxs.empty());
+  std::set<size_t> unique_blk_idxs(topology.blk_idxs.begin(),
+                                   topology.blk_idxs.end());
+  EXPECT_EQ(unique_blk_idxs.size(), topology.blk_idxs.size());
+  for (size_t i = 0; i < topology.blk_idxs.size(); ++i) {
+    EXPECT_EQ(topology.blk_idxs[i],
+              dmrg::detail::BlkCoorsToBlkIdx(topology.blk_coors_s[i],
+                                             output_indexes));
+  }
+}
+
 TEST_F(DmrgAxisOpsTest, ApplyAxisDiagonalDefaultOutputScalesEachDegeneracy) {
   auto input = MakeInput();
   dmrg::AxisDiagonalOp<QLTEN_Double, U1QN> op{
@@ -360,6 +378,133 @@ TEST_F(DmrgAxisOpsTest, ApplyAxisMonomialScattersAndAccumulatesEntries) {
                               7.0 * input.GetElem({l, 1, r})));
     }
   }
+}
+
+TEST_F(DmrgAxisOpsTest,
+       MonomialOutputBlockTopologyCarriesPrecomputedBlockIndices) {
+  auto input = MakeInput();
+  dmrg::AxisMonomialOp<QLTEN_Double, U1QN> op{
+      phys_in,
+      phys_out,
+      qn0,
+      {
+          {0, 0, 1, 1, 5.0},
+          {0, 1, 1, 1, 7.0},
+          {1, 0, 0, 2, 3.0},
+          {1, 2, 0, 0, -2.0},
+      }
+  };
+  const auto output_indexes =
+      dmrg::detail::MonomialOutputIndexes(input, 1, op);
+
+  const auto topology =
+      dmrg::detail::GenerateMonomialOutputBlockTopology(
+          input, 1, op, output_indexes);
+
+  ASSERT_EQ(topology.blk_idxs.size(), 2U);
+  ExpectTopologyCarriesPrecomputedBlockIndices(topology, output_indexes);
+}
+
+TEST_F(DmrgAxisOpsTest,
+       ProjectedOutputBlockTopologyCarriesPrecomputedBlockIndices) {
+  auto input = MakeInput();
+  dmrg::AxisProjector<U1QN> projector{
+      phys_in,
+      {{1}, {2, 0}}
+  };
+  const auto input_sector_to_output_sector =
+      dmrg::detail::ValidateProjectorAndBuildSectorMap(input.GetIndex(1),
+                                                       projector,
+                                                       "test");
+  const auto output_indexes =
+      dmrg::detail::ProjectedOutputIndexes(input, 1, projector);
+
+  const auto topology =
+      dmrg::detail::GenerateProjectedOutputBlockTopology(
+          input, 1, input_sector_to_output_sector, output_indexes);
+
+  ExpectTopologyCarriesPrecomputedBlockIndices(topology, output_indexes);
+}
+
+TEST_F(DmrgAxisOpsTest,
+       Rank2OutputBlockTopologyCarriesPrecomputedBlockIndices) {
+  auto input = MakeInput();
+  Tensor rank2_op({InverseIndex(phys_in), phys_out});
+  rank2_op.Fill(qn0, 0.0);
+  const auto output_indexes =
+      dmrg::detail::Rank2OutputIndexes(input, 1, rank2_op);
+
+  const auto topology =
+      dmrg::detail::GenerateRank2OutputBlockTopology(
+          input, 1, rank2_op, output_indexes);
+
+  ExpectTopologyCarriesPrecomputedBlockIndices(topology, output_indexes);
+}
+
+TEST_F(DmrgAxisOpsTest,
+       TwoRank2OutputBlockTopologyCarriesPrecomputedBlockIndices) {
+  auto input = MakeInput();
+  Tensor op1({InverseIndex(left), left});
+  Tensor op2({InverseIndex(right), right});
+  op1.Fill(qn0, 0.0);
+  op2.Fill(qn0, 0.0);
+  const auto output_indexes =
+      dmrg::detail::TwoRank2OutputIndexes(input, 0, op1, 2, op2);
+
+  const auto topology =
+      dmrg::detail::GenerateTwoRank2OutputBlockTopology(
+          input, op1, 0, op2, 2, output_indexes);
+
+  ExpectTopologyCarriesPrecomputedBlockIndices(topology, output_indexes);
+}
+
+TEST_F(DmrgAxisOpsTest,
+       Rank2ThenMonomialOutputBlockTopologyCarriesPrecomputedBlockIndices) {
+  auto input = MakeInput();
+  Tensor rank2_op({InverseIndex(left), left});
+  rank2_op.Fill(qn0, 0.0);
+  dmrg::AxisMonomialOp<QLTEN_Double, U1QN> monomial{
+      phys_in,
+      phys_out,
+      qn0,
+      {
+          {0, 0, 1, 1, 5.0},
+          {0, 1, 1, 1, 7.0},
+          {1, 0, 0, 2, 3.0},
+          {1, 2, 0, 0, -2.0},
+      }
+  };
+  const auto output_indexes =
+      dmrg::detail::Rank2ThenMonomialOutputIndexes(
+          input, 0, rank2_op, 1, monomial);
+
+  const auto topology =
+      dmrg::detail::GenerateRank2ThenMonomialOutputBlockTopology(
+          input, 0, rank2_op, 1, monomial, output_indexes);
+
+  ExpectTopologyCarriesPrecomputedBlockIndices(topology, output_indexes);
+}
+
+TEST_F(DmrgAxisOpsTest,
+       InputLikeOutputBlockTopologyCarriesStoredBlockIndices) {
+  auto input = MakeInput();
+
+  const auto topology = dmrg::detail::InputLikeOutputBlockTopology(input);
+
+  ExpectTopologyCarriesPrecomputedBlockIndices(topology, input.GetIndexes());
+}
+
+TEST_F(DmrgAxisOpsTest,
+       MoveHeadAxisToTailOutputBlockTopologyCarriesPrecomputedBlockIndices) {
+  auto input = MakeNontrivialRank4Input(qn0);
+  const auto output_indexes =
+      dmrg::detail::MoveHeadAxisToTailIndexes(input.GetIndexes());
+
+  const auto topology =
+      dmrg::detail::GenerateMoveHeadAxisToTailOutputBlockTopology(
+          input, output_indexes);
+
+  ExpectTopologyCarriesPrecomputedBlockIndices(topology, output_indexes);
 }
 
 TEST_F(DmrgAxisOpsTest, ApplyAxisMonomialIncrementsFlopCount) {

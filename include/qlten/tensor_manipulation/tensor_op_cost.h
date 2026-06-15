@@ -551,12 +551,15 @@ TensorOpCost<QNT> EstimateRank2AxisApplyCost(
   const auto output_indexes =
       dmrg::detail::Rank2OutputIndexes(input, target_axis, rank2_op);
   dmrg::AxisOpStats stats;
-  const auto output_blk_coors =
-      dmrg::detail::GenerateRank2OutputBlockCoors(
+  const auto output_topology =
+      dmrg::detail::GenerateRank2OutputBlockTopology(
           input, target_axis, rank2_op, output_indexes, &stats);
   QLTensor<ElemT, QNT> output(output_indexes);
-  if (!output_blk_coors.empty()) {
-    output.GetBlkSparDataTen().DataBlksInsert(output_blk_coors, false, false);
+  if (!output_topology.blk_coors_s.empty()) {
+    output.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                              output_topology.blk_coors_s,
+                                              false,
+                                              false);
   }
 
   TensorOpCost<QNT> cost;
@@ -626,12 +629,15 @@ TensorOpCost<QNT> EstimateTwoRank2AxesApplyCost(
 
   const auto output_indexes =
       dmrg::detail::TwoRank2OutputIndexes(input, axis1, op1, axis2, op2);
-  const auto output_blk_coors =
-      dmrg::detail::GenerateTwoRank2OutputBlockCoors(
+  const auto output_topology =
+      dmrg::detail::GenerateTwoRank2OutputBlockTopology(
           input, op1, axis1, op2, axis2, output_indexes);
   QLTensor<ElemT, QNT> output(output_indexes);
-  if (!output_blk_coors.empty()) {
-    output.GetBlkSparDataTen().DataBlksInsert(output_blk_coors, false, false);
+  if (!output_topology.blk_coors_s.empty()) {
+    output.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                              output_topology.blk_coors_s,
+                                              false,
+                                              false);
   }
 
   TensorOpCost<QNT> cost;
@@ -783,12 +789,15 @@ TensorOpCost<QNT> EstimateAxisMetadataApplyCost(
 
   const auto output_indexes =
       dmrg::detail::MonomialOutputIndexes(input, axis, op);
-  const auto output_blk_coors =
-      dmrg::detail::GenerateMonomialOutputBlockCoors(
+  const auto output_topology =
+      dmrg::detail::GenerateMonomialOutputBlockTopology(
           input, axis, op, output_indexes);
   QLTensor<ElemT, QNT> output(output_indexes);
-  if (!output_blk_coors.empty()) {
-    output.GetBlkSparDataTen().DataBlksInsert(output_blk_coors, false, false);
+  if (!output_topology.blk_coors_s.empty()) {
+    output.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                              output_topology.blk_coors_s,
+                                              false,
+                                              false);
   }
 
   TensorOpCost<QNT> cost;

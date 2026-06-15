@@ -493,30 +493,50 @@ size_t OutputBlockTopologyCapacity(const IndexVec<QNT> &indexes) {
                          std::multiplies<size_t>());
 }
 
+struct OutputBlockTopology {
+  std::vector<size_t> blk_idxs;
+  std::vector<CoorsT> blk_coors_s;
+};
+
 template<typename QNT>
-void ReserveOutputBlockCoors(
-    std::vector<CoorsT> &output_blk_coors_s,
+void ReserveOutputBlockTopology(
+    OutputBlockTopology &topology,
     const IndexVec<QNT> &output_indexes,
     const size_t candidate_count
 ) {
   const size_t capacity = OutputBlockTopologyCapacity(output_indexes);
-  output_blk_coors_s.reserve(
-      candidate_count < capacity ? candidate_count : capacity);
+  const size_t reserve_size =
+      candidate_count < capacity ? candidate_count : capacity;
+  topology.blk_idxs.reserve(reserve_size);
+  topology.blk_coors_s.reserve(reserve_size);
 }
 
 template<typename ElemT, typename QNT>
-std::vector<CoorsT> GenerateProjectedOutputBlockCoors(
+OutputBlockTopology InputLikeOutputBlockTopology(
+    const QLTensor<ElemT, QNT> &input
+) {
+  OutputBlockTopology topology;
+  const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  topology.blk_idxs.reserve(input_blocks.size());
+  topology.blk_coors_s.reserve(input_blocks.size());
+  for (const auto &entry : input_blocks) {
+    topology.blk_idxs.push_back(entry.first);
+    topology.blk_coors_s.push_back(entry.second.blk_coors);
+  }
+  return topology;
+}
+
+template<typename ElemT, typename QNT>
+OutputBlockTopology GenerateProjectedOutputBlockTopology(
     const QLTensor<ElemT, QNT> &input,
     const size_t axis,
     const std::vector<size_t> &input_sector_to_output_sector,
     const IndexVec<QNT> &output_indexes
 ) {
   std::set<size_t> seen_blk_idxs;
-  std::vector<CoorsT> output_blk_coors_s;
+  OutputBlockTopology topology;
   const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
-  ReserveOutputBlockCoors(output_blk_coors_s,
-                          output_indexes,
-                          input_blocks.size());
+  ReserveOutputBlockTopology(topology, output_indexes, input_blocks.size());
   for (const auto &entry : input_blocks) {
     const auto &input_blk = entry.second;
     const size_t output_sector =
@@ -528,10 +548,22 @@ std::vector<CoorsT> GenerateProjectedOutputBlockCoors(
     output_blk_coors[axis] = output_sector;
     const size_t output_blk_idx = BlkCoorsToBlkIdx(output_blk_coors, output_indexes);
     if (seen_blk_idxs.insert(output_blk_idx).second) {
-      output_blk_coors_s.push_back(std::move(output_blk_coors));
+      topology.blk_idxs.push_back(output_blk_idx);
+      topology.blk_coors_s.push_back(std::move(output_blk_coors));
     }
   }
-  return output_blk_coors_s;
+  return topology;
+}
+
+template<typename ElemT, typename QNT>
+std::vector<CoorsT> GenerateProjectedOutputBlockCoors(
+    const QLTensor<ElemT, QNT> &input,
+    const size_t axis,
+    const std::vector<size_t> &input_sector_to_output_sector,
+    const IndexVec<QNT> &output_indexes
+) {
+  return GenerateProjectedOutputBlockTopology(
+      input, axis, input_sector_to_output_sector, output_indexes).blk_coors_s;
 }
 
 template<typename ElemT, typename QNT>
@@ -583,14 +615,12 @@ void InitializeOutputLikeInput(
     QLTensor<ElemT, QNT> &output
 ) {
   output = QLTensor<ElemT, QNT>(input.GetIndexes());
-  std::vector<CoorsT> blk_coors_s;
-  const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
-  blk_coors_s.reserve(input_blocks.size());
-  for (const auto &entry : input_blocks) {
-    blk_coors_s.push_back(entry.second.blk_coors);
-  }
-  if (!blk_coors_s.empty()) {
-    output.GetBlkSparDataTen().DataBlksInsert(blk_coors_s, true, true);
+  const auto topology = InputLikeOutputBlockTopology(input);
+  if (!topology.blk_coors_s.empty()) {
+    output.GetBlkSparDataTen().DataBlksInsert(topology.blk_idxs,
+                                              topology.blk_coors_s,
+                                              true,
+                                              true);
   }
 }
 
@@ -916,9 +946,19 @@ template<typename ElemT, typename QNT>
 std::vector<std::vector<size_t>> Rank2OpBlockIndicesByInputSector(
     const QLTensor<ElemT, QNT> &rank2_op
 ) {
+  const size_t input_sector_count = rank2_op.GetIndex(0).GetQNSctNum();
   std::vector<std::vector<size_t>> op_blk_idxs_by_input_sector(
-      rank2_op.GetIndex(0).GetQNSctNum());
+      input_sector_count);
   const auto &op_blocks = rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  std::vector<size_t> op_blk_counts_by_input_sector(input_sector_count, 0);
+  for (const auto &op_entry : op_blocks) {
+    const auto &op_blk = op_entry.second;
+    ++op_blk_counts_by_input_sector[op_blk.blk_coors[0]];
+  }
+  for (size_t sector = 0; sector < input_sector_count; ++sector) {
+    op_blk_idxs_by_input_sector[sector].reserve(
+        op_blk_counts_by_input_sector[sector]);
+  }
   for (const auto &op_entry : op_blocks) {
     const auto &op_blk = op_entry.second;
     op_blk_idxs_by_input_sector[op_blk.blk_coors[0]].push_back(op_entry.first);
@@ -927,7 +967,7 @@ std::vector<std::vector<size_t>> Rank2OpBlockIndicesByInputSector(
 }
 
 template<typename ElemT, typename QNT>
-std::vector<CoorsT> GenerateRank2OutputBlockCoors(
+OutputBlockTopology GenerateRank2OutputBlockTopology(
     const QLTensor<ElemT, QNT> &input,
     const size_t axis,
     const QLTensor<ElemT, QNT> &rank2_op,
@@ -935,7 +975,7 @@ std::vector<CoorsT> GenerateRank2OutputBlockCoors(
     AxisOpStats *stats = nullptr
 ) {
   std::set<size_t> seen_blk_idxs;
-  std::vector<CoorsT> output_blk_coors_s;
+  OutputBlockTopology topology;
   const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
   const auto &op_blocks = rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
   const auto op_blk_idxs_by_input_sector =
@@ -946,9 +986,7 @@ std::vector<CoorsT> GenerateRank2OutputBlockCoors(
     candidate_count +=
         op_blk_idxs_by_input_sector[input_blk.blk_coors[axis]].size();
   }
-  ReserveOutputBlockCoors(output_blk_coors_s,
-                          output_indexes,
-                          candidate_count);
+  ReserveOutputBlockTopology(topology, output_indexes, candidate_count);
   for (const auto &input_entry : input_blocks) {
     const auto &input_blk = input_entry.second;
     const auto &matching_op_blk_idxs =
@@ -965,11 +1003,24 @@ std::vector<CoorsT> GenerateRank2OutputBlockCoors(
       output_blk_coors[axis] = op_blk.blk_coors[1];
       const size_t output_blk_idx = BlkCoorsToBlkIdx(output_blk_coors, output_indexes);
       if (seen_blk_idxs.insert(output_blk_idx).second) {
-        output_blk_coors_s.push_back(std::move(output_blk_coors));
+        topology.blk_idxs.push_back(output_blk_idx);
+        topology.blk_coors_s.push_back(std::move(output_blk_coors));
       }
     }
   }
-  return output_blk_coors_s;
+  return topology;
+}
+
+template<typename ElemT, typename QNT>
+std::vector<CoorsT> GenerateRank2OutputBlockCoors(
+    const QLTensor<ElemT, QNT> &input,
+    const size_t axis,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    const IndexVec<QNT> &output_indexes,
+    AxisOpStats *stats = nullptr
+) {
+  return GenerateRank2OutputBlockTopology(
+      input, axis, rank2_op, output_indexes, stats).blk_coors_s;
 }
 
 template<typename ElemT, typename QNT>
@@ -1006,7 +1057,7 @@ IndexVec<QNT> Rank2ThenMonomialOutputIndexes(
 }
 
 template<typename ElemT, typename QNT>
-std::vector<CoorsT> GenerateRank2ThenMonomialOutputBlockCoors(
+OutputBlockTopology GenerateRank2ThenMonomialOutputBlockTopology(
     const QLTensor<ElemT, QNT> &input,
     const size_t rank2_axis,
     const QLTensor<ElemT, QNT> &rank2_op,
@@ -1016,7 +1067,7 @@ std::vector<CoorsT> GenerateRank2ThenMonomialOutputBlockCoors(
     AxisOpStats *stats = nullptr
 ) {
   std::set<size_t> seen_blk_idxs;
-  std::vector<CoorsT> output_blk_coors_s;
+  OutputBlockTopology topology;
   const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
   const auto &op_blocks = rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
   const auto op_blk_idxs_by_input_sector =
@@ -1028,9 +1079,7 @@ std::vector<CoorsT> GenerateRank2ThenMonomialOutputBlockCoors(
         op_blk_idxs_by_input_sector[input_blk.blk_coors[rank2_axis]].size() *
         monomial.entries.size();
   }
-  ReserveOutputBlockCoors(output_blk_coors_s,
-                          output_indexes,
-                          candidate_count);
+  ReserveOutputBlockTopology(topology, output_indexes, candidate_count);
   for (const auto &input_entry : input_blocks) {
     const auto &input_blk = input_entry.second;
     const auto &matching_op_blk_idxs =
@@ -1055,12 +1104,33 @@ std::vector<CoorsT> GenerateRank2ThenMonomialOutputBlockCoors(
         const size_t output_blk_idx =
             BlkCoorsToBlkIdx(output_blk_coors, output_indexes);
         if (seen_blk_idxs.insert(output_blk_idx).second) {
-          output_blk_coors_s.push_back(std::move(output_blk_coors));
+          topology.blk_idxs.push_back(output_blk_idx);
+          topology.blk_coors_s.push_back(std::move(output_blk_coors));
         }
       }
     }
   }
-  return output_blk_coors_s;
+  return topology;
+}
+
+template<typename ElemT, typename QNT>
+std::vector<CoorsT> GenerateRank2ThenMonomialOutputBlockCoors(
+    const QLTensor<ElemT, QNT> &input,
+    const size_t rank2_axis,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    const size_t monomial_axis,
+    const AxisMonomialOp<ElemT, QNT> &monomial,
+    const IndexVec<QNT> &output_indexes,
+    AxisOpStats *stats = nullptr
+) {
+  return GenerateRank2ThenMonomialOutputBlockTopology(
+      input,
+      rank2_axis,
+      rank2_op,
+      monomial_axis,
+      monomial,
+      output_indexes,
+      stats).blk_coors_s;
 }
 
 template<typename QNT>
@@ -1084,6 +1154,23 @@ inline CoorsT MoveHeadAxisToTailCoors(const CoorsT &input_coors) {
                       input_coors.end());
   output_coors.push_back(input_coors.front());
   return output_coors;
+}
+
+template<typename ElemT, typename QNT>
+OutputBlockTopology GenerateMoveHeadAxisToTailOutputBlockTopology(
+    const QLTensor<ElemT, QNT> &input,
+    const IndexVec<QNT> &output_indexes
+) {
+  OutputBlockTopology topology;
+  const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  ReserveOutputBlockTopology(topology, output_indexes, input_blocks.size());
+  for (const auto &entry : input_blocks) {
+    CoorsT output_blk_coors = MoveHeadAxisToTailCoors(entry.second.blk_coors);
+    topology.blk_idxs.push_back(
+        BlkCoorsToBlkIdx(output_blk_coors, output_indexes));
+    topology.blk_coors_s.push_back(std::move(output_blk_coors));
+  }
+  return topology;
 }
 
 template<typename ElemT>
@@ -1438,7 +1525,7 @@ IndexVec<QNT> TwoRank2OutputIndexes(
 }
 
 template<typename ElemT, typename QNT>
-std::vector<CoorsT> GenerateTwoRank2OutputBlockCoors(
+OutputBlockTopology GenerateTwoRank2OutputBlockTopology(
     const QLTensor<ElemT, QNT> &input,
     const QLTensor<ElemT, QNT> &op1,
     const size_t axis1,
@@ -1447,7 +1534,7 @@ std::vector<CoorsT> GenerateTwoRank2OutputBlockCoors(
     const IndexVec<QNT> &output_indexes
 ) {
   std::set<size_t> seen_blk_idxs;
-  std::vector<CoorsT> output_blk_coors_s;
+  OutputBlockTopology topology;
   const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
   const auto &op1_blocks = op1.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
   const auto &op2_blocks = op2.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
@@ -1462,9 +1549,7 @@ std::vector<CoorsT> GenerateTwoRank2OutputBlockCoors(
         op1_blk_idxs_by_input_sector[input_blk.blk_coors[axis1]].size() *
         op2_blk_idxs_by_input_sector[input_blk.blk_coors[axis2]].size();
   }
-  ReserveOutputBlockCoors(output_blk_coors_s,
-                          output_indexes,
-                          candidate_count);
+  ReserveOutputBlockTopology(topology, output_indexes, candidate_count);
 
   for (const auto &input_entry : input_blocks) {
     const auto &input_blk = input_entry.second;
@@ -1482,12 +1567,26 @@ std::vector<CoorsT> GenerateTwoRank2OutputBlockCoors(
         const size_t output_blk_idx =
             BlkCoorsToBlkIdx(output_blk_coors, output_indexes);
         if (seen_blk_idxs.insert(output_blk_idx).second) {
-          output_blk_coors_s.push_back(std::move(output_blk_coors));
+          topology.blk_idxs.push_back(output_blk_idx);
+          topology.blk_coors_s.push_back(std::move(output_blk_coors));
         }
       }
     }
   }
-  return output_blk_coors_s;
+  return topology;
+}
+
+template<typename ElemT, typename QNT>
+std::vector<CoorsT> GenerateTwoRank2OutputBlockCoors(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &op1,
+    const size_t axis1,
+    const QLTensor<ElemT, QNT> &op2,
+    const size_t axis2,
+    const IndexVec<QNT> &output_indexes
+) {
+  return GenerateTwoRank2OutputBlockTopology(
+      input, op1, axis1, op2, axis2, output_indexes).blk_coors_s;
 }
 
 #ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
@@ -1623,18 +1722,18 @@ void AddTwoRank2AxesBlockGemm(
 }
 
 template<typename ElemT, typename QNT>
-std::vector<CoorsT> GenerateMonomialOutputBlockCoors(
+OutputBlockTopology GenerateMonomialOutputBlockTopology(
     const QLTensor<ElemT, QNT> &input,
     const size_t axis,
     const AxisMonomialOp<ElemT, QNT> &op,
     const IndexVec<QNT> &output_indexes
 ) {
   std::set<size_t> seen_blk_idxs;
-  std::vector<CoorsT> output_blk_coors_s;
+  OutputBlockTopology topology;
   const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
-  ReserveOutputBlockCoors(output_blk_coors_s,
-                          output_indexes,
-                          input_blocks.size() * op.entries.size());
+  ReserveOutputBlockTopology(topology,
+                             output_indexes,
+                             input_blocks.size() * op.entries.size());
   for (const auto &input_entry : input_blocks) {
     const auto &input_blk = input_entry.second;
     for (const auto &op_entry : op.entries) {
@@ -1645,11 +1744,23 @@ std::vector<CoorsT> GenerateMonomialOutputBlockCoors(
       output_blk_coors[axis] = op_entry.out_sector;
       const size_t output_blk_idx = BlkCoorsToBlkIdx(output_blk_coors, output_indexes);
       if (seen_blk_idxs.insert(output_blk_idx).second) {
-        output_blk_coors_s.push_back(std::move(output_blk_coors));
+        topology.blk_idxs.push_back(output_blk_idx);
+        topology.blk_coors_s.push_back(std::move(output_blk_coors));
       }
     }
   }
-  return output_blk_coors_s;
+  return topology;
+}
+
+template<typename ElemT, typename QNT>
+std::vector<CoorsT> GenerateMonomialOutputBlockCoors(
+    const QLTensor<ElemT, QNT> &input,
+    const size_t axis,
+    const AxisMonomialOp<ElemT, QNT> &op,
+    const IndexVec<QNT> &output_indexes
+) {
+  return GenerateMonomialOutputBlockTopology(
+      input, axis, op, output_indexes).blk_coors_s;
 }
 
 template<typename ElemT, typename QNT>
@@ -1860,15 +1971,18 @@ void ProjectAxis(
                                                  projector,
                                                  kFunc);
   const auto output_indexes = detail::ProjectedOutputIndexes(input, axis, projector);
-  const auto output_blk_coors_s =
-      detail::GenerateProjectedOutputBlockCoors(input,
-                                                axis,
-                                                input_sector_to_output_sector,
-                                                output_indexes);
+  const auto output_topology =
+      detail::GenerateProjectedOutputBlockTopology(input,
+                                                   axis,
+                                                   input_sector_to_output_sector,
+                                                   output_indexes);
 
   output = QLTensor<ElemT, QNT>(output_indexes);
-  if (!output_blk_coors_s.empty()) {
-    output.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  if (!output_topology.blk_coors_s.empty()) {
+    output.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                              output_topology.blk_coors_s,
+                                              true,
+                                              true);
   }
   detail::RequireRawDataIfBlocksPresent(output, kFunc, "output");
 
@@ -2162,13 +2276,19 @@ void ApplyAxisMonomial(
   detail::RequireRawDataIfBlocksPresent(input, kFunc, "input");
 
   const auto output_indexes = detail::MonomialOutputIndexes(input, axis, op);
-  const auto output_blk_coors_s =
-      detail::GenerateMonomialOutputBlockCoors(input, axis, op, output_indexes);
+  const auto output_topology =
+      detail::GenerateMonomialOutputBlockTopology(input,
+                                                  axis,
+                                                  op,
+                                                  output_indexes);
 
   if (beta == ElemT(0)) {
     output = QLTensor<ElemT, QNT>(output_indexes);
-    if (!output_blk_coors_s.empty()) {
-      output.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+    if (!output_topology.blk_coors_s.empty()) {
+      output.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                                output_topology.blk_coors_s,
+                                                true,
+                                                true);
     }
   } else {
     if (output.IsDefault()) {
@@ -2178,7 +2298,7 @@ void ApplyAxisMonomial(
       );
     }
     if (output.GetIndexes() != output_indexes ||
-        !detail::BlockTopologyMatchesCoors(output, output_blk_coors_s)) {
+        !detail::BlockTopologyMatchesCoors(output, output_topology.blk_coors_s)) {
       throw std::invalid_argument(
           detail::AxisOpsPrefix(kFunc) +
           "output must have the generated index and block topology when beta "
@@ -2189,7 +2309,8 @@ void ApplyAxisMonomial(
     detail::ScaleTensorRawData(output, beta);
   }
 
-  if (alpha == ElemT(0) || op.entries.empty() || output_blk_coors_s.empty()) {
+  if (alpha == ElemT(0) || op.entries.empty() ||
+      output_topology.blk_coors_s.empty()) {
     return;
   }
   detail::RequireRawDataIfBlocksPresent(output, kFunc, "output");
@@ -2278,20 +2399,23 @@ void ApplyRank2ToAxisPreserveOrder(
 
   const auto output_indexes =
       detail::Rank2OutputIndexes(input, target_axis, rank2_op);
-  const auto output_blk_coors_s =
-      detail::GenerateRank2OutputBlockCoors(input,
-                                            target_axis,
-                                            rank2_op,
-                                            output_indexes,
-                                            stats);
+  const auto output_topology =
+      detail::GenerateRank2OutputBlockTopology(input,
+                                               target_axis,
+                                               rank2_op,
+                                               output_indexes,
+                                               stats);
   out = QLTensor<ElemT, QNT>(output_indexes);
   if (stats != nullptr) {
     ++stats->output_tensor_rebuilds;
   }
-  if (!output_blk_coors_s.empty()) {
-    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  if (!output_topology.blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                           output_topology.blk_coors_s,
+                                           true,
+                                           true);
   }
-  if (output_blk_coors_s.empty()) {
+  if (output_topology.blk_coors_s.empty()) {
     return;
   }
   detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
@@ -2387,13 +2511,13 @@ void ApplyTwoRank2ToAxesPreserveOrder(
 
   const auto output_indexes =
       detail::TwoRank2OutputIndexes(input, axis1, op1, axis2, op2);
-  const auto output_blk_coors_s =
-      detail::GenerateTwoRank2OutputBlockCoors(input,
-                                               op1,
-                                               axis1,
-                                               op2,
-                                               axis2,
-                                               output_indexes);
+  const auto output_topology =
+      detail::GenerateTwoRank2OutputBlockTopology(input,
+                                                  op1,
+                                                  axis1,
+                                                  op2,
+                                                  axis2,
+                                                  output_indexes);
   out = QLTensor<ElemT, QNT>(output_indexes);
   if (stats != nullptr) {
     ++stats->output_tensor_rebuilds;
@@ -2403,10 +2527,13 @@ void ApplyTwoRank2ToAxesPreserveOrder(
     ++stats->two_rank2_block_gemm_hits;
 #endif
   }
-  if (!output_blk_coors_s.empty()) {
-    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  if (!output_topology.blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                           output_topology.blk_coors_s,
+                                           true,
+                                           true);
   }
-  if (output_blk_coors_s.empty()) {
+  if (output_topology.blk_coors_s.empty()) {
     return;
   }
   detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
@@ -2566,20 +2693,23 @@ void ApplyRank2ThenAxisSectorScalarsFusedPreserveOrder(
   const auto output_indexes =
       detail::Rank2OutputIndexes(input, rank2_axis, rank2_op);
   detail::RequireAxisSectorScalarMatchesOutput(output_indexes, scale, kFunc);
-  const auto output_blk_coors_s =
-      detail::GenerateRank2OutputBlockCoors(input,
-                                            rank2_axis,
-                                            rank2_op,
-                                            output_indexes,
-                                            stats);
+  const auto output_topology =
+      detail::GenerateRank2OutputBlockTopology(input,
+                                               rank2_axis,
+                                               rank2_op,
+                                               output_indexes,
+                                               stats);
   out = QLTensor<ElemT, QNT>(output_indexes);
   if (stats != nullptr) {
     ++stats->output_tensor_rebuilds;
   }
-  if (!output_blk_coors_s.empty()) {
-    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  if (!output_topology.blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                           output_topology.blk_coors_s,
+                                           true,
+                                           true);
   }
-  if (output_blk_coors_s.empty()) {
+  if (output_topology.blk_coors_s.empty()) {
     return;
   }
   detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
@@ -2684,22 +2814,25 @@ void ApplyRank2ThenAxisMonomialFusedPreserveOrder(
                                              rank2_op,
                                              monomial_axis,
                                              monomial);
-  const auto output_blk_coors_s =
-      detail::GenerateRank2ThenMonomialOutputBlockCoors(input,
-                                                        rank2_axis,
-                                                        rank2_op,
-                                                        monomial_axis,
-                                                        monomial,
-                                                        output_indexes,
-                                                        stats);
+  const auto output_topology =
+      detail::GenerateRank2ThenMonomialOutputBlockTopology(input,
+                                                           rank2_axis,
+                                                           rank2_op,
+                                                           monomial_axis,
+                                                           monomial,
+                                                           output_indexes,
+                                                           stats);
   out = QLTensor<ElemT, QNT>(output_indexes);
   if (stats != nullptr) {
     ++stats->output_tensor_rebuilds;
   }
-  if (!output_blk_coors_s.empty()) {
-    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  if (!output_topology.blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                           output_topology.blk_coors_s,
+                                           true,
+                                           true);
   }
-  if (output_blk_coors_s.empty()) {
+  if (output_topology.blk_coors_s.empty()) {
     return;
   }
   detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
@@ -2925,13 +3058,13 @@ void ApplyTwoRank2ThenAxisSectorScalarsFusedPreserveOrder(
   const auto output_indexes =
       detail::TwoRank2OutputIndexes(input, axis1, op1, axis2, op2);
   detail::RequireAxisSectorScalarMatchesOutput(output_indexes, scale, kFunc);
-  const auto output_blk_coors_s =
-      detail::GenerateTwoRank2OutputBlockCoors(input,
-                                               op1,
-                                               axis1,
-                                               op2,
-                                               axis2,
-                                               output_indexes);
+  const auto output_topology =
+      detail::GenerateTwoRank2OutputBlockTopology(input,
+                                                  op1,
+                                                  axis1,
+                                                  op2,
+                                                  axis2,
+                                                  output_indexes);
   out = QLTensor<ElemT, QNT>(output_indexes);
   if (stats != nullptr) {
     ++stats->output_tensor_rebuilds;
@@ -2941,10 +3074,13 @@ void ApplyTwoRank2ThenAxisSectorScalarsFusedPreserveOrder(
     ++stats->two_rank2_block_gemm_hits;
 #endif
   }
-  if (!output_blk_coors_s.empty()) {
-    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  if (!output_topology.blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                           output_topology.blk_coors_s,
+                                           true,
+                                           true);
   }
-  if (output_blk_coors_s.empty()) {
+  if (output_topology.blk_coors_s.empty()) {
     return;
   }
   detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
@@ -3085,19 +3221,18 @@ void MoveHeadAxisToTail(
 
   const auto output_indexes =
       detail::MoveHeadAxisToTailIndexes(input.GetIndexes());
-  const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
-  std::vector<CoorsT> output_blk_coors_s;
-  output_blk_coors_s.reserve(input_blocks.size());
-  for (const auto &entry : input_blocks) {
-    output_blk_coors_s.push_back(
-        detail::MoveHeadAxisToTailCoors(entry.second.blk_coors));
-  }
+  const auto output_topology =
+      detail::GenerateMoveHeadAxisToTailOutputBlockTopology(input,
+                                                            output_indexes);
 
   out = QLTensor<ElemT, QNT>(output_indexes);
-  if (!output_blk_coors_s.empty()) {
-    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  if (!output_topology.blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
+                                           output_topology.blk_coors_s,
+                                           true,
+                                           true);
   }
-  if (output_blk_coors_s.empty()) {
+  if (output_topology.blk_coors_s.empty()) {
     return;
   }
   detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
@@ -3106,6 +3241,7 @@ void MoveHeadAxisToTail(
   auto &output_bsdt = out.GetBlkSparDataTen();
   const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
   ElemT *output_data = output_bsdt.GetActualRawDataPtr();
+  const auto &input_blocks = input_bsdt.GetBlkIdxDataBlkMap();
   const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
 
   static_assert(detail::IsHpNumericElem<ElemT>(),
@@ -3118,11 +3254,11 @@ void MoveHeadAxisToTail(
   output_ptrs.reserve(input_blocks.size());
   rows.reserve(input_blocks.size());
   cols.reserve(input_blocks.size());
+  size_t output_block_pos = 0;
   for (const auto &entry : input_blocks) {
     const auto &input_blk = entry.second;
-    const auto output_blk_coors =
-        detail::MoveHeadAxisToTailCoors(input_blk.blk_coors);
-    const size_t output_blk_idx = output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
+    const size_t output_blk_idx = output_topology.blk_idxs[output_block_pos];
+    ++output_block_pos;
     const auto &output_blk = output_blocks.at(output_blk_idx);
     input_ptrs.push_back(input_data + input_blk.data_offset);
     output_ptrs.push_back(output_data + output_blk.data_offset);
