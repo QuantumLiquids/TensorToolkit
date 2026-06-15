@@ -180,6 +180,10 @@ struct AxisOpStats {
   size_t two_rank2_block_workspace_bytes = 0;
   /// Number of intermediate tensor rebuilds in two-rank2 calls.
   size_t two_rank2_intermediate_rebuilds = 0;
+  /// Number of rank2+monomial calls using the 1D-sector direct write path.
+  size_t rank2_monomial_direct_hits = 0;
+  /// Temporary block workspace bytes used by the general rank2+monomial path.
+  size_t rank2_monomial_block_workspace_bytes = 0;
 };
 
 using Rank2AxisApplyStats = AxisOpStats;
@@ -480,6 +484,26 @@ size_t BlkCoorsToBlkIdx(
     const IndexVec<QNT> &indexes
 );
 
+template<typename QNT>
+size_t OutputBlockTopologyCapacity(const IndexVec<QNT> &indexes) {
+  const ShapeT blk_shape = CalcQNSctNumOfIdxs(indexes);
+  return std::accumulate(blk_shape.begin(),
+                         blk_shape.end(),
+                         size_t(1),
+                         std::multiplies<size_t>());
+}
+
+template<typename QNT>
+void ReserveOutputBlockCoors(
+    std::vector<CoorsT> &output_blk_coors_s,
+    const IndexVec<QNT> &output_indexes,
+    const size_t candidate_count
+) {
+  const size_t capacity = OutputBlockTopologyCapacity(output_indexes);
+  output_blk_coors_s.reserve(
+      candidate_count < capacity ? candidate_count : capacity);
+}
+
 template<typename ElemT, typename QNT>
 std::vector<CoorsT> GenerateProjectedOutputBlockCoors(
     const QLTensor<ElemT, QNT> &input,
@@ -490,6 +514,9 @@ std::vector<CoorsT> GenerateProjectedOutputBlockCoors(
   std::set<size_t> seen_blk_idxs;
   std::vector<CoorsT> output_blk_coors_s;
   const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  ReserveOutputBlockCoors(output_blk_coors_s,
+                          output_indexes,
+                          input_blocks.size());
   for (const auto &entry : input_blocks) {
     const auto &input_blk = entry.second;
     const size_t output_sector =
@@ -866,6 +893,26 @@ void RequireRank2OpMatchesAxis(
 }
 
 template<typename ElemT, typename QNT>
+void RequireAxisSectorScalarMatchesOutput(
+    const IndexVec<QNT> &output_indexes,
+    const AxisSectorScalar<ElemT, QNT> &scale,
+    const char *func
+) {
+  if (scale.axis >= output_indexes.size()) {
+    throw std::invalid_argument(
+        AxisOpsPrefix(func) + "scale axis is out of range."
+    );
+  }
+  if (scale.values_by_sector.size() !=
+      output_indexes[scale.axis].GetQNSctNum()) {
+    throw std::invalid_argument(
+        AxisOpsPrefix(func) +
+        "values_by_sector size must match the number of output sectors."
+    );
+  }
+}
+
+template<typename ElemT, typename QNT>
 std::vector<std::vector<size_t>> Rank2OpBlockIndicesByInputSector(
     const QLTensor<ElemT, QNT> &rank2_op
 ) {
@@ -893,6 +940,15 @@ std::vector<CoorsT> GenerateRank2OutputBlockCoors(
   const auto &op_blocks = rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
   const auto op_blk_idxs_by_input_sector =
       Rank2OpBlockIndicesByInputSector(rank2_op);
+  size_t candidate_count = 0;
+  for (const auto &input_entry : input_blocks) {
+    const auto &input_blk = input_entry.second;
+    candidate_count +=
+        op_blk_idxs_by_input_sector[input_blk.blk_coors[axis]].size();
+  }
+  ReserveOutputBlockCoors(output_blk_coors_s,
+                          output_indexes,
+                          candidate_count);
   for (const auto &input_entry : input_blocks) {
     const auto &input_blk = input_entry.second;
     const auto &matching_op_blk_idxs =
@@ -910,6 +966,97 @@ std::vector<CoorsT> GenerateRank2OutputBlockCoors(
       const size_t output_blk_idx = BlkCoorsToBlkIdx(output_blk_coors, output_indexes);
       if (seen_blk_idxs.insert(output_blk_idx).second) {
         output_blk_coors_s.push_back(std::move(output_blk_coors));
+      }
+    }
+  }
+  return output_blk_coors_s;
+}
+
+template<typename ElemT, typename QNT>
+bool AxisMonomialNonzeroEntriesAreOneDimensionalSectorMaps(
+    const AxisMonomialOp<ElemT, QNT> &monomial
+) {
+  for (const auto &entry : monomial.entries) {
+    if (entry.coef == ElemT(0)) {
+      continue;
+    }
+    if (entry.in_offset != 0 || entry.out_offset != 0) {
+      return false;
+    }
+    if (monomial.input_index.GetQNSct(entry.in_sector).GetDegeneracy() != 1 ||
+        monomial.output_index.GetQNSct(entry.out_sector).GetDegeneracy() != 1) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template<typename ElemT, typename QNT>
+IndexVec<QNT> Rank2ThenMonomialOutputIndexes(
+    const QLTensor<ElemT, QNT> &input,
+    const size_t rank2_axis,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    const size_t monomial_axis,
+    const AxisMonomialOp<ElemT, QNT> &monomial
+) {
+  IndexVec<QNT> output_indexes =
+      Rank2OutputIndexes(input, rank2_axis, rank2_op);
+  output_indexes[monomial_axis] = monomial.output_index;
+  return output_indexes;
+}
+
+template<typename ElemT, typename QNT>
+std::vector<CoorsT> GenerateRank2ThenMonomialOutputBlockCoors(
+    const QLTensor<ElemT, QNT> &input,
+    const size_t rank2_axis,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    const size_t monomial_axis,
+    const AxisMonomialOp<ElemT, QNT> &monomial,
+    const IndexVec<QNT> &output_indexes,
+    AxisOpStats *stats = nullptr
+) {
+  std::set<size_t> seen_blk_idxs;
+  std::vector<CoorsT> output_blk_coors_s;
+  const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &op_blocks = rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto op_blk_idxs_by_input_sector =
+      Rank2OpBlockIndicesByInputSector(rank2_op);
+  size_t candidate_count = 0;
+  for (const auto &input_entry : input_blocks) {
+    const auto &input_blk = input_entry.second;
+    candidate_count +=
+        op_blk_idxs_by_input_sector[input_blk.blk_coors[rank2_axis]].size() *
+        monomial.entries.size();
+  }
+  ReserveOutputBlockCoors(output_blk_coors_s,
+                          output_indexes,
+                          candidate_count);
+  for (const auto &input_entry : input_blocks) {
+    const auto &input_blk = input_entry.second;
+    const auto &matching_op_blk_idxs =
+        op_blk_idxs_by_input_sector[input_blk.blk_coors[rank2_axis]];
+    if (stats != nullptr && !matching_op_blk_idxs.empty()) {
+      ++stats->rank2_sector_index_hits;
+    }
+    for (const size_t op_blk_idx : matching_op_blk_idxs) {
+      const auto &op_blk = op_blocks.at(op_blk_idx);
+      if (stats != nullptr) {
+        ++stats->rank2_topology_block_pair_visits;
+      }
+      CoorsT rank2_output_blk_coors = input_blk.blk_coors;
+      rank2_output_blk_coors[rank2_axis] = op_blk.blk_coors[1];
+      for (const auto &monomial_entry : monomial.entries) {
+        if (monomial_entry.in_sector !=
+            rank2_output_blk_coors[monomial_axis]) {
+          continue;
+        }
+        CoorsT output_blk_coors = rank2_output_blk_coors;
+        output_blk_coors[monomial_axis] = monomial_entry.out_sector;
+        const size_t output_blk_idx =
+            BlkCoorsToBlkIdx(output_blk_coors, output_indexes);
+        if (seen_blk_idxs.insert(output_blk_idx).second) {
+          output_blk_coors_s.push_back(std::move(output_blk_coors));
+        }
       }
     }
   }
@@ -1031,6 +1178,9 @@ inline void AddAxisOpStats(AxisOpStats *stats, const AxisOpStats &other) {
       other.two_rank2_block_workspace_bytes;
   stats->two_rank2_intermediate_rebuilds +=
       other.two_rank2_intermediate_rebuilds;
+  stats->rank2_monomial_direct_hits += other.rank2_monomial_direct_hits;
+  stats->rank2_monomial_block_workspace_bytes +=
+      other.rank2_monomial_block_workspace_bytes;
 }
 
 template<typename ElemT>
@@ -1042,21 +1192,21 @@ void AddRank2AxisMiddleLoop(
     const ShapeT &op_shape,
     const ShapeT &output_shape,
     const size_t axis,
-    AxisOpStats *stats = nullptr
+    AxisOpStats *stats = nullptr,
+    const ElemT alpha = ElemT(1)
 ) {
   const size_t input_axis_dim = input_shape[axis];
   const size_t output_axis_dim = output_shape[axis];
   const size_t inner_size = AxisInnerSize(input_shape, axis);
   const size_t outer_size = std::accumulate(input_shape.begin(), input_shape.begin() + axis,
                                             size_t(1), std::multiplies<size_t>());
-  using AlphaT = typename RealTypeTrait<ElemT>::type;
 
   for (size_t outer = 0; outer < outer_size; ++outer) {
     const size_t input_outer_base = outer * input_axis_dim * inner_size;
     const size_t output_outer_base = outer * output_axis_dim * inner_size;
     AddGemmStats(stats, output_axis_dim, input_axis_dim, inner_size, false);
     hp_numeric::MatMultiply(
-        AlphaT(1),
+        alpha,
         op_data,
         BlasTrans(),
         input_data + input_outer_base,
@@ -1081,7 +1231,8 @@ void AddRank2AxisMiddleBatch(
     const ShapeT &op_shape,
     const ShapeT &output_shape,
     const size_t axis,
-    AxisOpStats *stats = nullptr
+    AxisOpStats *stats = nullptr,
+    const ElemT alpha = ElemT(1)
 ) {
   const size_t input_axis_dim = input_shape[axis];
   const size_t output_axis_dim = output_shape[axis];
@@ -1090,6 +1241,19 @@ void AddRank2AxisMiddleBatch(
                                             size_t(1), std::multiplies<size_t>());
   (void) op_shape;
   if (outer_size == 0) {
+    return;
+  }
+  if (alpha != ElemT(1)) {
+    AddBatchGemmStats(stats, outer_size, false);
+    AddRank2AxisMiddleLoop(input_data,
+                           op_data,
+                           output_data,
+                           input_shape,
+                           op_shape,
+                           output_shape,
+                           axis,
+                           stats,
+                           alpha);
     return;
   }
 
@@ -1187,7 +1351,8 @@ void AddRank2AxisBlock(
     const ShapeT &op_shape,
     const ShapeT &output_shape,
     const size_t axis,
-    AxisOpStats *stats = nullptr
+    AxisOpStats *stats = nullptr,
+    const ElemT alpha = ElemT(1)
 ) {
   static_assert(IsHpNumericElem<ElemT>(),
                 "DMRG axis operations require a hp_numeric-supported ElemT.");
@@ -1196,12 +1361,11 @@ void AddRank2AxisBlock(
   const size_t inner_size = AxisInnerSize(input_shape, axis);
   const size_t outer_size = std::accumulate(input_shape.begin(), input_shape.begin() + axis,
                                             size_t(1), std::multiplies<size_t>());
-  using AlphaT = typename RealTypeTrait<ElemT>::type;
 
   if (axis == 0) {
     AddGemmStats(stats, output_axis_dim, input_axis_dim, inner_size, true);
     hp_numeric::MatMultiply(
-        AlphaT(1),
+        alpha,
         op_data,
         BlasTrans(),
         input_data,
@@ -1220,7 +1384,7 @@ void AddRank2AxisBlock(
   if (axis + 1 == input_shape.size()) {
     AddGemmStats(stats, outer_size, input_axis_dim, output_axis_dim, true);
     hp_numeric::MatMultiply(
-        AlphaT(1),
+        alpha,
         input_data,
         BlasNoTrans(),
         op_data,
@@ -1244,7 +1408,8 @@ void AddRank2AxisBlock(
                             op_shape,
                             output_shape,
                             axis,
-                            stats);
+                            stats,
+                            alpha);
   } else {
     AddRank2AxisMiddleLoop(input_data,
                            op_data,
@@ -1253,7 +1418,8 @@ void AddRank2AxisBlock(
                            op_shape,
                            output_shape,
                            axis,
-                           stats);
+                           stats,
+                           alpha);
   }
 }
 
@@ -1289,6 +1455,16 @@ std::vector<CoorsT> GenerateTwoRank2OutputBlockCoors(
       Rank2OpBlockIndicesByInputSector(op1);
   const auto op2_blk_idxs_by_input_sector =
       Rank2OpBlockIndicesByInputSector(op2);
+  size_t candidate_count = 0;
+  for (const auto &input_entry : input_blocks) {
+    const auto &input_blk = input_entry.second;
+    candidate_count +=
+        op1_blk_idxs_by_input_sector[input_blk.blk_coors[axis1]].size() *
+        op2_blk_idxs_by_input_sector[input_blk.blk_coors[axis2]].size();
+  }
+  ReserveOutputBlockCoors(output_blk_coors_s,
+                          output_indexes,
+                          candidate_count);
 
   for (const auto &input_entry : input_blocks) {
     const auto &input_blk = input_entry.second;
@@ -1338,7 +1514,8 @@ void AddTwoRank2AxesBlock(
     const ShapeT &output_shape,
     const size_t axis1,
     const size_t axis2,
-    AxisOpStats *stats = nullptr
+    AxisOpStats *stats = nullptr,
+    const ElemT alpha = ElemT(1)
 ) {
   static_assert(IsHpNumericElem<ElemT>(),
                 "DMRG axis operations require a hp_numeric-supported ElemT.");
@@ -1379,7 +1556,7 @@ void AddTwoRank2AxesBlock(
         output_coors[axis2] = out_axis2_coor;
         const size_t output_offset =
             CalcEffOneDimArrayOffset(output_coors, output_offsets);
-        output_data[output_offset] += coef * input_data[input_offset];
+        output_data[output_offset] += alpha * coef * input_data[input_offset];
         if (stats != nullptr) {
           ++stats->fused_element_updates;
         }
@@ -1401,7 +1578,8 @@ void AddTwoRank2AxesBlockGemm(
     const ShapeT &output_shape,
     const size_t axis1,
     const size_t axis2,
-    AxisOpStats *stats = nullptr
+    AxisOpStats *stats = nullptr,
+    const ElemT alpha = ElemT(1)
 ) {
   static_assert(IsHpNumericElem<ElemT>(),
                 "DMRG axis operations require a hp_numeric-supported ElemT.");
@@ -1438,7 +1616,8 @@ void AddTwoRank2AxesBlockGemm(
       op2_shape,
       output_shape,
       axis2,
-      stats
+      stats,
+      alpha
   );
   qlten::QLFree(intermediate_data);
 }
@@ -1453,6 +1632,9 @@ std::vector<CoorsT> GenerateMonomialOutputBlockCoors(
   std::set<size_t> seen_blk_idxs;
   std::vector<CoorsT> output_blk_coors_s;
   const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  ReserveOutputBlockCoors(output_blk_coors_s,
+                          output_indexes,
+                          input_blocks.size() * op.entries.size());
   for (const auto &input_entry : input_blocks) {
     const auto &input_blk = input_entry.second;
     for (const auto &op_entry : op.entries) {
@@ -2345,6 +2527,300 @@ void ApplyRank2ThenAxisSectorScalarsPreserveOrder(
 }
 
 /**
+ * @brief Apply one rank-2 operator and fold final sector scalars into output
+ *        writes.
+ *
+ * This is equivalent to ApplyRank2ToAxisPreserveOrder() followed by
+ * ScaleAxisSectorsInPlace(), but it avoids the second full raw-data pass.
+ * `scale.axis` refers to the final preserve-order output layout.
+ */
+template<typename ElemT, typename QNT>
+void ApplyRank2ThenAxisSectorScalarsFusedPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    size_t rank2_axis,
+    const AxisSectorScalar<ElemT, QNT> &scale,
+    QLTensor<ElemT, QNT> &out,
+    AxisOpStats *stats = nullptr
+) {
+  static_assert(!Fermionicable<QNT>::IsFermionic(),
+                "ApplyRank2ThenAxisSectorScalarsFusedPreserveOrder is "
+                "bosonic-only.");
+  constexpr const char *kFunc =
+      "ApplyRank2ThenAxisSectorScalarsFusedPreserveOrder";
+  if (stats != nullptr) {
+    *stats = AxisOpStats{};
+  }
+  if (&input == &out || &rank2_op == &out) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) + "output aliasing is not allowed."
+    );
+  }
+  detail::RequireUsableAxis(input, rank2_axis, kFunc);
+  detail::RequireRank2OpMatchesAxis(input.GetIndex(rank2_axis),
+                                    rank2_op,
+                                    kFunc);
+  detail::RequireRawDataIfBlocksPresent(input, kFunc, "input");
+  detail::RequireRawDataIfBlocksPresent(rank2_op, kFunc, "rank2_op");
+
+  const auto output_indexes =
+      detail::Rank2OutputIndexes(input, rank2_axis, rank2_op);
+  detail::RequireAxisSectorScalarMatchesOutput(output_indexes, scale, kFunc);
+  const auto output_blk_coors_s =
+      detail::GenerateRank2OutputBlockCoors(input,
+                                            rank2_axis,
+                                            rank2_op,
+                                            output_indexes,
+                                            stats);
+  out = QLTensor<ElemT, QNT>(output_indexes);
+  if (stats != nullptr) {
+    ++stats->output_tensor_rebuilds;
+  }
+  if (!output_blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  }
+  if (output_blk_coors_s.empty()) {
+    return;
+  }
+  detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
+
+  const auto &input_bsdt = input.GetBlkSparDataTen();
+  const auto &op_bsdt = rank2_op.GetBlkSparDataTen();
+  auto &output_bsdt = out.GetBlkSparDataTen();
+  const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
+  const ElemT *op_data = op_bsdt.GetActualRawDataPtr();
+  ElemT *output_data = output_bsdt.GetActualRawDataPtr();
+  const auto &op_blocks = op_bsdt.GetBlkIdxDataBlkMap();
+  const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
+  const auto op_blk_idxs_by_input_sector =
+      detail::Rank2OpBlockIndicesByInputSector(rank2_op);
+
+  for (const auto &input_entry : input_bsdt.GetBlkIdxDataBlkMap()) {
+    const auto &input_blk = input_entry.second;
+    const auto &matching_op_blk_idxs =
+        op_blk_idxs_by_input_sector[input_blk.blk_coors[rank2_axis]];
+    for (const size_t op_blk_idx : matching_op_blk_idxs) {
+      const auto &op_blk = op_blocks.at(op_blk_idx);
+      CoorsT output_blk_coors = input_blk.blk_coors;
+      output_blk_coors[rank2_axis] = op_blk.blk_coors[1];
+      const ElemT alpha =
+          scale.values_by_sector[output_blk_coors[scale.axis]];
+      if (alpha == ElemT(0)) {
+        continue;
+      }
+      const size_t output_blk_idx =
+          output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
+      const auto &output_blk = output_blocks.at(output_blk_idx);
+      detail::AddRank2AxisBlock(
+          input_data + input_blk.data_offset,
+          op_data + op_blk.data_offset,
+          output_data + output_blk.data_offset,
+          input_blk.shape,
+          op_blk.shape,
+          output_blk.shape,
+          rank2_axis,
+          stats,
+          alpha
+      );
+    }
+  }
+}
+
+/**
+ * @brief Apply one rank-2 operator and one monomial axis operator without a
+ *        rank-2 tensor intermediate.
+ *
+ * The final tensor keeps the original positional axis order with
+ * `rank2_axis` replaced by `rank2_op.GetIndex(1)` and `monomial_axis` replaced
+ * by `monomial.output_index`.  Monomial scatter entries accumulate exactly like
+ * ApplyAxisMonomial().
+ *
+ * When every nonzero monomial entry maps a one-dimensional input sector to a
+ * one-dimensional output sector with degeneracy offset `0 -> 0`, the kernel
+ * writes rank-2 GEMM results directly into final output blocks with the
+ * monomial coefficient folded into GEMM alpha.  General monomial operators
+ * still require block-local rank-2 workspace before scattering; downstream
+ * performance tests should cover both paths when relying on this routine.
+ */
+template<typename ElemT, typename QNT>
+void ApplyRank2ThenAxisMonomialFusedPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    size_t rank2_axis,
+    size_t monomial_axis,
+    const AxisMonomialOp<ElemT, QNT> &monomial,
+    QLTensor<ElemT, QNT> &out,
+    AxisOpStats *stats = nullptr
+) {
+  static_assert(!Fermionicable<QNT>::IsFermionic(),
+                "ApplyRank2ThenAxisMonomialFusedPreserveOrder is "
+                "bosonic-only.");
+  constexpr const char *kFunc =
+      "ApplyRank2ThenAxisMonomialFusedPreserveOrder";
+  if (stats != nullptr) {
+    *stats = AxisOpStats{};
+  }
+  if (&input == &out || &rank2_op == &out) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) + "output aliasing is not allowed."
+    );
+  }
+  detail::RequireUsableAxis(input, rank2_axis, kFunc);
+  detail::RequireUsableAxis(input, monomial_axis, kFunc);
+  detail::RequireRank2OpMatchesAxis(input.GetIndex(rank2_axis),
+                                    rank2_op,
+                                    kFunc);
+  detail::RequireRawDataIfBlocksPresent(input, kFunc, "input");
+  detail::RequireRawDataIfBlocksPresent(rank2_op, kFunc, "rank2_op");
+
+  auto rank2_output_indexes =
+      detail::Rank2OutputIndexes(input, rank2_axis, rank2_op);
+  detail::RequireMonomialOpMatchesAxis(rank2_output_indexes[monomial_axis],
+                                       monomial,
+                                       kFunc);
+  const auto output_indexes =
+      detail::Rank2ThenMonomialOutputIndexes(input,
+                                             rank2_axis,
+                                             rank2_op,
+                                             monomial_axis,
+                                             monomial);
+  const auto output_blk_coors_s =
+      detail::GenerateRank2ThenMonomialOutputBlockCoors(input,
+                                                        rank2_axis,
+                                                        rank2_op,
+                                                        monomial_axis,
+                                                        monomial,
+                                                        output_indexes,
+                                                        stats);
+  out = QLTensor<ElemT, QNT>(output_indexes);
+  if (stats != nullptr) {
+    ++stats->output_tensor_rebuilds;
+  }
+  if (!output_blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  }
+  if (output_blk_coors_s.empty()) {
+    return;
+  }
+  detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
+
+  const auto &input_bsdt = input.GetBlkSparDataTen();
+  const auto &op_bsdt = rank2_op.GetBlkSparDataTen();
+  auto &output_bsdt = out.GetBlkSparDataTen();
+  const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
+  const ElemT *op_data = op_bsdt.GetActualRawDataPtr();
+  ElemT *output_data = output_bsdt.GetActualRawDataPtr();
+  const auto &op_blocks = op_bsdt.GetBlkIdxDataBlkMap();
+  const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
+  const auto op_blk_idxs_by_input_sector =
+      detail::Rank2OpBlockIndicesByInputSector(rank2_op);
+  const bool use_direct_monomial_path =
+      detail::AxisMonomialNonzeroEntriesAreOneDimensionalSectorMaps(monomial);
+  if (stats != nullptr && use_direct_monomial_path) {
+    ++stats->rank2_monomial_direct_hits;
+  }
+
+  for (const auto &input_entry : input_bsdt.GetBlkIdxDataBlkMap()) {
+    const auto &input_blk = input_entry.second;
+    const auto &matching_op_blk_idxs =
+        op_blk_idxs_by_input_sector[input_blk.blk_coors[rank2_axis]];
+    for (const size_t op_blk_idx : matching_op_blk_idxs) {
+      const auto &op_blk = op_blocks.at(op_blk_idx);
+      CoorsT rank2_output_blk_coors = input_blk.blk_coors;
+      rank2_output_blk_coors[rank2_axis] = op_blk.blk_coors[1];
+
+      if (use_direct_monomial_path) {
+        for (const auto &monomial_entry : monomial.entries) {
+          if (monomial_entry.coef == ElemT(0) ||
+              monomial_entry.in_sector !=
+                  rank2_output_blk_coors[monomial_axis]) {
+            continue;
+          }
+          CoorsT output_blk_coors = rank2_output_blk_coors;
+          output_blk_coors[monomial_axis] = monomial_entry.out_sector;
+          const size_t output_blk_idx =
+              output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
+          const auto &output_blk = output_blocks.at(output_blk_idx);
+          detail::AddRank2AxisBlock(
+              input_data + input_blk.data_offset,
+              op_data + op_blk.data_offset,
+              output_data + output_blk.data_offset,
+              input_blk.shape,
+              op_blk.shape,
+              output_blk.shape,
+              rank2_axis,
+              stats,
+              monomial_entry.coef
+          );
+        }
+        continue;
+      }
+
+      bool has_matching_nonzero_monomial_entry = false;
+      for (const auto &monomial_entry : monomial.entries) {
+        if (monomial_entry.coef != ElemT(0) &&
+            monomial_entry.in_sector ==
+                rank2_output_blk_coors[monomial_axis]) {
+          has_matching_nonzero_monomial_entry = true;
+          break;
+        }
+      }
+      if (!has_matching_nonzero_monomial_entry) {
+        continue;
+      }
+
+      ShapeT rank2_output_shape = input_blk.shape;
+      rank2_output_shape[rank2_axis] = op_blk.shape[1];
+      const size_t rank2_output_size =
+          std::accumulate(rank2_output_shape.begin(),
+                          rank2_output_shape.end(),
+                          size_t(1),
+                          std::multiplies<size_t>());
+      const size_t workspace_bytes = rank2_output_size * sizeof(ElemT);
+      ElemT *rank2_output_data =
+          static_cast<ElemT *>(qlten::QLMalloc(workspace_bytes));
+      qlten::QLMemset(rank2_output_data, 0, workspace_bytes);
+      if (stats != nullptr) {
+        stats->rank2_monomial_block_workspace_bytes += workspace_bytes;
+      }
+      detail::AddRank2AxisBlock(
+          input_data + input_blk.data_offset,
+          op_data + op_blk.data_offset,
+          rank2_output_data,
+          input_blk.shape,
+          op_blk.shape,
+          rank2_output_shape,
+          rank2_axis,
+          stats
+      );
+
+      for (const auto &monomial_entry : monomial.entries) {
+        if (monomial_entry.in_sector !=
+            rank2_output_blk_coors[monomial_axis]) {
+          continue;
+        }
+        CoorsT output_blk_coors = rank2_output_blk_coors;
+        output_blk_coors[monomial_axis] = monomial_entry.out_sector;
+        const size_t output_blk_idx =
+            output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
+        const auto &output_blk = output_blocks.at(output_blk_idx);
+        detail::AddAxisMonomialEntryBlock(
+            rank2_output_data,
+            output_data + output_blk.data_offset,
+            rank2_output_shape,
+            output_blk.shape,
+            monomial_axis,
+            monomial_entry.in_offset,
+            monomial_entry.out_offset,
+            monomial_entry.coef
+        );
+      }
+      qlten::QLFree(rank2_output_data);
+    }
+  }
+}
+
+/**
  * @brief Apply two fused rank-2 operators, then consume the owned output
  *        in-place with an axis diagonal operator.
  */
@@ -2398,6 +2874,151 @@ void ApplyTwoRank2ThenAxisSectorScalarsPreserveOrder(
   ScaleAxisSectorsInPlace(out, scale);
   if (stats != nullptr) {
     ++stats->in_place_scale_hits;
+  }
+}
+
+/**
+ * @brief Apply two rank-2 operators and fold final sector scalars into output
+ *        writes.
+ *
+ * This is equivalent to ApplyTwoRank2ToAxesPreserveOrder() followed by
+ * ScaleAxisSectorsInPlace(), but it avoids the second full raw-data scaling
+ * pass. `scale.axis` refers to the final preserve-order output layout.
+ */
+template<typename ElemT, typename QNT>
+void ApplyTwoRank2ThenAxisSectorScalarsFusedPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &op1,
+    size_t axis1,
+    const QLTensor<ElemT, QNT> &op2,
+    size_t axis2,
+    const AxisSectorScalar<ElemT, QNT> &scale,
+    QLTensor<ElemT, QNT> &out,
+    AxisOpStats *stats = nullptr
+) {
+  static_assert(!Fermionicable<QNT>::IsFermionic(),
+                "ApplyTwoRank2ThenAxisSectorScalarsFusedPreserveOrder is "
+                "bosonic-only.");
+  constexpr const char *kFunc =
+      "ApplyTwoRank2ThenAxisSectorScalarsFusedPreserveOrder";
+  if (stats != nullptr) {
+    *stats = AxisOpStats{};
+  }
+  if (&input == &out || &op1 == &out || &op2 == &out) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) + "output aliasing is not allowed."
+    );
+  }
+  if (axis1 == axis2) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) + "axes must be distinct."
+    );
+  }
+  detail::RequireUsableAxis(input, axis1, kFunc);
+  detail::RequireUsableAxis(input, axis2, kFunc);
+  detail::RequireRank2OpMatchesAxis(input.GetIndex(axis1), op1, kFunc);
+  detail::RequireRank2OpMatchesAxis(input.GetIndex(axis2), op2, kFunc);
+  detail::RequireRawDataIfBlocksPresent(input, kFunc, "input");
+  detail::RequireRawDataIfBlocksPresent(op1, kFunc, "op1");
+  detail::RequireRawDataIfBlocksPresent(op2, kFunc, "op2");
+
+  const auto output_indexes =
+      detail::TwoRank2OutputIndexes(input, axis1, op1, axis2, op2);
+  detail::RequireAxisSectorScalarMatchesOutput(output_indexes, scale, kFunc);
+  const auto output_blk_coors_s =
+      detail::GenerateTwoRank2OutputBlockCoors(input,
+                                               op1,
+                                               axis1,
+                                               op2,
+                                               axis2,
+                                               output_indexes);
+  out = QLTensor<ElemT, QNT>(output_indexes);
+  if (stats != nullptr) {
+    ++stats->output_tensor_rebuilds;
+#ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
+    ++stats->two_rank2_fused_hits;
+#else
+    ++stats->two_rank2_block_gemm_hits;
+#endif
+  }
+  if (!output_blk_coors_s.empty()) {
+    out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
+  }
+  if (output_blk_coors_s.empty()) {
+    return;
+  }
+  detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
+
+  const auto &input_bsdt = input.GetBlkSparDataTen();
+  const auto &op1_bsdt = op1.GetBlkSparDataTen();
+  const auto &op2_bsdt = op2.GetBlkSparDataTen();
+  auto &output_bsdt = out.GetBlkSparDataTen();
+  const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
+  const ElemT *op1_data = op1_bsdt.GetActualRawDataPtr();
+  const ElemT *op2_data = op2_bsdt.GetActualRawDataPtr();
+  ElemT *output_data = output_bsdt.GetActualRawDataPtr();
+  const auto &op1_blocks = op1_bsdt.GetBlkIdxDataBlkMap();
+  const auto &op2_blocks = op2_bsdt.GetBlkIdxDataBlkMap();
+  const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
+  const auto op1_blk_idxs_by_input_sector =
+      detail::Rank2OpBlockIndicesByInputSector(op1);
+  const auto op2_blk_idxs_by_input_sector =
+      detail::Rank2OpBlockIndicesByInputSector(op2);
+
+  for (const auto &input_entry : input_bsdt.GetBlkIdxDataBlkMap()) {
+    const auto &input_blk = input_entry.second;
+    const auto &op1_blk_idxs =
+        op1_blk_idxs_by_input_sector[input_blk.blk_coors[axis1]];
+    const auto &op2_blk_idxs =
+        op2_blk_idxs_by_input_sector[input_blk.blk_coors[axis2]];
+    for (const size_t op1_blk_idx : op1_blk_idxs) {
+      const auto &op1_blk = op1_blocks.at(op1_blk_idx);
+      for (const size_t op2_blk_idx : op2_blk_idxs) {
+        const auto &op2_blk = op2_blocks.at(op2_blk_idx);
+        CoorsT output_blk_coors = input_blk.blk_coors;
+        output_blk_coors[axis1] = op1_blk.blk_coors[1];
+        output_blk_coors[axis2] = op2_blk.blk_coors[1];
+        const ElemT alpha =
+            scale.values_by_sector[output_blk_coors[scale.axis]];
+        if (alpha == ElemT(0)) {
+          continue;
+        }
+        const size_t output_blk_idx =
+            output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
+        const auto &output_blk = output_blocks.at(output_blk_idx);
+#ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
+        detail::AddTwoRank2AxesBlock(
+            input_data + input_blk.data_offset,
+            op1_data + op1_blk.data_offset,
+            op2_data + op2_blk.data_offset,
+            output_data + output_blk.data_offset,
+            input_blk.shape,
+            op1_blk.shape,
+            op2_blk.shape,
+            output_blk.shape,
+            axis1,
+            axis2,
+            stats,
+            alpha
+        );
+#else
+        detail::AddTwoRank2AxesBlockGemm(
+            input_data + input_blk.data_offset,
+            op1_data + op1_blk.data_offset,
+            op2_data + op2_blk.data_offset,
+            output_data + output_blk.data_offset,
+            input_blk.shape,
+            op1_blk.shape,
+            op2_blk.shape,
+            output_blk.shape,
+            axis1,
+            axis2,
+            stats,
+            alpha
+        );
+#endif
+      }
+    }
   }
 }
 
