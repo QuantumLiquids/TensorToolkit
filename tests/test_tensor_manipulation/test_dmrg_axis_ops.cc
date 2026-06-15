@@ -527,19 +527,21 @@ TEST_F(DmrgAxisOpsTest, ApplyTwoRank2ToAxesPreserveOrderMatchesSequential) {
   EXPECT_EQ(output.GetIndex(1), op2_output_index);
   EXPECT_EQ(output.GetIndex(2), state_index);
   EXPECT_EQ(output.GetIndex(3), state_index);
-#ifdef USE_GPU
-  EXPECT_EQ(stats.two_rank2_fused_hits, 0U);
-  EXPECT_EQ(stats.two_rank2_intermediate_rebuilds, 1U);
-  EXPECT_EQ(stats.output_tensor_rebuilds, 2U);
-  EXPECT_EQ(stats.fused_element_updates, 0U);
-  EXPECT_GT(stats.gemm_calls, 0U);
-#else
+#ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
+  EXPECT_EQ(stats.two_rank2_block_gemm_hits, 0U);
+  EXPECT_EQ(stats.two_rank2_block_workspace_bytes, 0U);
   EXPECT_EQ(stats.two_rank2_fused_hits, 1U);
-  EXPECT_EQ(stats.two_rank2_intermediate_rebuilds, 0U);
-  EXPECT_EQ(stats.output_tensor_rebuilds, 1U);
   EXPECT_GT(stats.fused_element_updates, 0U);
   EXPECT_EQ(stats.gemm_calls, 0U);
+#else
+  EXPECT_EQ(stats.two_rank2_block_gemm_hits, 1U);
+  EXPECT_GT(stats.two_rank2_block_workspace_bytes, 0U);
+  EXPECT_EQ(stats.two_rank2_fused_hits, 0U);
+  EXPECT_EQ(stats.fused_element_updates, 0U);
+  EXPECT_GT(stats.gemm_calls, 0U);
 #endif
+  EXPECT_EQ(stats.two_rank2_intermediate_rebuilds, 0U);
+  EXPECT_EQ(stats.output_tensor_rebuilds, 1U);
   EXPECT_EQ(stats.layout_transpose_calls, 0U);
 }
 
@@ -719,15 +721,19 @@ TEST_F(DmrgAxisOpsTest, ApplyTwoRank2ThenSectorScalarsConsumesOwnedOutput) {
       input, op1, 0, op2, 1, scale, output, &stats);
 
   ExpectTensorElementsNear(output, reference, 0);
-#ifdef USE_GPU
-  EXPECT_EQ(stats.output_tensor_rebuilds, 2U);
-  EXPECT_EQ(stats.two_rank2_fused_hits, 0U);
-  EXPECT_EQ(stats.two_rank2_intermediate_rebuilds, 1U);
-#else
   EXPECT_EQ(stats.output_tensor_rebuilds, 1U);
+#ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
+  EXPECT_EQ(stats.two_rank2_block_gemm_hits, 0U);
+  EXPECT_EQ(stats.two_rank2_block_workspace_bytes, 0U);
   EXPECT_EQ(stats.two_rank2_fused_hits, 1U);
-  EXPECT_EQ(stats.two_rank2_intermediate_rebuilds, 0U);
+  EXPECT_EQ(stats.gemm_calls, 0U);
+#else
+  EXPECT_EQ(stats.two_rank2_block_gemm_hits, 1U);
+  EXPECT_GT(stats.two_rank2_block_workspace_bytes, 0U);
+  EXPECT_EQ(stats.two_rank2_fused_hits, 0U);
+  EXPECT_GT(stats.gemm_calls, 0U);
 #endif
+  EXPECT_EQ(stats.two_rank2_intermediate_rebuilds, 0U);
   EXPECT_EQ(stats.in_place_scale_hits, 1U);
   EXPECT_EQ(stats.raw_data_copy_bytes, 0U);
 }

@@ -114,6 +114,32 @@ TEST(TensorOpCost, EstimateRank2AxisApplyCostDistinguishesLoopAndBatchMode) {
   EXPECT_EQ(batch_cost.temp_peak_bytes, 15U * sizeof(QLTEN_Double));
 }
 
+TEST(TensorOpCost, EstimateTwoRank2AxesApplyCostUsesBlockLocalGemm) {
+  const U1QN qn0(0);
+  const IndexT left({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+  const IndexT middle({QNSctT(qn0, 3)}, TenIndexDirType::OUT);
+  const IndexT right({QNSctT(qn0, 4)}, TenIndexDirType::OUT);
+  const IndexT left_out({QNSctT(qn0, 5)}, TenIndexDirType::OUT);
+  const IndexT middle_out({QNSctT(qn0, 7)}, TenIndexDirType::OUT);
+
+  Tensor input({left, middle, right});
+  Tensor op1({InverseIndex(left), left_out});
+  Tensor op2({InverseIndex(middle), middle_out});
+  input.Fill(qn0, 1.0);
+  op1.Fill(qn0, 1.0);
+  op2.Fill(qn0, 1.0);
+
+  const auto cost = EstimateTwoRank2AxesApplyCost(input, op1, 0, op2, 1);
+
+  EXPECT_DOUBLE_EQ(cost.flops, 1080.0);
+  EXPECT_EQ(cost.gemm_count, 6U);
+  EXPECT_EQ(cost.executable_block_pair_count, 1U);
+  EXPECT_EQ(cost.output_raw_elem_count, 140U);
+  EXPECT_EQ(cost.temp_peak_bytes, 60U * sizeof(QLTEN_Double));
+  EXPECT_EQ(cost.output_layout.indexes,
+            (IndexVec<U1QN>{left_out, middle_out, right}));
+}
+
 TEST(TensorOpCost, EstimateTensorLinearCombineCostBuildsUnionLayout) {
   const U1QN qn0(0);
   const U1QN qn1(1);

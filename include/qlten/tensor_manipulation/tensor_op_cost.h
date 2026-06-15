@@ -597,10 +597,12 @@ TensorOpCost<QNT> EstimateRank2AxisApplyCost(
 }
 
 /**
- * @brief Estimate fused two-rank2 axis application output topology and work.
+ * @brief Estimate two-rank2 axis application output topology and work.
  *
- * `gemm_count == 0` for this estimator because the current fused two-rank2 path
- * is element-loop backed rather than GEMM backed.
+ * Default builds use a block-local GEMM workspace and two rank-2 GEMM
+ * applications per executable input/op1/op2 block triple. Defining
+ * `QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK` switches this estimate to the
+ * opt-in scalar reference kernel.
  */
 template<typename ElemT, typename QNT>
 TensorOpCost<QNT> EstimateTwoRank2AxesApplyCost(
@@ -643,6 +645,8 @@ TensorOpCost<QNT> EstimateTwoRank2AxesApplyCost(
   const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
   const auto &op1_blocks = op1.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
   const auto &op2_blocks = op2.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &output_bsdt = output.GetBlkSparDataTen();
+  const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
   const auto op1_blk_idxs_by_input_sector =
       dmrg::detail::Rank2OpBlockIndicesByInputSector(op1);
   const auto op2_blk_idxs_by_input_sector =
@@ -659,6 +663,7 @@ TensorOpCost<QNT> EstimateTwoRank2AxesApplyCost(
       for (const size_t op2_blk_idx : op2_blk_idxs) {
         const auto &op2_blk = op2_blocks.at(op2_blk_idx);
         ++cost.executable_block_pair_count;
+#ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
         const size_t updates =
             input_blk.size * op1_blk.shape[1] * op2_blk.shape[1];
         cost.flops +=
@@ -668,6 +673,37 @@ TensorOpCost<QNT> EstimateTwoRank2AxesApplyCost(
             (input_blk.size + op1_blk.size + op2_blk.size + updates) *
             sizeof(ElemT);
         cost.write_bytes += updates * sizeof(ElemT);
+#else
+        CoorsT output_blk_coors = input_blk.blk_coors;
+        output_blk_coors[axis1] = op1_blk.blk_coors[1];
+        output_blk_coors[axis2] = op2_blk.blk_coors[1];
+        const size_t output_blk_idx =
+            output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
+        const auto &output_blk = output_blocks.at(output_blk_idx);
+        ShapeT intermediate_shape = input_blk.shape;
+        intermediate_shape[axis1] = op1_blk.shape[1];
+        const size_t intermediate_size =
+            std::accumulate(intermediate_shape.begin(),
+                            intermediate_shape.end(),
+                            size_t(1),
+                            std::multiplies<size_t>());
+        cost.write_bytes += intermediate_size * sizeof(ElemT);
+        cost.temp_peak_bytes =
+            std::max(cost.temp_peak_bytes,
+                     intermediate_size * sizeof(ElemT));
+        tensor_cost_detail::AddRank2BlockCost<ElemT>(
+            cost,
+            input_blk.shape,
+            intermediate_shape,
+            axis1,
+            dmrg::Rank2AxisApplyGemmMode::kBatch);
+        tensor_cost_detail::AddRank2BlockCost<ElemT>(
+            cost,
+            intermediate_shape,
+            output_blk.shape,
+            axis2,
+            dmrg::Rank2AxisApplyGemmMode::kBatch);
+#endif
       }
     }
   }

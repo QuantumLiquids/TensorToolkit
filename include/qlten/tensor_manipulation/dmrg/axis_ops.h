@@ -174,6 +174,10 @@ struct AxisOpStats {
   size_t in_place_scale_hits = 0;
   /// Number of truly fused two-rank2 calls.
   size_t two_rank2_fused_hits = 0;
+  /// Number of two-rank2 calls executed through block-local GEMM.
+  size_t two_rank2_block_gemm_hits = 0;
+  /// Temporary intermediate block workspace bytes used by two-rank2 GEMM.
+  size_t two_rank2_block_workspace_bytes = 0;
   /// Number of intermediate tensor rebuilds in two-rank2 calls.
   size_t two_rank2_intermediate_rebuilds = 0;
 };
@@ -1022,6 +1026,9 @@ inline void AddAxisOpStats(AxisOpStats *stats, const AxisOpStats &other) {
   stats->fused_element_updates += other.fused_element_updates;
   stats->in_place_scale_hits += other.in_place_scale_hits;
   stats->two_rank2_fused_hits += other.two_rank2_fused_hits;
+  stats->two_rank2_block_gemm_hits += other.two_rank2_block_gemm_hits;
+  stats->two_rank2_block_workspace_bytes +=
+      other.two_rank2_block_workspace_bytes;
   stats->two_rank2_intermediate_rebuilds +=
       other.two_rank2_intermediate_rebuilds;
 }
@@ -1307,6 +1314,7 @@ std::vector<CoorsT> GenerateTwoRank2OutputBlockCoors(
   return output_blk_coors_s;
 }
 
+#ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
 inline void DecodeFlatOffset(
     size_t flat_offset,
     const std::vector<size_t> &offsets,
@@ -1378,6 +1386,61 @@ void AddTwoRank2AxesBlock(
       }
     }
   }
+}
+#endif  // QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
+
+template<typename ElemT>
+void AddTwoRank2AxesBlockGemm(
+    const ElemT *input_data,
+    const ElemT *op1_data,
+    const ElemT *op2_data,
+    ElemT *output_data,
+    const ShapeT &input_shape,
+    const ShapeT &op1_shape,
+    const ShapeT &op2_shape,
+    const ShapeT &output_shape,
+    const size_t axis1,
+    const size_t axis2,
+    AxisOpStats *stats = nullptr
+) {
+  static_assert(IsHpNumericElem<ElemT>(),
+                "DMRG axis operations require a hp_numeric-supported ElemT.");
+  ShapeT intermediate_shape = input_shape;
+  intermediate_shape[axis1] = op1_shape[1];
+  const size_t intermediate_size =
+      std::accumulate(intermediate_shape.begin(),
+                      intermediate_shape.end(),
+                      size_t(1),
+                      std::multiplies<size_t>());
+  const size_t workspace_bytes = intermediate_size * sizeof(ElemT);
+  ElemT *intermediate_data =
+      static_cast<ElemT *>(qlten::QLMalloc(workspace_bytes));
+  qlten::QLMemset(intermediate_data, 0, workspace_bytes);
+  if (stats != nullptr) {
+    stats->two_rank2_block_workspace_bytes += workspace_bytes;
+  }
+
+  AddRank2AxisBlock<Rank2AxisApplyGemmMode::kBatch>(
+      input_data,
+      op1_data,
+      intermediate_data,
+      input_shape,
+      op1_shape,
+      intermediate_shape,
+      axis1,
+      stats
+  );
+  AddRank2AxisBlock<Rank2AxisApplyGemmMode::kBatch>(
+      intermediate_data,
+      op2_data,
+      output_data,
+      intermediate_shape,
+      op2_shape,
+      output_shape,
+      axis2,
+      stats
+  );
+  qlten::QLFree(intermediate_data);
 }
 
 template<typename ElemT, typename QNT>
@@ -2095,14 +2158,13 @@ void ApplyRank2ToAxisPreserveOrder(
  * positional axis order with those axes replaced by each operator's output
  * index.
  *
- * The implementation writes directly into the final output tensor.  It does not
- * construct the single-axis intermediate tensor used by two sequential
- * `ApplyRank2ToAxisPreserveOrder()` calls.
+ * The implementation writes into the final output tensor through block-local
+ * GEMM workspace. It does not construct the single-axis intermediate QLTensor
+ * used by two sequential `ApplyRank2ToAxisPreserveOrder()` calls.
  *
- * @note On GPU builds this API currently uses two rank-2 GEMM applications
- *       rather than the CPU scalar fused kernel, because the scalar kernel
- *       cannot safely dereference device raw-data pointers.  Stats report this
- *       as one intermediate rebuild instead of a fused hit.
+ * @note Defining `QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK` opts into the
+ *       old CPU scalar reference kernel. Default builds always dispatch through
+ *       GEMM/cuBLAS-backed block kernels.
  *
  * @pre `axis1 != axis2`.
  * @pre `out` does not alias `input`, `op1`, or `op2`.
@@ -2141,32 +2203,6 @@ void ApplyTwoRank2ToAxesPreserveOrder(
   detail::RequireRawDataIfBlocksPresent(op1, kFunc, "op1");
   detail::RequireRawDataIfBlocksPresent(op2, kFunc, "op2");
 
-#ifdef USE_GPU
-  QLTensor<ElemT, QNT> first_output;
-  AxisOpStats first_stats;
-  AxisOpStats second_stats;
-  ApplyRank2ToAxisPreserveOrder<Rank2AxisApplyGemmMode::kBatch>(
-      input,
-      op1,
-      axis1,
-      first_output,
-      stats == nullptr ? nullptr : &first_stats
-  );
-  ApplyRank2ToAxisPreserveOrder<Rank2AxisApplyGemmMode::kBatch>(
-      first_output,
-      op2,
-      axis2,
-      out,
-      stats == nullptr ? nullptr : &second_stats
-  );
-  if (stats != nullptr) {
-    detail::AddAxisOpStats(stats, first_stats);
-    detail::AddAxisOpStats(stats, second_stats);
-    ++stats->two_rank2_intermediate_rebuilds;
-  }
-  return;
-#endif
-
   const auto output_indexes =
       detail::TwoRank2OutputIndexes(input, axis1, op1, axis2, op2);
   const auto output_blk_coors_s =
@@ -2179,7 +2215,11 @@ void ApplyTwoRank2ToAxesPreserveOrder(
   out = QLTensor<ElemT, QNT>(output_indexes);
   if (stats != nullptr) {
     ++stats->output_tensor_rebuilds;
+#ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
     ++stats->two_rank2_fused_hits;
+#else
+    ++stats->two_rank2_block_gemm_hits;
+#endif
   }
   if (!output_blk_coors_s.empty()) {
     out.GetBlkSparDataTen().DataBlksInsert(output_blk_coors_s, true, true);
@@ -2221,6 +2261,7 @@ void ApplyTwoRank2ToAxesPreserveOrder(
         const size_t output_blk_idx =
             output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
         const auto &output_blk = output_blocks.at(output_blk_idx);
+#ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
         detail::AddTwoRank2AxesBlock(
             input_data + input_blk.data_offset,
             op1_data + op1_blk.data_offset,
@@ -2234,6 +2275,21 @@ void ApplyTwoRank2ToAxesPreserveOrder(
             axis2,
             stats
         );
+#else
+        detail::AddTwoRank2AxesBlockGemm(
+            input_data + input_blk.data_offset,
+            op1_data + op1_blk.data_offset,
+            op2_data + op2_blk.data_offset,
+            output_data + output_blk.data_offset,
+            input_blk.shape,
+            op1_blk.shape,
+            op2_blk.shape,
+            output_blk.shape,
+            axis1,
+            axis2,
+            stats
+        );
+#endif
       }
     }
   }
