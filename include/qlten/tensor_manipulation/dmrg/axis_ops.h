@@ -10,6 +10,7 @@
 #ifndef QLTEN_TENSOR_MANIPULATION_DMRG_AXIS_OPS_H
 #define QLTEN_TENSOR_MANIPULATION_DMRG_AXIS_OPS_H
 
+#include <algorithm>    // stable_sort
 #include <cstddef>      // size_t
 #include <functional>   // multiplies
 #include <numeric>      // accumulate
@@ -184,6 +185,20 @@ struct AxisOpStats {
   size_t rank2_monomial_direct_hits = 0;
   /// Temporary block workspace bytes used by the general rank2+monomial path.
   size_t rank2_monomial_block_workspace_bytes = 0;
+  /// Number of calls that accumulated directly into caller-provided output.
+  size_t accumulate_calls = 0;
+  /// Number of GEMM calls issued while accumulating directly into output.
+  size_t accumulate_gemm_calls = 0;
+  /// Raw-data bytes not materialized as a separate temporary output.
+  size_t temporary_output_bytes_avoided = 0;
+  /// Number of output topology expansions for accumulation.
+  size_t output_topology_expansions = 0;
+  /// Existing output bytes copied during topology expansion.
+  size_t output_expand_copy_bytes = 0;
+  /// Number of new blocks added during topology expansion.
+  size_t output_expand_new_blocks = 0;
+  /// Existing output bytes scaled only by beta because no task touched them.
+  size_t output_untouched_scale_bytes = 0;
 };
 
 using Rank2AxisApplyStats = AxisOpStats;
@@ -1233,6 +1248,249 @@ inline void AddBatchGemmStats(
   }
 }
 
+template<typename ElemT>
+struct Rank2AxisBoundaryApplyTask {
+  size_t input_data_offset;
+  size_t op_data_offset;
+  size_t output_blk_idx;
+  size_t output_data_offset = 0;
+  size_t m;
+  size_t k;
+  size_t n;
+  size_t a_leading_dim;
+  size_t b_leading_dim;
+  ElemT alpha;
+  ElemT beta;
+};
+
+template<typename ElemT, typename QNT>
+OutputBlockTopology GenerateRank2AxisBoundarySectorScalarTasks(
+    const QLTensor<ElemT, QNT> &input,
+    const size_t axis,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    const AxisSectorScalar<ElemT, QNT> &scale,
+    const ElemT alpha,
+    const IndexVec<QNT> &output_indexes,
+    std::vector<Rank2AxisBoundaryApplyTask<ElemT>> *tasks,
+    AxisOpStats *stats = nullptr
+) {
+  std::set<size_t> seen_blk_idxs;
+  OutputBlockTopology topology;
+  const auto &input_blocks = input.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto &op_blocks = rank2_op.GetBlkSparDataTen().GetBlkIdxDataBlkMap();
+  const auto op_blk_idxs_by_input_sector =
+      Rank2OpBlockIndicesByInputSector(rank2_op);
+  size_t candidate_count = 0;
+  for (const auto &input_entry : input_blocks) {
+    const auto &input_blk = input_entry.second;
+    candidate_count +=
+        op_blk_idxs_by_input_sector[input_blk.blk_coors[axis]].size();
+  }
+  ReserveOutputBlockTopology(topology, output_indexes, candidate_count);
+  tasks->clear();
+  tasks->reserve(candidate_count);
+
+  const ShapeT output_blk_shape = CalcQNSctNumOfIdxs(output_indexes);
+  const auto output_blk_offsets = CalcMultiDimDataOffsets(output_blk_shape);
+  const bool is_head_axis = axis == 0;
+
+  for (const auto &input_entry : input_blocks) {
+    const auto &input_blk = input_entry.second;
+    const auto &matching_op_blk_idxs =
+        op_blk_idxs_by_input_sector[input_blk.blk_coors[axis]];
+    if (stats != nullptr && !matching_op_blk_idxs.empty()) {
+      ++stats->rank2_sector_index_hits;
+    }
+    for (const size_t op_blk_idx : matching_op_blk_idxs) {
+      const auto &op_blk = op_blocks.at(op_blk_idx);
+      if (stats != nullptr) {
+        ++stats->rank2_topology_block_pair_visits;
+      }
+      CoorsT output_blk_coors = input_blk.blk_coors;
+      output_blk_coors[axis] = op_blk.blk_coors[1];
+      const ElemT task_alpha =
+          alpha * scale.values_by_sector[output_blk_coors[scale.axis]];
+      const size_t output_blk_idx =
+          CalcEffOneDimArrayOffset(output_blk_coors, output_blk_offsets);
+      if (seen_blk_idxs.insert(output_blk_idx).second) {
+        topology.blk_idxs.push_back(output_blk_idx);
+        topology.blk_coors_s.push_back(std::move(output_blk_coors));
+      }
+      if (task_alpha == ElemT(0)) {
+        continue;
+      }
+
+      Rank2AxisBoundaryApplyTask<ElemT> task{
+          input_blk.data_offset,
+          op_blk.data_offset,
+          output_blk_idx,
+          0,
+          0,
+          input_blk.shape[axis],
+          op_blk.shape[1],
+          0,
+          op_blk.shape[1],
+          task_alpha,
+          ElemT(1)
+      };
+      if (is_head_axis) {
+        task.m = op_blk.shape[1];
+        task.n = AxisInnerSize(input_blk.shape, axis);
+        task.a_leading_dim = op_blk.shape[1];
+        task.b_leading_dim = task.n;
+      } else {
+        task.m = std::accumulate(input_blk.shape.begin(),
+                                 input_blk.shape.begin() + axis,
+                                 size_t(1),
+                                 std::multiplies<size_t>());
+        task.a_leading_dim = input_blk.shape[axis];
+        task.b_leading_dim = op_blk.shape[1];
+      }
+      tasks->push_back(task);
+    }
+  }
+  return topology;
+}
+
+template<typename ElemT>
+bool TryExecuteRank2AxisBoundarySectorScalarTasksBackendBatch(
+    const std::vector<Rank2AxisBoundaryApplyTask<ElemT>> &tasks,
+    const ElemT *input_data,
+    const ElemT *op_data,
+    ElemT *output_data,
+    const bool is_head_axis,
+    AxisOpStats *stats = nullptr
+) {
+#if defined(HP_NUMERIC_BACKEND_MKL) && !defined(USE_GPU)
+  using BareElemT = typename std::remove_cv<ElemT>::type;
+  if constexpr (std::is_same<BareElemT, QLTEN_Double>::value) {
+    if (tasks.empty()) {
+      return true;
+    }
+    std::vector<size_t> m_array;
+    std::vector<size_t> n_array;
+    std::vector<size_t> k_array;
+    std::vector<size_t> lda_array;
+    std::vector<size_t> ldb_array;
+    std::vector<size_t> ldc_array;
+    std::vector<QLTEN_Double> alpha_array;
+    std::vector<QLTEN_Double> beta_array;
+    std::vector<const QLTEN_Double *> a_array;
+    std::vector<const QLTEN_Double *> b_array;
+    std::vector<QLTEN_Double *> c_array;
+    m_array.reserve(tasks.size());
+    n_array.reserve(tasks.size());
+    k_array.reserve(tasks.size());
+    lda_array.reserve(tasks.size());
+    ldb_array.reserve(tasks.size());
+    ldc_array.reserve(tasks.size());
+    alpha_array.reserve(tasks.size());
+    beta_array.reserve(tasks.size());
+    a_array.reserve(tasks.size());
+    b_array.reserve(tasks.size());
+    c_array.reserve(tasks.size());
+    for (const auto &task : tasks) {
+      m_array.push_back(task.m);
+      n_array.push_back(task.n);
+      k_array.push_back(task.k);
+      lda_array.push_back(task.a_leading_dim);
+      ldb_array.push_back(task.b_leading_dim);
+      ldc_array.push_back(task.n);
+      alpha_array.push_back(task.alpha);
+      beta_array.push_back(task.beta);
+      if (is_head_axis) {
+        a_array.push_back(op_data + task.op_data_offset);
+        b_array.push_back(input_data + task.input_data_offset);
+      } else {
+        a_array.push_back(input_data + task.input_data_offset);
+        b_array.push_back(op_data + task.op_data_offset);
+      }
+      c_array.push_back(output_data + task.output_data_offset);
+      AddGemmStats(stats, task.m, task.k, task.n, true);
+    }
+    AddBatchGemmStats(stats, tasks.size(), true);
+    hp_numeric::MatMultiplyBatchWithScalars(is_head_axis,
+                                            a_array.data(),
+                                            b_array.data(),
+                                            m_array.data(),
+                                            k_array.data(),
+                                            n_array.data(),
+                                            lda_array.data(),
+                                            ldb_array.data(),
+                                            ldc_array.data(),
+                                            alpha_array.data(),
+                                            beta_array.data(),
+                                            c_array.data(),
+                                            tasks.size());
+    return true;
+  }
+#else
+  (void) tasks;
+  (void) input_data;
+  (void) op_data;
+  (void) output_data;
+  (void) is_head_axis;
+  (void) stats;
+#endif
+  return false;
+}
+
+template<typename ElemT>
+void ExecuteRank2AxisBoundarySectorScalarTasks(
+    const std::vector<Rank2AxisBoundaryApplyTask<ElemT>> &tasks,
+    const ElemT *input_data,
+    const ElemT *op_data,
+    ElemT *output_data,
+    const bool is_head_axis,
+    AxisOpStats *stats = nullptr,
+    const bool use_backend_batch = false
+) {
+  if (use_backend_batch &&
+      TryExecuteRank2AxisBoundarySectorScalarTasksBackendBatch(
+          tasks,
+          input_data,
+          op_data,
+          output_data,
+          is_head_axis,
+          stats)) {
+    return;
+  }
+  for (const auto &task : tasks) {
+    AddGemmStats(stats, task.m, task.k, task.n, true);
+    if (is_head_axis) {
+      hp_numeric::MatMultiply(
+          task.alpha,
+          op_data + task.op_data_offset,
+          BlasTrans(),
+          input_data + task.input_data_offset,
+          BlasNoTrans(),
+          task.m,
+          task.k,
+          task.n,
+          task.a_leading_dim,
+          task.b_leading_dim,
+          task.beta,
+          output_data + task.output_data_offset
+      );
+    } else {
+      hp_numeric::MatMultiply(
+          task.alpha,
+          input_data + task.input_data_offset,
+          BlasNoTrans(),
+          op_data + task.op_data_offset,
+          BlasNoTrans(),
+          task.m,
+          task.k,
+          task.n,
+          task.a_leading_dim,
+          task.b_leading_dim,
+          task.beta,
+          output_data + task.output_data_offset
+      );
+    }
+  }
+}
+
 inline void AddAxisOpStats(AxisOpStats *stats, const AxisOpStats &other) {
   if (stats == nullptr) {
     return;
@@ -1268,6 +1526,14 @@ inline void AddAxisOpStats(AxisOpStats *stats, const AxisOpStats &other) {
   stats->rank2_monomial_direct_hits += other.rank2_monomial_direct_hits;
   stats->rank2_monomial_block_workspace_bytes +=
       other.rank2_monomial_block_workspace_bytes;
+  stats->accumulate_calls += other.accumulate_calls;
+  stats->accumulate_gemm_calls += other.accumulate_gemm_calls;
+  stats->temporary_output_bytes_avoided +=
+      other.temporary_output_bytes_avoided;
+  stats->output_topology_expansions += other.output_topology_expansions;
+  stats->output_expand_copy_bytes += other.output_expand_copy_bytes;
+  stats->output_expand_new_blocks += other.output_expand_new_blocks;
+  stats->output_untouched_scale_bytes += other.output_untouched_scale_bytes;
 }
 
 template<typename ElemT>
@@ -1394,11 +1660,9 @@ void AddRank2AxisMiddleBatch(
   std::vector<const ElemT *> a_array(outer_size, op_transposed.data());
   std::vector<const ElemT *> b_array(outer_size);
   std::vector<ElemT *> c_array(outer_size);
-  std::vector<MKL_INT> m_array(outer_size,
-                               static_cast<MKL_INT>(output_axis_dim));
-  std::vector<MKL_INT> k_array(outer_size,
-                               static_cast<MKL_INT>(input_axis_dim));
-  std::vector<MKL_INT> n_array(outer_size, static_cast<MKL_INT>(inner_size));
+  std::vector<size_t> m_array(outer_size, output_axis_dim);
+  std::vector<size_t> k_array(outer_size, input_axis_dim);
+  std::vector<size_t> n_array(outer_size, inner_size);
   std::vector<ElemT> beta_array(outer_size, ElemT(1));
   for (size_t outer = 0; outer < outer_size; ++outer) {
     const size_t input_outer_base = outer * input_axis_dim * inner_size;
@@ -1414,7 +1678,7 @@ void AddRank2AxisMiddleBatch(
                                n_array.data(),
                                beta_array.data(),
                                c_array.data(),
-                               static_cast<MKL_INT>(outer_size));
+                               outer_size);
 #else
   AddBatchGemmStats(stats, outer_size, false);
   AddRank2AxisMiddleLoop(input_data,
@@ -1719,6 +1983,258 @@ void AddTwoRank2AxesBlockGemm(
       alpha
   );
   qlten::QLFree(intermediate_data);
+}
+
+template<typename QNT>
+size_t BlockElementCount(
+    const IndexVec<QNT> &indexes,
+    const CoorsT &blk_coors
+) {
+  size_t count = 1;
+  for (size_t axis = 0; axis < indexes.size(); ++axis) {
+    count *= indexes[axis].GetQNSct(blk_coors[axis]).dim();
+  }
+  return count;
+}
+
+template<typename ElemT, typename QNT>
+size_t RawDataBytesFromBlockTopology(
+    const IndexVec<QNT> &indexes,
+    const OutputBlockTopology &topology
+) {
+  size_t elem_count = 0;
+  for (const auto &blk_coors : topology.blk_coors_s) {
+    elem_count += BlockElementCount(indexes, blk_coors);
+  }
+  return elem_count * sizeof(ElemT);
+}
+
+template<typename ElemT, typename QNT>
+void InsertOutputBlockUnion(
+    const QLTensor<ElemT, QNT> &old_output,
+    const OutputBlockTopology &required_topology,
+    QLTensor<ElemT, QNT> *expanded
+) {
+  auto &expanded_bsdt = expanded->GetBlkSparDataTen();
+  for (const auto &entry :
+       old_output.GetBlkSparDataTen().GetBlkIdxDataBlkMap()) {
+    expanded_bsdt.DataBlkInsert(entry.second.blk_coors, false);
+  }
+  const auto &expanded_blocks = expanded_bsdt.GetBlkIdxDataBlkMap();
+  for (size_t i = 0; i < required_topology.blk_idxs.size(); ++i) {
+    if (expanded_blocks.find(required_topology.blk_idxs[i]) ==
+        expanded_blocks.end()) {
+      expanded_bsdt.DataBlkInsert(required_topology.blk_coors_s[i], false);
+    }
+  }
+}
+
+template<typename ElemT, typename QNT>
+std::set<size_t> ExpandOutputTopologyForBoundaryRank2Accumulate(
+    const OutputBlockTopology &required_topology,
+    const std::set<size_t> &touched_output_blk_idxs,
+    const ElemT beta,
+    QLTensor<ElemT, QNT> *out,
+    const char *func,
+    AxisOpStats *stats
+) {
+  const auto &old_bsdt = out->GetBlkSparDataTen();
+  const auto &old_blocks = old_bsdt.GetBlkIdxDataBlkMap();
+  const ElemT *old_raw_data = old_bsdt.GetActualRawDataPtr();
+
+  QLTensor<ElemT, QNT> expanded(out->GetIndexes());
+  InsertOutputBlockUnion(*out, required_topology, &expanded);
+  auto &expanded_bsdt = expanded.GetBlkSparDataTen();
+  expanded_bsdt.Allocate(true);
+  ElemT *expanded_raw_data = expanded_bsdt.GetActualRawDataPtr();
+  const auto &expanded_blocks = expanded_bsdt.GetBlkIdxDataBlkMap();
+
+  for (const auto &[blk_idx, old_blk] : old_blocks) {
+    const auto expanded_it = expanded_blocks.find(blk_idx);
+    if (expanded_it == expanded_blocks.end()) {
+      throw std::out_of_range(
+          AxisOpsPrefix(func) +
+          "failed to "
+          "preserve an existing output block during topology expansion.");
+    }
+    if (beta == ElemT(0)) {
+      continue;
+    }
+    if (old_raw_data == nullptr) {
+      throw std::invalid_argument(
+          AxisOpsPrefix(func) +
+          "requires "
+          "allocated output raw data when expanding topology with nonzero beta.");
+    }
+    ElemT *dst = expanded_raw_data + expanded_it->second.data_offset;
+    const ElemT *src = old_raw_data + old_blk.data_offset;
+    const bool touched =
+        touched_output_blk_idxs.find(blk_idx) != touched_output_blk_idxs.end();
+    if (touched || beta == ElemT(1)) {
+      CopyRawData(src, old_blk.size, dst);
+    } else {
+      CopyScaleRawData(src, old_blk.size, dst, beta);
+      if (stats != nullptr) {
+        stats->output_untouched_scale_bytes += old_blk.size * sizeof(ElemT);
+      }
+    }
+    if (stats != nullptr) {
+      stats->output_expand_copy_bytes += old_blk.size * sizeof(ElemT);
+    }
+  }
+
+  std::set<size_t> new_output_blk_idxs;
+  for (const size_t blk_idx : required_topology.blk_idxs) {
+    if (old_blocks.find(blk_idx) == old_blocks.end()) {
+      new_output_blk_idxs.insert(blk_idx);
+      if (stats != nullptr) {
+        ++stats->output_expand_new_blocks;
+      }
+    }
+  }
+  if (stats != nullptr) {
+    ++stats->output_topology_expansions;
+    ++stats->output_tensor_rebuilds;
+  }
+  *out = std::move(expanded);
+  return new_output_blk_idxs;
+}
+
+template<typename ElemT, typename QNT>
+void ScaleUntouchedOutputBlocksForBoundaryRank2Accumulate(
+    QLTensor<ElemT, QNT> &out,
+    const std::set<size_t> &touched_output_blk_idxs,
+    const ElemT beta,
+    AxisOpStats *stats
+) {
+  if (beta == ElemT(1)) {
+    return;
+  }
+  auto &bsdt = out.GetBlkSparDataTen();
+  ElemT *raw_data = bsdt.GetActualRawDataPtr();
+  if (raw_data == nullptr) {
+    return;
+  }
+  for (const auto &[blk_idx, data_blk] : bsdt.GetBlkIdxDataBlkMap()) {
+    if (touched_output_blk_idxs.find(blk_idx) !=
+        touched_output_blk_idxs.end()) {
+      continue;
+    }
+    ScaleRawData(raw_data + data_blk.data_offset, data_blk.size, beta);
+    if (stats != nullptr) {
+      stats->output_untouched_scale_bytes += data_blk.size * sizeof(ElemT);
+    }
+  }
+}
+
+template<typename ElemT, typename QNT>
+std::set<size_t> PrepareBoundaryRank2AccumulateOutput(
+    const IndexVec<QNT> &output_indexes,
+    const OutputBlockTopology &required_topology,
+    const std::set<size_t> &touched_output_blk_idxs,
+    const ElemT beta,
+    QLTensor<ElemT, QNT> *out,
+    const char *func,
+    AxisOpStats *stats
+) {
+  std::set<size_t> new_output_blk_idxs;
+  if (out->IsDefault()) {
+    if (beta != ElemT(0)) {
+      throw std::invalid_argument(
+          AxisOpsPrefix(func) +
+          "requires beta == "
+          "0 when output is default.");
+    }
+    *out = QLTensor<ElemT, QNT>(output_indexes);
+    if (stats != nullptr) {
+      ++stats->output_tensor_rebuilds;
+    }
+    if (!required_topology.blk_coors_s.empty()) {
+      out->GetBlkSparDataTen().DataBlksInsert(required_topology.blk_idxs,
+                                              required_topology.blk_coors_s,
+                                              true,
+                                              true);
+      new_output_blk_idxs.insert(required_topology.blk_idxs.begin(),
+                                 required_topology.blk_idxs.end());
+    }
+    return new_output_blk_idxs;
+  }
+
+  if (out->GetIndexes() != output_indexes) {
+    throw std::invalid_argument(
+        AxisOpsPrefix(func) +
+        "output indexes are "
+        "not compatible with the generated boundary result.");
+  }
+  auto &out_bsdt = out->GetBlkSparDataTen();
+  const auto &out_blocks = out_bsdt.GetBlkIdxDataBlkMap();
+  bool needs_expansion = false;
+  for (size_t i = 0; i < required_topology.blk_idxs.size(); ++i) {
+    const size_t blk_idx = required_topology.blk_idxs[i];
+    const auto out_it = out_blocks.find(blk_idx);
+    if (out_it == out_blocks.end()) {
+      needs_expansion = true;
+      continue;
+    }
+    if (out_it->second.blk_coors != required_topology.blk_coors_s[i]) {
+      throw std::invalid_argument(
+          AxisOpsPrefix(func) +
+          "output block "
+          "topology is not compatible with the generated boundary result.");
+    }
+  }
+  if (needs_expansion) {
+    return ExpandOutputTopologyForBoundaryRank2Accumulate(
+        required_topology,
+        touched_output_blk_idxs,
+        beta,
+        out,
+        func,
+        stats);
+  }
+  if (out_bsdt.GetActualRawDataSize() == 0) {
+    if (beta != ElemT(0)) {
+      throw std::invalid_argument(
+          AxisOpsPrefix(func) +
+          "requires "
+          "allocated output raw data unless beta == 0.");
+    }
+    out_bsdt.Allocate(true);
+  }
+  ScaleUntouchedOutputBlocksForBoundaryRank2Accumulate(
+      *out, touched_output_blk_idxs, beta, stats);
+  return new_output_blk_idxs;
+}
+
+template<typename ElemT, typename QNT>
+void AssignRank2BoundaryTaskOutputOffsetsAndBetas(
+    std::vector<Rank2AxisBoundaryApplyTask<ElemT>> *tasks,
+    const BlockSparseDataTensor<ElemT, QNT> &output_bsdt,
+    const std::set<size_t> &new_output_blk_idxs,
+    const ElemT beta
+) {
+  std::stable_sort(tasks->begin(),
+                   tasks->end(),
+                   [](const auto &lhs, const auto &rhs) {
+                     return lhs.output_blk_idx < rhs.output_blk_idx;
+                   });
+  const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
+  size_t previous_output_blk_idx = 0;
+  bool first_task_for_output_block = true;
+  for (auto &task : *tasks) {
+    task.output_data_offset =
+        output_blocks.at(task.output_blk_idx).data_offset;
+    if (first_task_for_output_block ||
+        task.output_blk_idx != previous_output_blk_idx) {
+      previous_output_blk_idx = task.output_blk_idx;
+      first_task_for_output_block = false;
+      task.beta =
+          (new_output_blk_idxs.find(task.output_blk_idx) !=
+           new_output_blk_idxs.end()) ? ElemT(0) : beta;
+    } else {
+      task.beta = ElemT(1);
+    }
+  }
 }
 
 template<typename ElemT, typename QNT>
@@ -2655,26 +3171,29 @@ void ApplyRank2ThenAxisSectorScalarsPreserveOrder(
 
 /**
  * @brief Apply one rank-2 operator and fold final sector scalars into output
- *        writes.
+ *        accumulation writes.
  *
- * This is equivalent to ApplyRank2ToAxisPreserveOrder() followed by
- * ScaleAxisSectorsInPlace(), but it avoids the second full raw-data pass.
- * `scale.axis` refers to the final preserve-order output layout.
+ * This boundary-only fast path computes
+ * `out = beta * out + alpha * ScaleAxisSectors(Rank2BoundaryApply(input))`.
+ * `rank2_axis` must be either axis 0 or the last axis.  `scale.axis` refers to
+ * the final preserve-order output layout.
  */
 template<typename ElemT, typename QNT>
-void ApplyRank2ThenAxisSectorScalarsFusedPreserveOrder(
+void ApplyBoundaryRank2ThenAxisSectorScalarsAccumulatePreserveOrder(
     const QLTensor<ElemT, QNT> &input,
     const QLTensor<ElemT, QNT> &rank2_op,
     size_t rank2_axis,
     const AxisSectorScalar<ElemT, QNT> &scale,
+    const ElemT alpha,
+    const ElemT beta,
     QLTensor<ElemT, QNT> &out,
     AxisOpStats *stats = nullptr
 ) {
   static_assert(!Fermionicable<QNT>::IsFermionic(),
-                "ApplyRank2ThenAxisSectorScalarsFusedPreserveOrder is "
+                "ApplyBoundaryRank2ThenAxisSectorScalarsAccumulatePreserveOrder is "
                 "bosonic-only.");
   constexpr const char *kFunc =
-      "ApplyRank2ThenAxisSectorScalarsFusedPreserveOrder";
+      "ApplyBoundaryRank2ThenAxisSectorScalarsAccumulatePreserveOrder";
   if (stats != nullptr) {
     *stats = AxisOpStats{};
   }
@@ -2693,25 +3212,42 @@ void ApplyRank2ThenAxisSectorScalarsFusedPreserveOrder(
   const auto output_indexes =
       detail::Rank2OutputIndexes(input, rank2_axis, rank2_op);
   detail::RequireAxisSectorScalarMatchesOutput(output_indexes, scale, kFunc);
+  if (rank2_axis != 0 && rank2_axis + 1 != input.Rank()) {
+    throw std::invalid_argument(
+        detail::AxisOpsPrefix(kFunc) +
+        "rank2_axis must be axis 0 or the last axis."
+    );
+  }
+
+  std::vector<detail::Rank2AxisBoundaryApplyTask<ElemT>> tasks;
   const auto output_topology =
-      detail::GenerateRank2OutputBlockTopology(input,
-                                               rank2_axis,
-                                               rank2_op,
-                                               output_indexes,
-                                               stats);
-  out = QLTensor<ElemT, QNT>(output_indexes);
+      detail::GenerateRank2AxisBoundarySectorScalarTasks(input,
+                                                         rank2_axis,
+                                                         rank2_op,
+                                                         scale,
+                                                         alpha,
+                                                         output_indexes,
+                                                         &tasks,
+                                                         stats);
+  std::set<size_t> touched_output_blk_idxs;
+  for (const auto &task : tasks) {
+    touched_output_blk_idxs.insert(task.output_blk_idx);
+  }
   if (stats != nullptr) {
-    ++stats->output_tensor_rebuilds;
+    ++stats->accumulate_calls;
+    stats->temporary_output_bytes_avoided +=
+        detail::RawDataBytesFromBlockTopology<ElemT>(output_indexes,
+                                                     output_topology);
   }
-  if (!output_topology.blk_coors_s.empty()) {
-    out.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
-                                           output_topology.blk_coors_s,
-                                           true,
-                                           true);
-  }
-  if (output_topology.blk_coors_s.empty()) {
-    return;
-  }
+  const auto new_output_blk_idxs =
+      detail::PrepareBoundaryRank2AccumulateOutput(output_indexes,
+                                                   output_topology,
+                                                   touched_output_blk_idxs,
+                                                   beta,
+                                                   &out,
+                                                   kFunc,
+                                                   stats);
+  if (output_topology.blk_coors_s.empty() || tasks.empty()) { return; }
   detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
 
   const auto &input_bsdt = input.GetBlkSparDataTen();
@@ -2720,40 +3256,48 @@ void ApplyRank2ThenAxisSectorScalarsFusedPreserveOrder(
   const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
   const ElemT *op_data = op_bsdt.GetActualRawDataPtr();
   ElemT *output_data = output_bsdt.GetActualRawDataPtr();
-  const auto &op_blocks = op_bsdt.GetBlkIdxDataBlkMap();
-  const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
-  const auto op_blk_idxs_by_input_sector =
-      detail::Rank2OpBlockIndicesByInputSector(rank2_op);
-
-  for (const auto &input_entry : input_bsdt.GetBlkIdxDataBlkMap()) {
-    const auto &input_blk = input_entry.second;
-    const auto &matching_op_blk_idxs =
-        op_blk_idxs_by_input_sector[input_blk.blk_coors[rank2_axis]];
-    for (const size_t op_blk_idx : matching_op_blk_idxs) {
-      const auto &op_blk = op_blocks.at(op_blk_idx);
-      CoorsT output_blk_coors = input_blk.blk_coors;
-      output_blk_coors[rank2_axis] = op_blk.blk_coors[1];
-      const ElemT alpha =
-          scale.values_by_sector[output_blk_coors[scale.axis]];
-      if (alpha == ElemT(0)) {
-        continue;
-      }
-      const size_t output_blk_idx =
-          output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
-      const auto &output_blk = output_blocks.at(output_blk_idx);
-      detail::AddRank2AxisBlock(
-          input_data + input_blk.data_offset,
-          op_data + op_blk.data_offset,
-          output_data + output_blk.data_offset,
-          input_blk.shape,
-          op_blk.shape,
-          output_blk.shape,
-          rank2_axis,
-          stats,
-          alpha
-      );
-    }
+  detail::AssignRank2BoundaryTaskOutputOffsetsAndBetas(&tasks,
+                                                       output_bsdt,
+                                                       new_output_blk_idxs,
+                                                       beta);
+  const bool use_backend_batch = tasks.size() == touched_output_blk_idxs.size();
+  if (stats != nullptr) {
+    stats->accumulate_gemm_calls += tasks.size();
   }
+  detail::ExecuteRank2AxisBoundarySectorScalarTasks(tasks,
+                                                    input_data,
+                                                    op_data,
+                                                    output_data,
+                                                    rank2_axis == 0,
+                                                    stats,
+                                                    use_backend_batch);
+}
+
+/**
+ * @brief Apply one boundary rank-2 operator and fold final sector scalars into
+ *        output writes.
+ *
+ * This is the non-accumulating convenience form of
+ * ApplyBoundaryRank2ThenAxisSectorScalarsAccumulatePreserveOrder() with
+ * `alpha = 1` and `beta = 0`.
+ */
+template<typename ElemT, typename QNT>
+void ApplyBoundaryRank2ThenAxisSectorScalarsFusedPreserveOrder(
+    const QLTensor<ElemT, QNT> &input,
+    const QLTensor<ElemT, QNT> &rank2_op,
+    size_t rank2_axis,
+    const AxisSectorScalar<ElemT, QNT> &scale,
+    QLTensor<ElemT, QNT> &out,
+    AxisOpStats *stats = nullptr
+) {
+  ApplyBoundaryRank2ThenAxisSectorScalarsAccumulatePreserveOrder(input,
+                                                                 rank2_op,
+                                                                 rank2_axis,
+                                                                 scale,
+                                                                 ElemT(1),
+                                                                 ElemT(0),
+                                                                 out,
+                                                                 stats);
 }
 
 /**
@@ -3007,154 +3551,6 @@ void ApplyTwoRank2ThenAxisSectorScalarsPreserveOrder(
   ScaleAxisSectorsInPlace(out, scale);
   if (stats != nullptr) {
     ++stats->in_place_scale_hits;
-  }
-}
-
-/**
- * @brief Apply two rank-2 operators and fold final sector scalars into output
- *        writes.
- *
- * This is equivalent to ApplyTwoRank2ToAxesPreserveOrder() followed by
- * ScaleAxisSectorsInPlace(), but it avoids the second full raw-data scaling
- * pass. `scale.axis` refers to the final preserve-order output layout.
- */
-template<typename ElemT, typename QNT>
-void ApplyTwoRank2ThenAxisSectorScalarsFusedPreserveOrder(
-    const QLTensor<ElemT, QNT> &input,
-    const QLTensor<ElemT, QNT> &op1,
-    size_t axis1,
-    const QLTensor<ElemT, QNT> &op2,
-    size_t axis2,
-    const AxisSectorScalar<ElemT, QNT> &scale,
-    QLTensor<ElemT, QNT> &out,
-    AxisOpStats *stats = nullptr
-) {
-  static_assert(!Fermionicable<QNT>::IsFermionic(),
-                "ApplyTwoRank2ThenAxisSectorScalarsFusedPreserveOrder is "
-                "bosonic-only.");
-  constexpr const char *kFunc =
-      "ApplyTwoRank2ThenAxisSectorScalarsFusedPreserveOrder";
-  if (stats != nullptr) {
-    *stats = AxisOpStats{};
-  }
-  if (&input == &out || &op1 == &out || &op2 == &out) {
-    throw std::invalid_argument(
-        detail::AxisOpsPrefix(kFunc) + "output aliasing is not allowed."
-    );
-  }
-  if (axis1 == axis2) {
-    throw std::invalid_argument(
-        detail::AxisOpsPrefix(kFunc) + "axes must be distinct."
-    );
-  }
-  detail::RequireUsableAxis(input, axis1, kFunc);
-  detail::RequireUsableAxis(input, axis2, kFunc);
-  detail::RequireRank2OpMatchesAxis(input.GetIndex(axis1), op1, kFunc);
-  detail::RequireRank2OpMatchesAxis(input.GetIndex(axis2), op2, kFunc);
-  detail::RequireRawDataIfBlocksPresent(input, kFunc, "input");
-  detail::RequireRawDataIfBlocksPresent(op1, kFunc, "op1");
-  detail::RequireRawDataIfBlocksPresent(op2, kFunc, "op2");
-
-  const auto output_indexes =
-      detail::TwoRank2OutputIndexes(input, axis1, op1, axis2, op2);
-  detail::RequireAxisSectorScalarMatchesOutput(output_indexes, scale, kFunc);
-  const auto output_topology =
-      detail::GenerateTwoRank2OutputBlockTopology(input,
-                                                  op1,
-                                                  axis1,
-                                                  op2,
-                                                  axis2,
-                                                  output_indexes);
-  out = QLTensor<ElemT, QNT>(output_indexes);
-  if (stats != nullptr) {
-    ++stats->output_tensor_rebuilds;
-#ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
-    ++stats->two_rank2_fused_hits;
-#else
-    ++stats->two_rank2_block_gemm_hits;
-#endif
-  }
-  if (!output_topology.blk_coors_s.empty()) {
-    out.GetBlkSparDataTen().DataBlksInsert(output_topology.blk_idxs,
-                                           output_topology.blk_coors_s,
-                                           true,
-                                           true);
-  }
-  if (output_topology.blk_coors_s.empty()) {
-    return;
-  }
-  detail::RequireRawDataIfBlocksPresent(out, kFunc, "out");
-
-  const auto &input_bsdt = input.GetBlkSparDataTen();
-  const auto &op1_bsdt = op1.GetBlkSparDataTen();
-  const auto &op2_bsdt = op2.GetBlkSparDataTen();
-  auto &output_bsdt = out.GetBlkSparDataTen();
-  const ElemT *input_data = input_bsdt.GetActualRawDataPtr();
-  const ElemT *op1_data = op1_bsdt.GetActualRawDataPtr();
-  const ElemT *op2_data = op2_bsdt.GetActualRawDataPtr();
-  ElemT *output_data = output_bsdt.GetActualRawDataPtr();
-  const auto &op1_blocks = op1_bsdt.GetBlkIdxDataBlkMap();
-  const auto &op2_blocks = op2_bsdt.GetBlkIdxDataBlkMap();
-  const auto &output_blocks = output_bsdt.GetBlkIdxDataBlkMap();
-  const auto op1_blk_idxs_by_input_sector =
-      detail::Rank2OpBlockIndicesByInputSector(op1);
-  const auto op2_blk_idxs_by_input_sector =
-      detail::Rank2OpBlockIndicesByInputSector(op2);
-
-  for (const auto &input_entry : input_bsdt.GetBlkIdxDataBlkMap()) {
-    const auto &input_blk = input_entry.second;
-    const auto &op1_blk_idxs =
-        op1_blk_idxs_by_input_sector[input_blk.blk_coors[axis1]];
-    const auto &op2_blk_idxs =
-        op2_blk_idxs_by_input_sector[input_blk.blk_coors[axis2]];
-    for (const size_t op1_blk_idx : op1_blk_idxs) {
-      const auto &op1_blk = op1_blocks.at(op1_blk_idx);
-      for (const size_t op2_blk_idx : op2_blk_idxs) {
-        const auto &op2_blk = op2_blocks.at(op2_blk_idx);
-        CoorsT output_blk_coors = input_blk.blk_coors;
-        output_blk_coors[axis1] = op1_blk.blk_coors[1];
-        output_blk_coors[axis2] = op2_blk.blk_coors[1];
-        const ElemT alpha =
-            scale.values_by_sector[output_blk_coors[scale.axis]];
-        if (alpha == ElemT(0)) {
-          continue;
-        }
-        const size_t output_blk_idx =
-            output_bsdt.BlkCoorsToBlkIdx(output_blk_coors);
-        const auto &output_blk = output_blocks.at(output_blk_idx);
-#ifdef QLTEN_DMRG_ENABLE_SCALAR_TWO_RANK2_FALLBACK
-        detail::AddTwoRank2AxesBlock(
-            input_data + input_blk.data_offset,
-            op1_data + op1_blk.data_offset,
-            op2_data + op2_blk.data_offset,
-            output_data + output_blk.data_offset,
-            input_blk.shape,
-            op1_blk.shape,
-            op2_blk.shape,
-            output_blk.shape,
-            axis1,
-            axis2,
-            stats,
-            alpha
-        );
-#else
-        detail::AddTwoRank2AxesBlockGemm(
-            input_data + input_blk.data_offset,
-            op1_data + op1_blk.data_offset,
-            op2_data + op2_blk.data_offset,
-            output_data + output_blk.data_offset,
-            input_blk.shape,
-            op1_blk.shape,
-            op2_blk.shape,
-            output_blk.shape,
-            axis1,
-            axis2,
-            stats,
-            alpha
-        );
-#endif
-      }
-    }
   }
 }
 

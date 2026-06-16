@@ -15,6 +15,7 @@
 #define QLTEN_FRAMEWORK_HP_NUMERIC_BLAS_LEVEL3_H
 
 #include <cassert>                        // assert
+#include <vector>                         // vector
 #include "qlten/framework/value_t.h"      // QLTEN_Double, QLTEN_Complex
 #include "qlten/framework/flops_count.h"  // flop
 
@@ -420,6 +421,62 @@ inline void MatMultiplyBatch(
 #endif
 }
 
+inline void MatMultiplyBatchWithScalars(
+    const bool transpose_a,
+    const QLTEN_Double **a_array,
+    const QLTEN_Double **b_array,
+    const size_t *m_array,
+    const size_t *k_array,
+    const size_t *n_array,
+    const size_t *lda_array,
+    const size_t *ldb_array,
+    const size_t *ldc_array,
+    const QLTEN_Double *alpha_array,
+    const QLTEN_Double *beta_array,
+    QLTEN_Double **c_array,
+    const size_t group_count) {
+  std::vector<CBLAS_TRANSPOSE> transa_array(
+      group_count, transpose_a ? CblasTrans : CblasNoTrans);
+  std::vector<CBLAS_TRANSPOSE> transb_array(group_count, CblasNoTrans);
+  std::vector<MKL_INT> m_mkl(group_count);
+  std::vector<MKL_INT> n_mkl(group_count);
+  std::vector<MKL_INT> k_mkl(group_count);
+  std::vector<MKL_INT> lda_mkl(group_count);
+  std::vector<MKL_INT> ldb_mkl(group_count);
+  std::vector<MKL_INT> ldc_mkl(group_count);
+  std::vector<MKL_INT> group_size(group_count, 1);
+  for (size_t i = 0; i < group_count; ++i) {
+    m_mkl[i] = static_cast<MKL_INT>(m_array[i]);
+    n_mkl[i] = static_cast<MKL_INT>(n_array[i]);
+    k_mkl[i] = static_cast<MKL_INT>(k_array[i]);
+    lda_mkl[i] = static_cast<MKL_INT>(lda_array[i]);
+    ldb_mkl[i] = static_cast<MKL_INT>(ldb_array[i]);
+    ldc_mkl[i] = static_cast<MKL_INT>(ldc_array[i]);
+  }
+
+  cblas_dgemm_batch(CblasRowMajor,
+                    transa_array.data(),
+                    transb_array.data(),
+                    m_mkl.data(),
+                    n_mkl.data(),
+                    k_mkl.data(),
+                    alpha_array,
+                    a_array,
+                    lda_mkl.data(),
+                    b_array,
+                    ldb_mkl.data(),
+                    beta_array,
+                    c_array,
+                    ldc_mkl.data(),
+                    static_cast<MKL_INT>(group_count),
+                    group_size.data());
+#ifdef QLTEN_COUNT_FLOPS
+  for (size_t i = 0; i < group_count; ++i) {
+    flop += m_array[i] * n_array[i] * (2 * k_array[i] + 2);
+  }
+#endif
+}
+
 inline void MatMultiplyBatch(
     const QLTEN_Complex **a_array,
     const QLTEN_Complex **b_array,
@@ -679,6 +736,34 @@ inline void MatMultiplyBatch(
     }
   }
 #endif
+}
+
+template<typename ElemT>
+inline void MatMultiplyBatch(
+    const ElemT **a_array,
+    const ElemT **b_array,
+    const size_t *m_array,
+    const size_t *k_array,
+    const size_t *n_array,
+    const ElemT *beta_array,
+    ElemT **c_array,
+    const size_t group_count) {
+  std::vector<MKL_INT> m_mkl(group_count);
+  std::vector<MKL_INT> k_mkl(group_count);
+  std::vector<MKL_INT> n_mkl(group_count);
+  for (size_t i = 0; i < group_count; ++i) {
+    m_mkl[i] = static_cast<MKL_INT>(m_array[i]);
+    k_mkl[i] = static_cast<MKL_INT>(k_array[i]);
+    n_mkl[i] = static_cast<MKL_INT>(n_array[i]);
+  }
+  MatMultiplyBatch(a_array,
+                   b_array,
+                   m_mkl.data(),
+                   k_mkl.data(),
+                   n_mkl.data(),
+                   beta_array,
+                   c_array,
+                   static_cast<MKL_INT>(group_count));
 }
 
 #endif
