@@ -28,9 +28,6 @@
 #include <cstring>      // memcpy
 #include <limits>       // numeric_limits
 #include <vector>       // vector
-#ifdef Release
-#define NDEBUG
-#endif
 #include <cassert>     // assert
 
 namespace qlten {

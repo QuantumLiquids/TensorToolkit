@@ -22,9 +22,6 @@
 #include "qlten/framework/bases/streamable.h"     // Streamable
 #include "qlten/framework/bases/showable.h"       // Showable
 #include "qlten/framework/bases/fermionicable.h"  // Fermionicable
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 

@@ -19,9 +19,6 @@
 #include "qlten/framework/bases/showable.h"       // Showable
 #include "qlten/framework/vec_hash.h"             // VecPtrHasher
 
-#ifdef Release
-#define NDEBUG
-#endif
 #include <cassert>
 
 namespace qlten {

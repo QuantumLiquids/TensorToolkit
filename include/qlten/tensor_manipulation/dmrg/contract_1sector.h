@@ -26,9 +26,6 @@
 #include "qlten/tensor_manipulation/ten_ctrct.h"            // TenCtrctInitResTen, CheckContractionIndicesMatch
 #include "qlten/qltensor/blk_spar_data_ten/data_blk_operator_separate_ctrct.h"
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten::dmrg {
 

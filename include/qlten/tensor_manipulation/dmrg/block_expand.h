@@ -24,9 +24,6 @@
 #include <map>          // map
 #include <algorithm>    // find
 
-#ifdef Release
-#define NDEBUG
-#endif
 #include <cassert>     // assert
 
 namespace qlten::dmrg {

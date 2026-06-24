@@ -32,9 +32,6 @@ where:
 #include <algorithm>    // min
 #include <stdexcept>    // runtime_error
 
-#ifdef Release
-  #define NDEBUG
-#endif
 #include <cassert>     // assert
 
 
@@ -164,6 +161,20 @@ void LQ(
   assert(rdims > 0 && rdims < pt->Rank());
   assert(pl->IsDefault());
   assert(pq->IsDefault());
+
+  // Guard the empty-input case at the API boundary, *before* any quantum
+  // number arithmetic. For a tensor with no data blocks, Div() returns a
+  // default-constructed (zero-component) QNT sentinel; using it in the
+  // `Div(*pt) - rqndiv` subtraction below would either trip the QN::operator+=
+  // size assertion (debug builds) or silently produce a meaningless divergence
+  // (release builds). Throwing here keeps the contract build-type independent
+  // and leaves the output tensors untouched (still default).
+  if (pt->IsDefault() || pt->GetQNBlkNum() == 0) {
+    throw std::runtime_error(
+        "LQ failed: empty input. The input tensor has no data blocks; "
+        "cannot perform LQ decomposition."
+    );
+  }
 
   const size_t ldims = pt->Rank() - rdims;
   QNT lqndiv = Div(*pt) - rqndiv;

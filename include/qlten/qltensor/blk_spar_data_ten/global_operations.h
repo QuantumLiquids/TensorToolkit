@@ -30,9 +30,6 @@
 #include <set>              // set
 #include <stdexcept>        // runtime_error
 
-#ifdef Release
-#define NDEBUG
-#endif
 #include <cassert>     // assert
 
 namespace qlten {
@@ -108,6 +105,26 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseMultiply(const BlockSparseDat
   }
 }
 
+// Device-portable binary-operation functors for
+// ElementWiseBinaryAssignByLhsLayout. Unlike an arbitrary host lambda, a functor
+// whose operator() is marked __host__ __device__ can be passed by value into a
+// CUDA kernel, so the *same* op object drives both the CPU and GPU backends.
+// Pass one of these (instead of a raw lambda) to keep call sites portable.
+#ifdef USE_GPU
+#define QLTEN_HOST_DEVICE __host__ __device__
+#else
+#define QLTEN_HOST_DEVICE
+#endif
+
+template<typename ElemT>
+struct ElementWiseSumOp {
+  QLTEN_HOST_DEVICE ElemT operator()(const ElemT lhs, const ElemT rhs) const {
+    return lhs + rhs;
+  }
+};
+
+#undef QLTEN_HOST_DEVICE
+
 #ifdef USE_GPU
 template<typename ElemT, typename RealT>
 __global__
@@ -144,6 +161,37 @@ inline void ElementWiseShiftedDivideDefaultKernel(
                     : lhs_data[idx] / denominator;
   }
 }
+
+// Generic element-wise binary-assign kernels, parameterized on a device-callable
+// functor (see ElementWiseSumOp). The functor is captured by value, so it must
+// be trivially copyable and expose a __device__ operator().
+template<typename ElemT, typename BinaryOp>
+__global__
+inline void ElementWiseBinaryAssignKernel(
+    ElemT *lhs_data,
+    const ElemT *rhs_data,
+    const size_t size,
+    BinaryOp op
+) {
+  const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    lhs_data[idx] = op(lhs_data[idx], rhs_data[idx]);
+  }
+}
+
+template<typename ElemT, typename BinaryOp>
+__global__
+inline void ElementWiseBinaryAssignDefaultKernel(
+    ElemT *lhs_data,
+    const size_t size,
+    const ElemT rhs_default,
+    BinaryOp op
+) {
+  const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    lhs_data[idx] = op(lhs_data[idx], rhs_default);
+  }
+}
 #endif
 
 template<typename ElemT, typename QNT>
@@ -157,12 +205,57 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBinaryAssignByLhsLayout(
   assert(blk_shape == rhs.blk_shape);
 
 #ifdef USE_GPU
-  (void) rhs_default;
-  (void) op;
-  throw std::runtime_error(
-      "ElementWiseBinaryAssignByLhsLayout with an arbitrary host callable "
-      "is not supported in GPU builds."
-  );
+  // GPU path: dispatch the device-portable functor `op` into a CUDA kernel.
+  // `op` must expose a __device__ operator() (e.g. ElementWiseSumOp); a raw
+  // host lambda will not compile here, which is intentional - it forces call
+  // sites to use a portable functor instead of failing at run time.
+  const int threads_per_block = 256;
+  if (IsScalar()) {
+    if (actual_raw_data_size_ == 0) {
+      return;
+    }
+    if (rhs.actual_raw_data_size_ == 0) {
+      ElementWiseBinaryAssignDefaultKernel<<<1, threads_per_block>>>(
+          pactual_raw_data_,
+          actual_raw_data_size_,
+          rhs_default,
+          op
+      );
+    } else {
+      ElementWiseBinaryAssignKernel<<<1, threads_per_block>>>(
+          pactual_raw_data_,
+          rhs.pactual_raw_data_,
+          actual_raw_data_size_,
+          op
+      );
+    }
+    cudaDeviceSynchronize();
+    return;
+  }
+
+  for (auto &[blk_idx, data_blk] : blk_idx_data_blk_map_) {
+    const int blocks = (data_blk.size + threads_per_block - 1) / threads_per_block;
+    const auto rhs_it = rhs.blk_idx_data_blk_map_.find(blk_idx);
+    if (rhs_it == rhs.blk_idx_data_blk_map_.end()) {
+      ElementWiseBinaryAssignDefaultKernel<<<blocks, threads_per_block>>>(
+          pactual_raw_data_ + data_blk.data_offset,
+          data_blk.size,
+          rhs_default,
+          op
+      );
+    } else {
+      const auto &rhs_data_blk = rhs_it->second;
+      assert(data_blk.shape == rhs_data_blk.shape);
+      assert(data_blk.size == rhs_data_blk.size);
+      ElementWiseBinaryAssignKernel<<<blocks, threads_per_block>>>(
+          pactual_raw_data_ + data_blk.data_offset,
+          rhs.pactual_raw_data_ + rhs_data_blk.data_offset,
+          data_blk.size,
+          op
+      );
+    }
+  }
+  cudaDeviceSynchronize();
 #else
   if (IsScalar()) {
     if (actual_raw_data_size_ == 0) {

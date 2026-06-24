@@ -19,9 +19,6 @@
 #include <cassert>   // assert
 #include "qlten/qltensor_all.h"
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 

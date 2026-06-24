@@ -21,9 +21,6 @@
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/ten_decomp/ten_decomp_basic.h"    // GenIdxTenDecompDataBlkMats, IdxDataBlkMatMap
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 

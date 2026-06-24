@@ -16,9 +16,6 @@
 
 #include "qlten/framework/value_t.h"      // QLTEN_Double, QLTEN_Complex
 
-#ifdef Release
-#define NDEBUG
-#endif
 #include <cassert>     // assert
 
 #ifndef USE_GPU

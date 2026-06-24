@@ -28,9 +28,6 @@
 #include "qlten/framework/consts.h"
 #include "qlten/framework/mem_ops.h"    // Memcpy
 #include "qlten/utility/random.h"
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 

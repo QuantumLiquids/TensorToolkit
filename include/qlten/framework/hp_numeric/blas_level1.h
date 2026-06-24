@@ -18,9 +18,6 @@
 #include "qlten/framework/value_t.h"            // QLTEN_Double, QLTEN_Complex
 #include "qlten/framework/flops_count.h"        // flop
 #include "qlten/framework/hp_numeric/gpu_set.h" //CublasHandleManager
-#ifdef Release
-#define NDEBUG
-#endif
 
 #ifndef USE_GPU     // use CPU
 

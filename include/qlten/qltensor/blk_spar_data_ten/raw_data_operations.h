@@ -41,9 +41,6 @@
 #include "qlten/framework/hp_numeric/omp_set.h"
 #include "qlten/utility/utils_inl.h"                                      // Rand, CalcScalarNorm2, CalcConj, SubMatMemCpy
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 
@@ -119,38 +116,16 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataInsert_(
   } else {
     size_t new_data_size = actual_raw_data_size_ + size;
     ElemT *new_pdata = (ElemT *) qlten::QLMalloc(new_data_size * sizeof(ElemT));
-#ifndef USE_GPU
-    hp_numeric::VectorCopy(pactual_raw_data_, offset, new_pdata);
+    // Copy old data into the resized buffer, zero-filling the inserted gap.
+    qlten::QLMemcpy(new_pdata, pactual_raw_data_, offset * sizeof(ElemT));
     if (init) {
-      std::fill(new_pdata + offset, new_pdata + offset + size, ElemT(0));
+      qlten::QLMemset(new_pdata + offset, 0, size * sizeof(ElemT));
     }
-    hp_numeric::VectorCopy(
+    qlten::QLMemcpy(
+        new_pdata + (offset + size),
         pactual_raw_data_ + offset,
-        actual_raw_data_size_ - offset,
-        new_pdata + (offset + size)
+        (actual_raw_data_size_ - offset) * sizeof(ElemT)
     );
-#else
-    // Copy old data to new locations.
-    auto cuda_err = cudaMemcpy(new_pdata, pactual_raw_data_, offset * sizeof(ElemT), cudaMemcpyDeviceToDevice);
-    if (cuda_err != cudaSuccess) {
-      std::cerr << "cudaMemcpy error (1): " << cuda_err << std::endl;
-    }
-
-    if (init) {
-      cuda_err = cudaMemset(new_pdata + offset, 0, size * sizeof(ElemT));
-      if (cuda_err != cudaSuccess) {
-        std::cerr << "cudaMemset error: " << cuda_err << std::endl;
-      }
-    }
-
-    cuda_err = cudaMemcpy(new_pdata + (offset + size),
-                          pactual_raw_data_ + offset,
-                          (actual_raw_data_size_ - offset) * sizeof(ElemT),
-                          cudaMemcpyDeviceToDevice);
-    if (cuda_err != cudaSuccess) {
-      std::cerr << "cudaMemcpy error (2): " << cuda_err << std::endl;
-    }
-#endif
     // Free old data and update pointer.
     qlten::QLFree(pactual_raw_data_);
     pactual_raw_data_ = new_pdata;

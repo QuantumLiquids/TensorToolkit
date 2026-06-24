@@ -21,9 +21,6 @@
 #include "qlten/qltensor_all.h"
 #include "qlten/tensor_manipulation/basic_operations.h"     // ToComplex
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 

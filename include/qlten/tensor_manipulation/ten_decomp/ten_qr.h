@@ -20,9 +20,6 @@
 
 #include <algorithm>    // min
 
-#ifdef Release
-  #define NDEBUG
-#endif
 #include <cassert>     // assert
 
 

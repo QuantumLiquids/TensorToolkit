@@ -19,9 +19,6 @@
 #include "qlten/framework/value_t.h"      // QLTEN_Double, QLTEN_Complex
 #include "qlten/framework/flops_count.h"  // flop
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 #ifndef USE_GPU     // use CPU
 

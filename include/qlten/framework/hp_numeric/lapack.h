@@ -33,9 +33,6 @@
 #include "qlten/framework/value_t.h"
 #include "qlten/framework/flops_count.h"  // flop
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 

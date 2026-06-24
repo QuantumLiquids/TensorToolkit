@@ -24,9 +24,6 @@
 #include "qlten/tensor_manipulation/index_lineage.h"  // IndexLineage
 #include "qlten/utility/timer.h"
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 

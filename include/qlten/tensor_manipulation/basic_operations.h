@@ -21,9 +21,6 @@
 #include "qlten/qltensor/qltensor.h"    // QLTensor
 #include "qlten/framework/hp_numeric/blas_level1.h"   // VectorConjDot
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 

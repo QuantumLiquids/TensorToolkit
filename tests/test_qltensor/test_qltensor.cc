@@ -1554,12 +1554,13 @@ TEST_F(TestQLTensor, ElementWiseBinaryAssignByLhsLayoutUsesDefaultForMissingRhsB
   const size_t lhs_blk_num = lhs.GetQNBlkNum();
   const size_t lhs_data_size = lhs.GetActualDataSize();
 
+  // Use the device-portable ElementWiseSumOp functor (rather than a raw host
+  // lambda) so this exercises the same code path on both the CPU and GPU
+  // backends.
   lhs.ElementWiseBinaryAssignByLhsLayout(
       rhs,
       5.0,
-      [](const QLTEN_Double lhs_elem, const QLTEN_Double rhs_elem) {
-        return lhs_elem + rhs_elem;
-      }
+      ElementWiseSumOp<QLTEN_Double>{}
   );
 
   EXPECT_EQ(lhs.GetQNBlkNum(), lhs_blk_num);

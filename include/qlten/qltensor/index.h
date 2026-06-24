@@ -26,9 +26,6 @@
 #include "qlten/framework/vec_hash.h"           // VecHasher
 #include "qlten/qltensor/qnsct.h"               // QNSectorVec
 
-#ifdef Release
-#define NDEBUG
-#endif
 #include <cassert>     // assert
 
 namespace qlten {

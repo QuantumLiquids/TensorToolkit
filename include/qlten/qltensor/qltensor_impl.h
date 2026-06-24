@@ -37,9 +37,6 @@
 #include "qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h"     // BlockSparseDataTensor
 #include "qlten/utility/utils_inl.h"                                // GenAllCoors, Rand, Reorder, CalcScalarNorm, CalcConj
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 #include <cassert>     // assert
 

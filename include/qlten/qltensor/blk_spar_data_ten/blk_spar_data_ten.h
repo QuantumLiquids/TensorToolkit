@@ -31,9 +31,6 @@
 #include "qlten/utility/utils_inl.h"                                      // CalcEffOneDimArrayOffset, CalcMultiDimDataOffsets, Reorder, ArrayEq, VecMultiSelectElemts
 #include "qlten/framework/hp_numeric/mpi_fun.h"
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 
@@ -628,7 +625,7 @@ Assign a block sparse data tensor.
 template<typename ElemT, typename QNT>
 BlockSparseDataTensor<ElemT, QNT> &
 BlockSparseDataTensor<ElemT, QNT>::operator=(const BlockSparseDataTensor &rhs) {
-  free(pactual_raw_data_);
+  qlten::QLFree(pactual_raw_data_);
   ten_rank = rhs.ten_rank;
   blk_shape = rhs.blk_shape;
   blk_multi_dim_offsets_ = rhs.blk_multi_dim_offsets_;

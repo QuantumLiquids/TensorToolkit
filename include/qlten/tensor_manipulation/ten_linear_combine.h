@@ -22,9 +22,6 @@
 #include "qlten/qltensor_all.h"
 #include "qlten/utility/timer.h"
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 
