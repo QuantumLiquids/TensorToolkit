@@ -15,6 +15,7 @@
 
 #include <cassert>      // assert
 #include <cstddef>      // size_t
+#include <memory>       // unique_ptr
 #include <sstream>      // ostringstream
 #include <stdexcept>    // invalid_argument, runtime_error
 #include <string>       // string
@@ -402,6 +403,83 @@ inline void CheckLastCudaLaunch(const char *context) {
     );
   }
 }
+
+class ExtractDiagonalGpuWorkspace {
+ public:
+  explicit ExtractDiagonalGpuWorkspace(
+      const std::vector<std::pair<size_t, size_t>> &axis_pairs
+  ) {
+    std::vector<size_t> flat_axis_pairs;
+    flat_axis_pairs.reserve(2 * axis_pairs.size());
+    for (const auto &axis_pair : axis_pairs) {
+      flat_axis_pairs.push_back(axis_pair.first);
+      flat_axis_pairs.push_back(axis_pair.second);
+    }
+
+    const size_t axis_pair_count = flat_axis_pairs.size();
+    HANDLE_CUDA_ERROR(cudaMalloc(&d_axis_pairs_,
+                                 axis_pair_count * sizeof(size_t)));
+    HANDLE_CUDA_ERROR(cudaMemcpy(d_axis_pairs_, flat_axis_pairs.data(),
+                                 axis_pair_count * sizeof(size_t),
+                                 cudaMemcpyHostToDevice));
+  }
+
+  ~ExtractDiagonalGpuWorkspace() {
+    if (d_out_offsets_ != nullptr) {
+      HANDLE_CUDA_ERROR(cudaFree(d_out_offsets_));
+    }
+    if (d_src_offsets_ != nullptr) {
+      HANDLE_CUDA_ERROR(cudaFree(d_src_offsets_));
+    }
+    HANDLE_CUDA_ERROR(cudaFree(d_axis_pairs_));
+  }
+
+  ExtractDiagonalGpuWorkspace(const ExtractDiagonalGpuWorkspace &) = delete;
+  ExtractDiagonalGpuWorkspace &operator=(
+      const ExtractDiagonalGpuWorkspace &
+  ) = delete;
+
+  void CopyOffsets(
+      const std::vector<size_t> &out_offsets,
+      const std::vector<size_t> &src_offsets
+  ) {
+    EnsureCapacity(out_offsets.size(), &d_out_offsets_, &out_offsets_capacity_);
+    EnsureCapacity(src_offsets.size(), &d_src_offsets_, &src_offsets_capacity_);
+    HANDLE_CUDA_ERROR(cudaMemcpy(d_out_offsets_, out_offsets.data(),
+                                 out_offsets.size() * sizeof(size_t),
+                                 cudaMemcpyHostToDevice));
+    HANDLE_CUDA_ERROR(cudaMemcpy(d_src_offsets_, src_offsets.data(),
+                                 src_offsets.size() * sizeof(size_t),
+                                 cudaMemcpyHostToDevice));
+  }
+
+  const size_t *out_offsets() const { return d_out_offsets_; }
+  const size_t *src_offsets() const { return d_src_offsets_; }
+  const size_t *axis_pairs() const { return d_axis_pairs_; }
+
+ private:
+  static void EnsureCapacity(
+      const size_t required_size,
+      size_t **buffer,
+      size_t *capacity
+  ) {
+    if (*capacity >= required_size) {
+      return;
+    }
+    if (*buffer != nullptr) {
+      HANDLE_CUDA_ERROR(cudaFree(*buffer));
+      *buffer = nullptr;
+    }
+    HANDLE_CUDA_ERROR(cudaMalloc(buffer, required_size * sizeof(size_t)));
+    *capacity = required_size;
+  }
+
+  size_t *d_out_offsets_ = nullptr;
+  size_t *d_src_offsets_ = nullptr;
+  size_t *d_axis_pairs_ = nullptr;
+  size_t out_offsets_capacity_ = 0;
+  size_t src_offsets_capacity_ = 0;
+};
 #endif  // QLTEN_GPU_HAS_CUDA_SYNTAX
 
 template<typename ElemT, typename QNT>
@@ -412,6 +490,10 @@ void CopyExtractedDiagonalBlock(
     const DataBlk<QNT> &out_blk,
     const std::vector<std::pair<size_t, size_t>> &axis_pairs,
     const char *context
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
+    ,
+    ExtractDiagonalGpuWorkspace *gpu_workspace = nullptr
+#endif
 ) {
   ValidateExtractedDiagonalBlockShape(src_blk, out_blk, axis_pairs, context);
   if (out_blk.size == 0) {
@@ -434,31 +516,12 @@ void CopyExtractedDiagonalBlock(
   }
 #else
 #if QLTEN_GPU_HAS_CUDA_SYNTAX
-  std::vector<size_t> flat_axis_pairs;
-  flat_axis_pairs.reserve(2 * axis_pairs.size());
-  for (const auto &axis_pair : axis_pairs) {
-    flat_axis_pairs.push_back(axis_pair.first);
-    flat_axis_pairs.push_back(axis_pair.second);
+  std::unique_ptr<ExtractDiagonalGpuWorkspace> local_gpu_workspace;
+  if (gpu_workspace == nullptr) {
+    local_gpu_workspace.reset(new ExtractDiagonalGpuWorkspace(axis_pairs));
+    gpu_workspace = local_gpu_workspace.get();
   }
-
-  size_t *d_out_offsets = nullptr;
-  size_t *d_src_offsets = nullptr;
-  size_t *d_axis_pairs = nullptr;
-  HANDLE_CUDA_ERROR(cudaMalloc(&d_out_offsets,
-                               out_offsets.size() * sizeof(size_t)));
-  HANDLE_CUDA_ERROR(cudaMalloc(&d_src_offsets,
-                               src_offsets.size() * sizeof(size_t)));
-  HANDLE_CUDA_ERROR(cudaMalloc(&d_axis_pairs,
-                               flat_axis_pairs.size() * sizeof(size_t)));
-  HANDLE_CUDA_ERROR(cudaMemcpy(d_out_offsets, out_offsets.data(),
-                               out_offsets.size() * sizeof(size_t),
-                               cudaMemcpyHostToDevice));
-  HANDLE_CUDA_ERROR(cudaMemcpy(d_src_offsets, src_offsets.data(),
-                               src_offsets.size() * sizeof(size_t),
-                               cudaMemcpyHostToDevice));
-  HANDLE_CUDA_ERROR(cudaMemcpy(d_axis_pairs, flat_axis_pairs.data(),
-                               flat_axis_pairs.size() * sizeof(size_t),
-                               cudaMemcpyHostToDevice));
+  gpu_workspace->CopyOffsets(out_offsets, src_offsets);
 
   const size_t block_num = (out_blk.size + kCudaBlockSize - 1) / kCudaBlockSize;
   CopyExtractedDiagonalBlockKernel<<<block_num, kCudaBlockSize>>>(
@@ -466,15 +529,11 @@ void CopyExtractedDiagonalBlock(
       out_block_data,
       out_blk.size,
       out_blk.shape.size(),
-      d_out_offsets,
-      d_src_offsets,
-      d_axis_pairs
+      gpu_workspace->out_offsets(),
+      gpu_workspace->src_offsets(),
+      gpu_workspace->axis_pairs()
   );
   CheckLastCudaLaunch(context);
-
-  HANDLE_CUDA_ERROR(cudaFree(d_out_offsets));
-  HANDLE_CUDA_ERROR(cudaFree(d_src_offsets));
-  HANDLE_CUDA_ERROR(cudaFree(d_axis_pairs));
 #else
   QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
 #endif
@@ -850,6 +909,9 @@ QLTensor<ElemT, QNT> ExtractDiagonal(
     );
   }
 
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
+  detail::ExtractDiagonalGpuWorkspace gpu_workspace(axis_pairs);
+#endif
   for (const auto &src_entry : src_blocks) {
     const auto &src_blk = src_entry.second;
     if (!detail::IsDiagonalBlock(src_blk, axis_pairs)) {
@@ -867,6 +929,10 @@ QLTensor<ElemT, QNT> ExtractDiagonal(
         diagonal_blk,
         axis_pairs,
         context
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
+        ,
+        &gpu_workspace
+#endif
     );
   }
   return diagonal;
