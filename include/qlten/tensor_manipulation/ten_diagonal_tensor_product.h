@@ -22,11 +22,10 @@
 #include <vector>       // vector
 
 #include "qlten/framework/value_t.h"      // QLTEN_Double, QLTEN_Complex
-#ifndef USE_GPU
-#include "qlten/framework/hp_numeric/backend_selector.h"    // cblas_*gemm
-#else
 #include "qlten/framework/hp_numeric/blas_level1.h"         // VectorScale
 #include "qlten/framework/mem_ops.h"                        // QLMemset
+#ifndef USE_GPU
+#include "qlten/framework/hp_numeric/blas_level2.h"         // MatrixRankOneUpdate
 #endif
 #include "qlten/qltensor/qltensor.h"      // QLTensor
 #include "qlten/utility/utils_inl.h"      // CalcEffOneDimArrayOffset, CalcMultiDimDataOffsets
@@ -37,9 +36,6 @@
 #define QLTEN_DIAGONAL_HOST_DEVICE
 #endif
 
-#ifdef Release
-#define NDEBUG
-#endif
 
 namespace qlten {
 namespace detail {
@@ -126,116 +122,6 @@ inline size_t Rank4BlkCoorsToBlkIdx(
          blk_shape[3] + coor3;
 }
 
-#ifndef USE_GPU
-inline void BlasScale(
-    QLTEN_Double *data,
-    const size_t size,
-    const QLTEN_Double beta
-) {
-  cblas_dscal(size, beta, data, 1);
-}
-
-inline void BlasScale(
-    QLTEN_Float *data,
-    const size_t size,
-    const QLTEN_Float beta
-) {
-  cblas_sscal(size, beta, data, 1);
-}
-
-inline void BlasScale(
-    QLTEN_Complex *data,
-    const size_t size,
-    const QLTEN_Complex beta
-) {
-  cblas_zscal(size, &beta, data, 1);
-}
-
-inline void BlasScale(
-    QLTEN_ComplexFloat *data,
-    const size_t size,
-    const QLTEN_ComplexFloat beta
-) {
-  cblas_cscal(size, &beta, data, 1);
-}
-
-inline void GerUpdate(
-    const QLTEN_Double alpha,
-    const QLTEN_Double *left_diag,
-    const size_t left_inc,
-    const QLTEN_Double *right_diag,
-    const size_t right_inc,
-    const size_t rows,
-    const size_t cols,
-    QLTEN_Double *out_data
-) {
-  cblas_dger(
-      CblasRowMajor, rows, cols,
-      alpha,
-      left_diag, left_inc,
-      right_diag, right_inc,
-      out_data, cols
-  );
-}
-
-inline void GerUpdate(
-    const QLTEN_Float alpha,
-    const QLTEN_Float *left_diag,
-    const size_t left_inc,
-    const QLTEN_Float *right_diag,
-    const size_t right_inc,
-    const size_t rows,
-    const size_t cols,
-    QLTEN_Float *out_data
-) {
-  cblas_sger(
-      CblasRowMajor, rows, cols,
-      alpha,
-      left_diag, left_inc,
-      right_diag, right_inc,
-      out_data, cols
-  );
-}
-
-inline void GerUpdate(
-    const QLTEN_Complex alpha,
-    const QLTEN_Complex *left_diag,
-    const size_t left_inc,
-    const QLTEN_Complex *right_diag,
-    const size_t right_inc,
-    const size_t rows,
-    const size_t cols,
-    QLTEN_Complex *out_data
-) {
-  cblas_zgeru(
-      CblasRowMajor, rows, cols,
-      &alpha,
-      left_diag, left_inc,
-      right_diag, right_inc,
-      out_data, cols
-  );
-}
-
-inline void GerUpdate(
-    const QLTEN_ComplexFloat alpha,
-    const QLTEN_ComplexFloat *left_diag,
-    const size_t left_inc,
-    const QLTEN_ComplexFloat *right_diag,
-    const size_t right_inc,
-    const size_t rows,
-    const size_t cols,
-    QLTEN_ComplexFloat *out_data
-) {
-  cblas_cgeru(
-      CblasRowMajor, rows, cols,
-      &alpha,
-      left_diag, left_inc,
-      right_diag, right_inc,
-      out_data, cols
-  );
-}
-#endif
-
 template<typename ElemT>
 void ScaleDataBlock(
     ElemT *data,
@@ -246,20 +132,10 @@ void ScaleDataBlock(
     return;
   }
   if (beta == ElemT(0)) {
-#ifndef USE_GPU
-    for (size_t i = 0; i < size; ++i) {
-      data[i] = ElemT(0);
-    }
-#else
     qlten::QLMemset(data, 0, size * sizeof(ElemT));
-#endif
     return;
   }
-#ifndef USE_GPU
-  BlasScale(data, size, beta);
-#else
   hp_numeric::VectorScale(data, size, beta);
-#endif
 }
 
 template<typename ElemT>
@@ -684,7 +560,7 @@ void ApplyDiagonalTensorProductBlock(
   }
 
   ScaleDataBlock(out_block_data, out_blk.size, beta);
-  GerUpdate(
+  hp_numeric::MatrixRankOneUpdate(
       alpha,
       left_block_data, rows + 1,
       right_block_data, cols + 1,
@@ -835,7 +711,7 @@ void ApplyDiagonalOuterProductBlock(
   }
 
   ScaleDataBlock(out_block_data, out_blk.size, beta);
-  GerUpdate(
+  hp_numeric::MatrixRankOneUpdate(
       alpha,
       left_block_data, 1,
       right_block_data, 1,
