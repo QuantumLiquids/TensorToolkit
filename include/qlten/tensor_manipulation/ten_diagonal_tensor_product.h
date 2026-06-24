@@ -24,9 +24,18 @@
 #include "qlten/framework/value_t.h"      // QLTEN_Double, QLTEN_Complex
 #ifndef USE_GPU
 #include "qlten/framework/hp_numeric/backend_selector.h"    // cblas_*gemm
+#else
+#include "qlten/framework/hp_numeric/blas_level1.h"         // VectorScale
+#include "qlten/framework/mem_ops.h"                        // QLMemset
 #endif
 #include "qlten/qltensor/qltensor.h"      // QLTensor
 #include "qlten/utility/utils_inl.h"      // CalcEffOneDimArrayOffset, CalcMultiDimDataOffsets
+
+#ifdef USE_GPU
+#define QLTEN_DIAGONAL_HOST_DEVICE __host__ __device__
+#else
+#define QLTEN_DIAGONAL_HOST_DEVICE
+#endif
 
 #ifdef Release
 #define NDEBUG
@@ -36,6 +45,20 @@ namespace qlten {
 namespace detail {
 
 constexpr size_t kDiagonalTensorProductBlasThreshold = 64;
+
+template<typename ElemT>
+QLTEN_DIAGONAL_HOST_DEVICE inline void StoreAccumulatedValue(
+    ElemT *data,
+    const size_t offset,
+    const ElemT product,
+    const ElemT beta
+) {
+  if (beta == ElemT(0)) {
+    data[offset] = product;
+  } else {
+    data[offset] = beta * data[offset] + product;
+  }
+}
 
 inline std::string CoorsToString(const CoorsT &coors) {
   std::ostringstream oss;
@@ -92,7 +115,6 @@ void RequireSameIndexSpaceFor(
   }
 }
 
-#ifndef USE_GPU
 inline size_t Rank4BlkCoorsToBlkIdx(
     const ShapeT &blk_shape,
     const size_t coor0,
@@ -104,6 +126,7 @@ inline size_t Rank4BlkCoorsToBlkIdx(
          blk_shape[3] + coor3;
 }
 
+#ifndef USE_GPU
 inline void BlasScale(
     QLTEN_Double *data,
     const size_t size,
@@ -223,17 +246,19 @@ void ScaleDataBlock(
     return;
   }
   if (beta == ElemT(0)) {
+#ifndef USE_GPU
     for (size_t i = 0; i < size; ++i) {
       data[i] = ElemT(0);
     }
+#else
+    qlten::QLMemset(data, 0, size * sizeof(ElemT));
+#endif
     return;
   }
 #ifndef USE_GPU
   BlasScale(data, size, beta);
 #else
-  for (size_t i = 0; i < size; ++i) {
-    data[i] *= beta;
-  }
+  hp_numeric::VectorScale(data, size, beta);
 #endif
 }
 
@@ -390,6 +415,119 @@ inline void FillFlatIdxCoors(
   }
 }
 
+#ifdef USE_GPU
+constexpr size_t kCudaBlockSize = 256;
+
+template<typename ElemT>
+__global__ void CopyExtractedDiagonalBlockKernel(
+    const ElemT *src_block_data,
+    ElemT *out_block_data,
+    const size_t out_size,
+    const size_t out_rank,
+    const size_t *out_offsets,
+    const size_t *src_offsets,
+    const size_t *axis_pairs
+) {
+  const size_t out_flat_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (out_flat_idx >= out_size) {
+    return;
+  }
+
+  size_t remaining = out_flat_idx;
+  size_t src_offset = 0;
+  for (size_t i = 0; i < out_rank; ++i) {
+    const size_t coor = remaining / out_offsets[i];
+    remaining %= out_offsets[i];
+    const size_t kept_axis = axis_pairs[2 * i];
+    const size_t diagonal_axis = axis_pairs[2 * i + 1];
+    src_offset += coor * src_offsets[kept_axis];
+    src_offset += coor * src_offsets[diagonal_axis];
+  }
+  out_block_data[out_flat_idx] = src_block_data[src_offset];
+}
+
+template<typename ElemT>
+__global__ void DiagonalOuterProductBlockKernel(
+    const ElemT *left_block_data,
+    const ElemT *right_block_data,
+    ElemT *out_block_data,
+    const size_t rows,
+    const size_t cols,
+    const ElemT alpha,
+    const ElemT beta
+) {
+  const size_t offset = blockIdx.x * blockDim.x + threadIdx.x;
+  const size_t size = rows * cols;
+  if (offset >= size) {
+    return;
+  }
+  const size_t row = offset / cols;
+  const size_t col = offset % cols;
+  StoreAccumulatedValue(
+      out_block_data,
+      offset,
+      alpha * left_block_data[row] * right_block_data[col],
+      beta
+  );
+}
+
+template<typename ElemT>
+__global__ void DiagonalTensorProductBlockKernel(
+    const ElemT *left_block_data,
+    const size_t left_shape1,
+    const size_t left_shape2,
+    const size_t left_shape3,
+    const ElemT *right_block_data,
+    const size_t right_shape1,
+    const size_t right_shape2,
+    const size_t right_shape3,
+    ElemT *out_block_data,
+    const size_t rows,
+    const size_t cols,
+    const ElemT alpha,
+    const ElemT beta
+) {
+  const size_t offset = blockIdx.x * blockDim.x + threadIdx.x;
+  const size_t size = rows * cols;
+  if (offset >= size) {
+    return;
+  }
+
+  const size_t row = offset / cols;
+  const size_t col = offset % cols;
+
+  const size_t left_coor0 = row / left_shape1;
+  const size_t left_coor1 = row % left_shape1;
+  const size_t left_diag_offset =
+      ((left_coor0 * left_shape1 + left_coor1) * left_shape2 + left_coor0) *
+      left_shape3 + left_coor1;
+
+  const size_t right_coor0 = col / right_shape1;
+  const size_t right_coor1 = col % right_shape1;
+  const size_t right_diag_offset =
+      ((right_coor0 * right_shape1 + right_coor1) * right_shape2 + right_coor0) *
+      right_shape3 + right_coor1;
+
+  StoreAccumulatedValue(
+      out_block_data,
+      offset,
+      alpha * left_block_data[left_diag_offset] *
+          right_block_data[right_diag_offset],
+      beta
+  );
+}
+
+inline void CheckLastCudaLaunch(const char *context) {
+  const cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    throw std::runtime_error(
+        std::string(context) + ": CUDA kernel launch failed: " +
+        cudaGetErrorString(err)
+    );
+  }
+}
+#endif
+
 template<typename ElemT, typename QNT>
 void CopyExtractedDiagonalBlock(
     const ElemT *src_block_data,
@@ -400,9 +538,13 @@ void CopyExtractedDiagonalBlock(
     const char *context
 ) {
   ValidateExtractedDiagonalBlockShape(src_blk, out_blk, axis_pairs, context);
+  if (out_blk.size == 0) {
+    return;
+  }
 
   const auto src_offsets = CalcMultiDimDataOffsets(src_blk.shape);
   const auto out_offsets = CalcMultiDimDataOffsets(out_blk.shape);
+#ifndef USE_GPU
   CoorsT src_data_coors(src_blk.shape.size(), 0);
   CoorsT out_data_coors(out_blk.shape.size(), 0);
   for (size_t out_flat_idx = 0; out_flat_idx < out_blk.size; ++out_flat_idx) {
@@ -414,6 +556,49 @@ void CopyExtractedDiagonalBlock(
     out_block_data[out_flat_idx] =
         src_block_data[CalcEffOneDimArrayOffset(src_data_coors, src_offsets)];
   }
+#else
+  std::vector<size_t> flat_axis_pairs;
+  flat_axis_pairs.reserve(2 * axis_pairs.size());
+  for (const auto &axis_pair : axis_pairs) {
+    flat_axis_pairs.push_back(axis_pair.first);
+    flat_axis_pairs.push_back(axis_pair.second);
+  }
+
+  size_t *d_out_offsets = nullptr;
+  size_t *d_src_offsets = nullptr;
+  size_t *d_axis_pairs = nullptr;
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_out_offsets,
+                               out_offsets.size() * sizeof(size_t)));
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_src_offsets,
+                               src_offsets.size() * sizeof(size_t)));
+  HANDLE_CUDA_ERROR(cudaMalloc(&d_axis_pairs,
+                               flat_axis_pairs.size() * sizeof(size_t)));
+  HANDLE_CUDA_ERROR(cudaMemcpy(d_out_offsets, out_offsets.data(),
+                               out_offsets.size() * sizeof(size_t),
+                               cudaMemcpyHostToDevice));
+  HANDLE_CUDA_ERROR(cudaMemcpy(d_src_offsets, src_offsets.data(),
+                               src_offsets.size() * sizeof(size_t),
+                               cudaMemcpyHostToDevice));
+  HANDLE_CUDA_ERROR(cudaMemcpy(d_axis_pairs, flat_axis_pairs.data(),
+                               flat_axis_pairs.size() * sizeof(size_t),
+                               cudaMemcpyHostToDevice));
+
+  const size_t block_num = (out_blk.size + kCudaBlockSize - 1) / kCudaBlockSize;
+  CopyExtractedDiagonalBlockKernel<<<block_num, kCudaBlockSize>>>(
+      src_block_data,
+      out_block_data,
+      out_blk.size,
+      out_blk.shape.size(),
+      d_out_offsets,
+      d_src_offsets,
+      d_axis_pairs
+  );
+  CheckLastCudaLaunch(context);
+
+  HANDLE_CUDA_ERROR(cudaFree(d_out_offsets));
+  HANDLE_CUDA_ERROR(cudaFree(d_src_offsets));
+  HANDLE_CUDA_ERROR(cudaFree(d_axis_pairs));
+#endif
 }
 
 template<typename QNT>
@@ -454,7 +639,6 @@ void ValidateRightBlockShape(
   }
 }
 
-#ifndef USE_GPU
 template<typename ElemT, typename QNT>
 void ApplyDiagonalTensorProductBlock(
     const ElemT *left_data,
@@ -479,6 +663,7 @@ void ApplyDiagonalTensorProductBlock(
     return;
   }
 
+#ifndef USE_GPU
   if (rows * cols < kDiagonalTensorProductBlasThreshold) {
     for (size_t row = 0; row < rows; ++row) {
       const ElemT left_elem = DiagonalElementFromRank4Block(
@@ -487,9 +672,12 @@ void ApplyDiagonalTensorProductBlock(
         const ElemT right_elem = DiagonalElementFromRank4Block(
             right_block_data, right_blk.shape, col);
         const size_t out_offset = row * cols + col;
-        out_block_data[out_offset] =
-            beta * out_block_data[out_offset] +
-            alpha * left_elem * right_elem;
+        StoreAccumulatedValue(
+            out_block_data,
+            out_offset,
+            alpha * left_elem * right_elem,
+            beta
+        );
       }
     }
     return;
@@ -503,8 +691,27 @@ void ApplyDiagonalTensorProductBlock(
       rows, cols,
       out_block_data
   );
-}
+#else
+  const size_t block_num =
+      (out_blk.size + kCudaBlockSize - 1) / kCudaBlockSize;
+  DiagonalTensorProductBlockKernel<<<block_num, kCudaBlockSize>>>(
+      left_block_data,
+      left_blk.shape[1],
+      left_blk.shape[2],
+      left_blk.shape[3],
+      right_block_data,
+      right_blk.shape[1],
+      right_blk.shape[2],
+      right_blk.shape[3],
+      out_block_data,
+      rows,
+      cols,
+      alpha,
+      beta
+  );
+  CheckLastCudaLaunch("DiagonalTensorProductAccumulate");
 #endif
+}
 
 template<typename ElemT, typename QNT>
 void ValidateDiagonalOuterProductInputs(
@@ -588,7 +795,6 @@ void ValidateDiagonalOuterProductBlockShape(
   }
 }
 
-#ifndef USE_GPU
 template<typename ElemT, typename QNT>
 void ApplyDiagonalOuterProductBlock(
     const ElemT *left_data,
@@ -612,13 +818,17 @@ void ApplyDiagonalOuterProductBlock(
     return;
   }
 
+#ifndef USE_GPU
   if (rows * cols < kDiagonalTensorProductBlasThreshold) {
     for (size_t row = 0; row < rows; ++row) {
       for (size_t col = 0; col < cols; ++col) {
         const size_t out_offset = row * cols + col;
-        out_block_data[out_offset] =
-            beta * out_block_data[out_offset] +
-            alpha * left_block_data[row] * right_block_data[col];
+        StoreAccumulatedValue(
+            out_block_data,
+            out_offset,
+            alpha * left_block_data[row] * right_block_data[col],
+            beta
+        );
       }
     }
     return;
@@ -632,8 +842,21 @@ void ApplyDiagonalOuterProductBlock(
       rows, cols,
       out_block_data
   );
-}
+#else
+  const size_t block_num =
+      (out_blk.size + kCudaBlockSize - 1) / kCudaBlockSize;
+  DiagonalOuterProductBlockKernel<<<block_num, kCudaBlockSize>>>(
+      left_block_data,
+      right_block_data,
+      out_block_data,
+      rows,
+      cols,
+      alpha,
+      beta
+  );
+  CheckLastCudaLaunch("DiagonalOuterProductAccumulate");
 #endif
+}
 
 template<typename ElemT, typename QNT>
 void ValidateDiagonalTensorProductInputs(
@@ -698,9 +921,6 @@ QLTensor<ElemT, QNT> ExtractDiagonal(
     const QLTensor<ElemT, QNT> &tensor,
     const std::vector<std::pair<size_t, size_t>> &axis_pairs
 ) {
-#ifdef USE_GPU
-  throw std::runtime_error("ExtractDiagonal does not support GPU tensors yet.");
-#else
   constexpr const char *context = "ExtractDiagonal";
   detail::ValidateDiagonalAxisPairs(tensor, axis_pairs, context);
 
@@ -762,7 +982,6 @@ QLTensor<ElemT, QNT> ExtractDiagonal(
     );
   }
   return diagonal;
-#endif
 }
 
 /**
@@ -786,11 +1005,6 @@ void DiagonalOuterProductAccumulate(
     ElemT alpha = ElemT(1),
     ElemT beta = ElemT(1)
 ) {
-#ifdef USE_GPU
-  throw std::runtime_error(
-      "DiagonalOuterProductAccumulate does not support GPU tensors yet."
-  );
-#else
   detail::ValidateDiagonalOuterProductInputs(left_diag, right_diag, out);
 
   const auto &left_bsdt = left_diag.GetBlkSparDataTen();
@@ -847,7 +1061,6 @@ void DiagonalOuterProductAccumulate(
         alpha, beta
     );
   }
-#endif
 }
 
 /**
@@ -882,11 +1095,6 @@ void DiagonalTensorProductAccumulate(
     ElemT alpha = ElemT(1),
     ElemT beta = ElemT(1)
 ) {
-#ifdef USE_GPU
-  throw std::runtime_error(
-      "DiagonalTensorProductAccumulate does not support GPU tensors yet."
-  );
-#else
   detail::ValidateDiagonalTensorProductInputs(left_op, right_op, out);
 
   const auto &left_bsdt = left_op.GetBlkSparDataTen();
@@ -944,8 +1152,8 @@ void DiagonalTensorProductAccumulate(
         alpha, beta
     );
   }
-#endif
 }
 
 } /* qlten */
+#undef QLTEN_DIAGONAL_HOST_DEVICE
 #endif /* ifndef QLTEN_TENSOR_MANIPULATION_TEN_DIAGONAL_TENSOR_PRODUCT_H */

@@ -28,11 +28,20 @@ using ZQLTensor = QLTensor<QLTEN_Complex, U1QN>;
 
 namespace {
 
+#ifndef USE_GPU
+// CPU-only allocation counter for the BLAS-path regression test below.
+//
+// In GPU builds every test source is compiled as CUDA.  These replacement
+// global new/delete overloads are intentionally not provided there: nvcc would
+// parse them for device code, while the GPU diagonal implementation uses
+// device kernels instead of the CPU BLAS path this counter validates.
 std::atomic<bool> g_count_allocations(false);
 std::atomic<size_t> g_allocation_count(0);
+#endif
 
 }  // namespace
 
+#ifndef USE_GPU
 void *operator new(std::size_t size) {
   if (g_count_allocations.load(std::memory_order_relaxed)) {
     g_allocation_count.fetch_add(1, std::memory_order_relaxed);
@@ -68,6 +77,7 @@ void operator delete(void *ptr, std::size_t) noexcept {
 void operator delete[](void *ptr, std::size_t) noexcept {
   std::free(ptr);
 }
+#endif
 
 namespace {
 
@@ -234,6 +244,27 @@ TEST(TestDiagonalTensorProduct, ExtractDiagonalFromRank4SupportsAxisPairOrder) {
   }
 }
 
+TEST(TestDiagonalTensorProduct, ExtractDiagonalSupportsComplexValues) {
+  const auto qn0 = MakeQN(0);
+  const auto qn1 = MakeQN(1);
+  const IndexT space(
+      {QNSctT(qn0, 2), QNSctT(qn1, 1)}, TenIndexDirType::OUT);
+  ZQLTensor op({space, InverseIndex(space)});
+
+  op.SetElem({0, 0}, QLTEN_Complex(3, 0.5));
+  op.SetElem({1, 1}, QLTEN_Complex(-5, 1.25));
+  op.SetElem({2, 2}, QLTEN_Complex(7, -2.5));
+  op.SetElem({0, 1}, QLTEN_Complex(999, 999));
+
+  const auto diag = ExtractDiagonal(op, {{0, 1}});
+
+  ASSERT_EQ(diag.Rank(), 1);
+  EXPECT_EQ(diag.GetIndex(0), space);
+  ExpectComplexNear(diag.GetElem({0}), QLTEN_Complex(3, 0.5));
+  ExpectComplexNear(diag.GetElem({1}), QLTEN_Complex(-5, 1.25));
+  ExpectComplexNear(diag.GetElem({2}), QLTEN_Complex(7, -2.5));
+}
+
 TEST(TestDiagonalTensorProduct, DiagonalOuterProductAccumulateUsesExtractedDiagonals) {
   const auto qn0 = MakeQN(0);
   const auto qn1 = MakeQN(1);
@@ -265,6 +296,58 @@ TEST(TestDiagonalTensorProduct, DiagonalOuterProductAccumulateUsesExtractedDiago
   }
 }
 
+TEST(TestDiagonalTensorProduct, DiagonalOuterProductAccumulateSupportsComplexValues) {
+  const auto qn0 = MakeQN(0);
+  const IndexT left_space({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+  const IndexT right_space({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+
+  ZQLTensor left_diag({left_space});
+  ZQLTensor right_diag({right_space});
+  ZQLTensor out({left_space, right_space});
+
+  left_diag.SetElem({0}, QLTEN_Complex(2, -1));
+  left_diag.SetElem({1}, QLTEN_Complex(-3, 0.5));
+  right_diag.SetElem({0}, QLTEN_Complex(5, 2));
+  right_diag.SetElem({1}, QLTEN_Complex(7, -4));
+  out.Fill(qn0, QLTEN_Complex(1, 3));
+
+  const QLTEN_Complex alpha(0.25, -0.5);
+  const QLTEN_Complex beta(-2, 1);
+  DiagonalOuterProductAccumulate(left_diag, right_diag, out, alpha, beta);
+
+  for (const auto &coors : GenAllCoors(out.GetShape())) {
+    const auto expected = beta * QLTEN_Complex(1, 3) +
+        alpha * left_diag.GetElem({coors[0]}) *
+            right_diag.GetElem({coors[1]});
+    ExpectComplexNear(out.GetElem(coors), expected);
+  }
+}
+
+TEST(TestDiagonalTensorProduct, DiagonalOuterProductBetaZeroIgnoresOutput) {
+  const auto qn0 = MakeQN(0);
+  const IndexT left_space({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+  const IndexT right_space({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+
+  DQLTensor left_diag({left_space});
+  DQLTensor right_diag({right_space});
+  DQLTensor out({left_space, right_space});
+
+  left_diag.SetElem({0}, QLTEN_Double(2));
+  left_diag.SetElem({1}, QLTEN_Double(3));
+  right_diag.SetElem({0}, QLTEN_Double(5));
+  right_diag.SetElem({1}, QLTEN_Double(7));
+  SetAllElements(out, std::numeric_limits<QLTEN_Double>::quiet_NaN());
+
+  DiagonalOuterProductAccumulate(
+      left_diag, right_diag, out, QLTEN_Double(2), QLTEN_Double(0));
+
+  for (const auto &coors : GenAllCoors(out.GetShape())) {
+    const auto expected = QLTEN_Double(2) *
+        left_diag.GetElem({coors[0]}) * right_diag.GetElem({coors[1]});
+    EXPECT_DOUBLE_EQ(out.GetElem(coors), expected);
+  }
+}
+
 TEST(TestDiagonalTensorProduct, AppliesAlphaAndBeta) {
   const auto qn0 = MakeQN(0);
   const IndexT lb_out({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
@@ -290,6 +373,34 @@ TEST(TestDiagonalTensorProduct, AppliesAlphaAndBeta) {
         QLTEN_Double(2) *
             left_op.GetElem({coors[0], coors[1], coors[0], coors[1]}) *
             right_op.GetElem({coors[2], coors[3], coors[2], coors[3]});
+    EXPECT_DOUBLE_EQ(out.GetElem(coors), expected);
+  }
+}
+
+TEST(TestDiagonalTensorProduct, DiagonalTensorProductBetaZeroIgnoresOutput) {
+  const auto qn0 = MakeQN(0);
+  const IndexT lb_out({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+  const IndexT ls_out({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+  const IndexT rs_out({QNSctT(qn0, 2)}, TenIndexDirType::OUT);
+  const IndexT rb_out({QNSctT(qn0, 1)}, TenIndexDirType::OUT);
+
+  DQLTensor left_op(
+      {lb_out, ls_out, InverseIndex(lb_out), InverseIndex(ls_out)});
+  DQLTensor right_op(
+      {InverseIndex(rs_out), InverseIndex(rb_out), rs_out, rb_out});
+  DQLTensor out({lb_out, ls_out, rs_out, rb_out});
+
+  FillLeftDiagonal(left_op);
+  FillRightDiagonal(right_op);
+  SetAllElements(out, std::numeric_limits<QLTEN_Double>::quiet_NaN());
+
+  DiagonalTensorProductAccumulate(
+      left_op, right_op, out, QLTEN_Double(3), QLTEN_Double(0));
+
+  for (const auto &coors : GenAllCoors(out.GetShape())) {
+    const auto expected = QLTEN_Double(3) *
+        left_op.GetElem({coors[0], coors[1], coors[0], coors[1]}) *
+        right_op.GetElem({coors[2], coors[3], coors[2], coors[3]});
     EXPECT_DOUBLE_EQ(out.GetElem(coors), expected);
   }
 }
@@ -469,6 +580,7 @@ TEST(TestDiagonalTensorProduct, LargeMissingOperatorBlockOnlyScalesByBeta) {
   }
 }
 
+#ifndef USE_GPU
 TEST(TestDiagonalTensorProduct, LargeBlasPathDoesNotPackDiagonalVectors) {
   const auto qn0 = MakeQN(0);
   const IndexT lb_out({QNSctT(qn0, 8)}, TenIndexDirType::OUT);
@@ -496,3 +608,4 @@ TEST(TestDiagonalTensorProduct, LargeBlasPathDoesNotPackDiagonalVectors) {
 
   EXPECT_EQ(g_allocation_count.load(std::memory_order_relaxed), 0);
 }
+#endif

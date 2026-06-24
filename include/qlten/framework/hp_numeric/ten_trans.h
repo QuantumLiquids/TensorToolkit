@@ -16,6 +16,7 @@
 #include <vector>     // vector
 
 #include "qlten/framework/consts.h"
+#include "qlten/framework/value_t.h"
 
 #ifndef USE_GPU
 #ifndef PLAIN_TRANSPOSE
