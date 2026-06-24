@@ -950,7 +950,7 @@ void DataBlkDecompSVDSlave(const MPI_Comm &comm) {
   return;
 }
 
-#ifdef USE_GPU
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
 template<typename ElemT>
 __global__ void DataBlkCopySVDUdataKernel(
     const ElemT *u, ElemT *data,
@@ -964,7 +964,7 @@ __global__ void DataBlkCopySVDUdataKernel(
     data[i * mat_n + j] = u[(row_offset + i) * u_n + kept_cols[j]];
   }
 }
-#endif
+#endif  // QLTEN_GPU_HAS_CUDA_SYNTAX
 
 template<typename ElemT, typename QNT>
 void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopySVDUdata(
@@ -986,6 +986,7 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopySVDUdata(
     }
   }
 #else
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
   dim3 blockDim(16, 16);
   dim3 gridDim((mat_m + 15) / 16, (mat_n + 15) / 16);
   size_t *d_kept_cols;
@@ -993,6 +994,9 @@ void BlockSparseDataTensor<ElemT, QNT>::DataBlkCopySVDUdata(
   cudaMemcpy(d_kept_cols, kept_cols.data(), kept_cols.size() * sizeof(size_t), cudaMemcpyHostToDevice);
 
   DataBlkCopySVDUdataKernel<<<gridDim, blockDim>>>(u, data, mat_m, mat_n, row_offset, u_n, d_kept_cols);
+#else
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+#endif
 #endif
 }
 

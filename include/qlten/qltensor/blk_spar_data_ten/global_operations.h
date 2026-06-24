@@ -125,7 +125,7 @@ struct ElementWiseSumOp {
 
 #undef QLTEN_HOST_DEVICE
 
-#ifdef USE_GPU
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
 template<typename ElemT, typename RealT>
 __global__
 inline void ElementWiseShiftedDivideKernel(
@@ -192,7 +192,7 @@ inline void ElementWiseBinaryAssignDefaultKernel(
     lhs_data[idx] = op(lhs_data[idx], rhs_default);
   }
 }
-#endif
+#endif  // QLTEN_GPU_HAS_CUDA_SYNTAX
 
 template<typename ElemT, typename QNT>
 template<typename BinaryOp>
@@ -205,6 +205,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBinaryAssignByLhsLayout(
   assert(blk_shape == rhs.blk_shape);
 
 #ifdef USE_GPU
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
   // GPU path: dispatch the device-portable functor `op` into a CUDA kernel.
   // `op` must expose a __device__ operator() (e.g. ElementWiseSumOp); a raw
   // host lambda will not compile here, which is intentional - it forces call
@@ -256,6 +257,9 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseBinaryAssignByLhsLayout(
     }
   }
   cudaDeviceSynchronize();
+#else
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+#endif
 #else
   if (IsScalar()) {
     if (actual_raw_data_size_ == 0) {
@@ -323,6 +327,7 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseShiftedDivideBy(
       }
   );
 #else
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
   const int threads_per_block = 256;
   if (IsScalar()) {
     if (actual_raw_data_size_ == 0) {
@@ -374,6 +379,9 @@ void BlockSparseDataTensor<ElemT, QNT>::ElementWiseShiftedDivideBy(
     }
   }
   cudaDeviceSynchronize();
+#else
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+#endif
 #endif
 }
 

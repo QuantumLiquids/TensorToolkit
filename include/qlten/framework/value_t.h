@@ -11,12 +11,28 @@
 
 #include <cmath>      // sqrt
 #include <complex>    // complex
+#include <type_traits>
 #include <vector>     // vector
 #ifdef USE_GPU
 #include <cuda/std/complex>
 #endif
 
+#if defined(USE_GPU) && defined(__CUDACC__)
+#define QLTEN_GPU_HAS_CUDA_SYNTAX 1
+#else
+#define QLTEN_GPU_HAS_CUDA_SYNTAX 0
+#endif
+
 namespace qlten {
+
+namespace detail {
+template<typename>
+struct AlwaysFalse : std::false_type {};
+}  // namespace detail
+
+#define QLTEN_GPU_REQUIRE_CUDA_COMPILATION(TypeParam) \
+  static_assert(::qlten::detail::AlwaysFalse<TypeParam>::value, \
+                "TensorToolkit GPU implementation code must be compiled as CUDA.")
 
 using QLTEN_Double = double;
 using QLTEN_Float = float;

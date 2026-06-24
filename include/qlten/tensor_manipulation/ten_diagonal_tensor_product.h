@@ -291,7 +291,7 @@ inline void FillFlatIdxCoors(
   }
 }
 
-#ifdef USE_GPU
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
 constexpr size_t kCudaBlockSize = 256;
 
 template<typename ElemT>
@@ -402,7 +402,7 @@ inline void CheckLastCudaLaunch(const char *context) {
     );
   }
 }
-#endif
+#endif  // QLTEN_GPU_HAS_CUDA_SYNTAX
 
 template<typename ElemT, typename QNT>
 void CopyExtractedDiagonalBlock(
@@ -433,6 +433,7 @@ void CopyExtractedDiagonalBlock(
         src_block_data[CalcEffOneDimArrayOffset(src_data_coors, src_offsets)];
   }
 #else
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
   std::vector<size_t> flat_axis_pairs;
   flat_axis_pairs.reserve(2 * axis_pairs.size());
   for (const auto &axis_pair : axis_pairs) {
@@ -474,6 +475,9 @@ void CopyExtractedDiagonalBlock(
   HANDLE_CUDA_ERROR(cudaFree(d_out_offsets));
   HANDLE_CUDA_ERROR(cudaFree(d_src_offsets));
   HANDLE_CUDA_ERROR(cudaFree(d_axis_pairs));
+#else
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+#endif
 #endif
 }
 
@@ -568,6 +572,7 @@ void ApplyDiagonalTensorProductBlock(
       out_block_data
   );
 #else
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
   const size_t block_num =
       (out_blk.size + kCudaBlockSize - 1) / kCudaBlockSize;
   DiagonalTensorProductBlockKernel<<<block_num, kCudaBlockSize>>>(
@@ -586,6 +591,9 @@ void ApplyDiagonalTensorProductBlock(
       beta
   );
   CheckLastCudaLaunch("DiagonalTensorProductAccumulate");
+#else
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+#endif
 #endif
 }
 
@@ -719,6 +727,7 @@ void ApplyDiagonalOuterProductBlock(
       out_block_data
   );
 #else
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
   const size_t block_num =
       (out_blk.size + kCudaBlockSize - 1) / kCudaBlockSize;
   DiagonalOuterProductBlockKernel<<<block_num, kCudaBlockSize>>>(
@@ -731,6 +740,9 @@ void ApplyDiagonalOuterProductBlock(
       beta
   );
   CheckLastCudaLaunch("DiagonalOuterProductAccumulate");
+#else
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+#endif
 #endif
 }
 

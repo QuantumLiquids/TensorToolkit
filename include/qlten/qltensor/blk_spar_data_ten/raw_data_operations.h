@@ -146,6 +146,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataRand_(void) {
     Rand(pactual_raw_data_[i]);
   }
 #else
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
   // GPU implementation
   dim3 blockDim(1024);
   dim3 gridDim((actual_raw_data_size_ + blockDim.x - 1) / blockDim.x);
@@ -158,6 +159,9 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataRand_(void) {
   if (cuda_err != cudaSuccess) {
     std::cerr << "CUDA kernel error: " << cuda_err << std::endl;
   }
+#else
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+#endif
 #endif
 }
 
@@ -172,6 +176,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataFill_(const ElemT &value) {
     pactual_raw_data_[i] = value;
   }
 #else
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
   // GPU implementation
   dim3 blockDim(1024);
   dim3 gridDim((actual_raw_data_size_ + blockDim.x - 1) / blockDim.x);
@@ -184,6 +189,9 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataFill_(const ElemT &value) {
   if (cuda_err != cudaSuccess) {
     std::cerr << "CUDA kernel error: " << cuda_err << std::endl;
   }
+#else
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+#endif
 #endif
 }
 
@@ -277,6 +285,7 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataConj_(void) {
       pactual_raw_data_[i] = CalcConj(pactual_raw_data_[i]);
     }
 #else
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
     const int threadsPerBlock = 256;
     const int blocksPerGrid = (actual_raw_data_size_ + threadsPerBlock - 1) / threadsPerBlock;
     ConjugateKernel<<<blocksPerGrid, threadsPerBlock>>>(pactual_raw_data_, actual_raw_data_size_);
@@ -285,6 +294,9 @@ void BlockSparseDataTensor<ElemT, QNT>::RawDataConj_(void) {
       std::cerr << "CUDA Error: " << cudaGetErrorString(err) << std::endl;
       assert(false);
     }
+#else
+    QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+#endif
 #endif
   }
 }
@@ -888,6 +900,7 @@ ElemT BlockSparseDataTensor<ElemT, QNT>::GetFirstNonZeroElement(void) const {
   return ElemT(0);
 }
 #else //GPU code
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
 // CUDA Kernel for element-wise inverse (no tolerance)
 template<typename ElemT>
 __global__
@@ -1194,6 +1207,67 @@ ElemT BlockSparseDataTensor<ElemT, QNT>::GetFirstNonZeroElement(void) const {
   }
   return ElemT(0);
 }
+
+#else
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv() {
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseInv(
+    typename RealTypeTrait<ElemT>::type) {
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSqrt() {
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSquare() {
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSquaredNorm() {
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::RawDataElementWiseMultiply_(
+    const size_t,
+    const ElemT *,
+    const size_t) {
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseSign() {
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+}
+
+template<typename ElemT, typename QNT>
+void BlockSparseDataTensor<ElemT, QNT>::ElementWiseClipTo(
+    typename RealTypeTrait<ElemT>::type) {
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+}
+
+template<typename ElemT, typename QNT>
+auto BlockSparseDataTensor<ElemT, QNT>::GetMaxAbs() const {
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+  return typename RealTypeTrait<ElemT>::type(0);
+}
+
+template<typename ElemT, typename QNT>
+ElemT BlockSparseDataTensor<ElemT, QNT>::GetFirstNonZeroElement(void) const {
+  QLTEN_GPU_REQUIRE_CUDA_COMPILATION(ElemT);
+  return ElemT(0);
+}
+
+#endif  // QLTEN_GPU_HAS_CUDA_SYNTAX
 
 #endif //USE_GPU
 

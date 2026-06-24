@@ -1,5 +1,6 @@
 set(_qlten_saved_cmake_module_path "${CMAKE_MODULE_PATH}")
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/modules")
+include(CudaCccl)
 
 function(_qlten_reset_var _name _was_defined _value)
   if (${_was_defined})
@@ -361,6 +362,13 @@ endif ()
 if(@QLTEN_USE_GPU@)
   find_dependency(CUDAToolkit REQUIRED)
   find_dependency(CUTENSOR REQUIRED)
+
+  qlten_collect_cuda_cccl_include_dirs(_qlten_cuda_cccl_include_dirs)
+  if (_qlten_cuda_cccl_include_dirs AND NOT TARGET qlten_cuda_cccl_deps)
+    add_library(qlten_cuda_cccl_deps INTERFACE IMPORTED)
+    set_target_properties(qlten_cuda_cccl_deps PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${_qlten_cuda_cccl_include_dirs}")
+  endif ()
 else ()
   if(NOT @QLTEN_BUNDLES_HPTT@)
     find_dependency(hptt REQUIRED)

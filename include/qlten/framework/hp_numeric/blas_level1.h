@@ -821,6 +821,7 @@ inline float Vector2Norm(
   return norm;
 }
 
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
 // CUDA kernel to convert real array to complex array
 __global__ 
 inline void VectorRealToCplxKernel(
@@ -867,6 +868,19 @@ inline void VectorRealToCplx(
   // Synchronize to ensure kernel execution completes
   cudaDeviceSynchronize();
 }
+#else
+void VectorRealToCplx(
+    const QLTEN_Double *real,
+    const size_t size,
+    QLTEN_Complex *cplx
+);
+
+void VectorRealToCplx(
+    const QLTEN_Float *real,
+    const size_t size,
+    QLTEN_ComplexFloat *cplx
+);
+#endif  // QLTEN_GPU_HAS_CUDA_SYNTAX
 
 // VectorSumSquares for Double precision
 inline double VectorSumSquares(

@@ -263,6 +263,8 @@ inline bool ArrayEq(
 }
 #else
 
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
+
 // Define custom comparator for floating-point equality
 struct DoubleEqual {
   const double epsilon;
@@ -324,6 +326,16 @@ inline bool ArrayEq(const QLTEN_ComplexFloat *d_array1, const QLTEN_ComplexFloat
   return thrust::equal(thrust::device, d_array1, d_array1 + size, d_array2, ComplexFloatEqual(kFloatEpsilon));
 }
 
+#else
+
+bool ArrayEq(const double *d_array1, const double *d_array2, size_t size);
+bool ArrayEq(const float *d_array1, const float *d_array2, size_t size);
+bool ArrayEq(const QLTEN_Complex *d_array1, const QLTEN_Complex *d_array2, size_t size);
+bool ArrayEq(
+    const QLTEN_ComplexFloat *d_array1, const QLTEN_ComplexFloat *d_array2, size_t size);
+
+#endif  // QLTEN_GPU_HAS_CUDA_SYNTAX
+
 #endif//USE_GPU
 
 //// Random
@@ -360,7 +372,7 @@ inline void Rand(QLTEN_ComplexFloat &z) {
   z = crand();
 }
 
-#ifdef USE_GPU
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
 __global__
 inline void RandomKernel(QLTEN_Double *data, size_t size, unsigned long long seed) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -466,7 +478,7 @@ inline void ElementWiseMultiplyKernel(QLTEN_ComplexFloat *data, const QLTEN_Comp
     data[idx] *= rhs_data[idx];
   }
 }
-#endif
+#endif  // QLTEN_GPU_HAS_CUDA_SYNTAX
 
 template<typename ElemType>
 inline ElemType RandT() {
@@ -540,7 +552,7 @@ inline QLTEN_ComplexFloat CalcConj(QLTEN_ComplexFloat z) {
 #endif
 }
 
-#ifdef USE_GPU
+#if QLTEN_GPU_HAS_CUDA_SYNTAX
 __global__
 inline void ConjugateKernel(QLTEN_Complex *data, size_t size) {
   size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -557,7 +569,7 @@ inline void ConjugateKernel(QLTEN_ComplexFloat *data, size_t size) {
   }
 }
 
-#endif
+#endif  // QLTEN_GPU_HAS_CUDA_SYNTAX
 template<typename TenElemType>
 inline std::vector<TenElemType> SquareVec(const std::vector<TenElemType> &v) {
   std::vector<TenElemType> res(v.size());

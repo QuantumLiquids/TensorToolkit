@@ -34,6 +34,7 @@ option(QLTEN_MPI_TIMING_MODE "Enable MPI timing instrumentation for in-tree targ
 
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/Modules")
+include(CudaCccl)
 
 function(qlten_prepare_mpi_discovery)
     if (NOT MPI_CXX_COMPILER)
@@ -203,6 +204,16 @@ if (QLTEN_USE_GPU)
     find_package(CUDAToolkit REQUIRED)
     find_package(CUTENSOR REQUIRED)
 
+    qlten_collect_cuda_cccl_include_dirs(_qlten_cuda_cccl_include_dirs)
+    if (_qlten_cuda_cccl_include_dirs)
+        foreach(_qlten_cuda_cccl_include_dir IN LISTS _qlten_cuda_cccl_include_dirs)
+            target_include_directories(TensorToolkit
+                    INTERFACE
+                    $<BUILD_INTERFACE:${_qlten_cuda_cccl_include_dir}>
+            )
+        endforeach ()
+    endif ()
+
     target_link_libraries(TensorToolkit
             INTERFACE
             CUDA::cudart
@@ -312,6 +323,7 @@ install(FILES
         DESTINATION "${QLTEN_PACKAGE_CONFIG_DIR}")
 
 install(FILES
+        cmake/Modules/CudaCccl.cmake
         cmake/Modules/MathBackend.cmake
         cmake/Modules/FindCUTENSOR.cmake
         cmake/Modules/Findhptt.cmake
