@@ -295,7 +295,7 @@ inline void ValidateMPITagRange(const int first_tag,
                                 const size_t tag_count,
                                 const MPI_Comm &comm) {
   if (first_tag < 0) {
-    throw std::invalid_argument("MPI send tag must be nonnegative");
+    throw std::invalid_argument("MPI tag must be nonnegative");
   }
   if (tag_count == 0) { return; }
 
@@ -304,7 +304,7 @@ inline void ValidateMPITagRange(const int first_tag,
   const uint64_t first_tag_value = static_cast<uint64_t>(first_tag);
   if (first_tag_value > tag_upper_bound ||
       tag_count - 1 > tag_upper_bound - first_tag_value) {
-    throw std::out_of_range("MPI send requires tags beyond MPI_TAG_UB");
+    throw std::out_of_range("MPI operation requires tags beyond MPI_TAG_UB");
   }
 }
 
@@ -366,6 +366,45 @@ void MPI_IsendChunksUnchecked(const ElemT *data,
   }
 }
 
+template<typename ElemT>
+void MPI_IrecvChunksUnchecked(ElemT *data,
+                              const size_t data_size,
+                              const int source,
+                              const int tag,
+                              const MPI_Comm &comm,
+                              std::vector<MPI_Request> &requests) {
+  constexpr size_t chunk_count = MPILargeMessageChunkElementCount<ElemT>();
+  const size_t full_chunks = data_size / chunk_count;
+  const size_t remainder = data_size % chunk_count;
+  for (size_t i = 0; i < full_chunks; ++i) {
+    requests.push_back(MPI_REQUEST_NULL);
+    HANDLE_MPI_ERROR(::MPI_Irecv(
+        data + i * chunk_count,
+        static_cast<int>(chunk_count),
+        GetMPIDataType<ElemT>(),
+        source,
+        tag + static_cast<int>(i),
+        comm,
+        &requests.back()));
+  }
+
+  if (remainder > 0 || data_size == 0) {
+    ElemT *chunk_start = data;
+    if (full_chunks > 0) {
+      chunk_start = data + full_chunks * chunk_count;
+    }
+    requests.push_back(MPI_REQUEST_NULL);
+    HANDLE_MPI_ERROR(::MPI_Irecv(
+        chunk_start,
+        static_cast<int>(remainder),
+        GetMPIDataType<ElemT>(),
+        source,
+        tag + static_cast<int>(full_chunks),
+        comm,
+        &requests.back()));
+  }
+}
+
 }  // namespace detail
 
 /**
@@ -388,6 +427,33 @@ void MPI_Isend(const ElemT *data,
   }
   requests.reserve(requests.size() + request_count);
   detail::MPI_IsendChunksUnchecked(data, data_size, dest, tag, comm, requests);
+}
+
+/**
+ * @brief Append nonblocking, large-count receives into an existing raw buffer.
+ *
+ * Each chunk uses the next consecutive tag, matching `MPI_Send` above. The
+ * caller owns both `data` and the appended requests until completion.
+ */
+template<typename ElemT>
+void MPI_Irecv(ElemT *data,
+               const size_t data_size,
+               const int source,
+               const int tag,
+               const MPI_Comm &comm,
+               std::vector<MPI_Request> &requests) {
+  if (source == MPI_ANY_SOURCE) {
+    throw std::invalid_argument(
+        "chunked MPI_Irecv requires a resolved source rank");
+  }
+  const size_t request_count = MPILargeMessageRequestCount<ElemT>(data_size);
+  ValidateMPITagRange(tag, request_count, comm);
+  if (request_count > std::numeric_limits<size_t>::max() - requests.size()) {
+    throw std::overflow_error("MPI request count overflow");
+  }
+  requests.reserve(requests.size() + request_count);
+  detail::MPI_IrecvChunksUnchecked(
+      data, data_size, source, tag, comm, requests);
 }
 
 ///< Send a solely number with type of size_t

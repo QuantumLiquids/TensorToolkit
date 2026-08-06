@@ -1318,6 +1318,87 @@ hp_numeric::MPISendRequest QLTensor<ElemT, QNT>::MPI_Isend(
 #endif
 }
 
+template<typename ElemT, typename QNT>
+QLTensorMPIRecvHandle<ElemT, QNT> QLTensor<ElemT, QNT>::MPI_Irecv(
+    int source,
+    int tag,
+    const MPI_Comm &comm) {
+#ifdef USE_GPU
+  (void) source;
+  (void) tag;
+  (void) comm;
+  throw std::runtime_error(
+      "QLTensor::MPI_Irecv is not implemented when USE_GPU is enabled");
+#else
+  if (!IsDefault()) {
+    throw std::invalid_argument(
+        "QLTensor::MPI_Irecv requires a default-constructed destination tensor");
+  }
+  if (tag != MPI_ANY_TAG) {
+    hp_numeric::ValidateMPITagRange(tag, 1, comm);
+  }
+
+  bool is_default = false;
+  MPI_Status status{};
+  HANDLE_MPI_ERROR(::MPI_Recv(
+      &is_default, 1, MPI_CXX_BOOL, source, tag, comm, &status));
+
+  size_t payload_bytes = sizeof(bool);
+  if (is_default) {
+    return QLTensorMPIRecvHandle<ElemT, QNT>(
+        {}, status, payload_bytes, 0);
+  }
+
+  source = status.MPI_SOURCE;
+  tag = status.MPI_TAG;
+
+  size_t shell_size = 0;
+  hp_numeric::MPI_Recv(shell_size, source, tag, comm);
+  if (shell_size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+    throw std::overflow_error(
+        "QLTensor MPI shell exceeds the MPI int count limit");
+  }
+
+  std::string shell(shell_size, '\0');
+  HANDLE_MPI_ERROR(::MPI_Recv(
+      shell.data(),
+      static_cast<int>(shell_size),
+      MPI_CHAR,
+      source,
+      tag,
+      comm,
+      MPI_STATUS_IGNORE));
+  DeserializeShell(shell);
+
+  auto &raw_data = GetBlkSparDataTen();
+  const size_t raw_element_count = raw_data.GetActualRawDataSize();
+  const size_t raw_request_count =
+      hp_numeric::MPILargeMessageRequestCount<ElemT>(raw_element_count);
+  const int data_tag =
+      detail::CheckedTensorDataTag(tag, raw_request_count, comm);
+
+  payload_bytes = detail::CheckedAddMPIBytes(payload_bytes, sizeof(size_t));
+  payload_bytes = detail::CheckedAddMPIBytes(payload_bytes, shell_size);
+  payload_bytes = detail::CheckedAddMPIBytes(
+      payload_bytes, detail::CheckedMPIDataBytes<ElemT>(raw_element_count));
+  const size_t staging_bytes =
+      detail::CheckedMPIDataBytes<MPI_Request>(raw_request_count);
+
+  std::vector<MPI_Request> requests;
+  requests.reserve(raw_request_count);
+  hp_numeric::detail::MPI_IrecvChunksUnchecked(
+      raw_data.GetActualRawDataPtr(),
+      raw_element_count,
+      source,
+      data_tag,
+      comm,
+      requests);
+
+  return QLTensorMPIRecvHandle<ElemT, QNT>(
+      std::move(requests), status, payload_bytes, staging_bytes);
+#endif
+}
+
 // function to receive the full tensor include the raw data
 template<typename ElemT, typename QNT>
 MPI_Status QLTensor<ElemT, QNT>::MPI_Recv(int source, int tag, const MPI_Comm &comm) {

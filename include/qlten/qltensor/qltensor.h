@@ -22,11 +22,202 @@
 #include "qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h"     // BlockSparseDataTensor
 #include "qlten/tensor_manipulation/index_lineage.h"                // IndexLineage
 
-#include <vector>       // vector
+#include <algorithm>    // min
 #include <iostream>     // istream, ostream
+#include <limits>       // numeric_limits
+#include <stdexcept>    // runtime_error
 #include <string>       // string
+#include <utility>      // move
+#include <vector>       // vector
 
 namespace qlten {
+
+template<typename ElemT, typename QNT>
+class QLTensor;
+
+/**
+ * @brief Move-only lifetime handle for a nonblocking QLTensor raw-data receive.
+ *
+ * `QLTensor::MPI_Irecv()` receives the envelope and structural shell
+ * synchronously, allocates the destination tensor, and posts every raw-data
+ * receive directly into that final allocation before constructing this handle.
+ * A default-constructed or moved-from handle is complete.
+ *
+ * @pre Until completion, the destination tensor must remain alive at a stable
+ *      address and must not be moved, read, or mutated. The communicator must
+ *      also remain valid.
+ * @warning Destroying an incomplete handle waits for all raw-data receives.
+ *          Move-assigning over an incomplete handle does the same. Complete or
+ *          destroy handles before `MPI_Finalize`; finalizing with active
+ *          requests violates this handle's lifetime precondition.
+ * @note Destruction during exception unwinding retains the wait-on-destroy
+ *       behavior. A fatal-error path that intends to call `MPI_Abort` must keep
+ *       in-flight handles alive until the catch handler and abort before their
+ *       destruction, or unwinding may wait for peer communication first.
+ *       After `MPI_Finalize`, destruction makes no MPI call and releases only
+ *       local state.
+ * @note `IsComplete()` reports locally observed state. `Test()` or `Wait()` on
+ *       an incomplete handle requires active MPI and throws `std::runtime_error`
+ *       after `MPI_Finalize`.
+ */
+template<typename ElemT, typename QNT>
+class QLTensorMPIRecvHandle {
+ public:
+  QLTensorMPIRecvHandle() noexcept = default;
+
+  QLTensorMPIRecvHandle(const QLTensorMPIRecvHandle &) = delete;
+  QLTensorMPIRecvHandle &operator=(const QLTensorMPIRecvHandle &) = delete;
+
+  QLTensorMPIRecvHandle(QLTensorMPIRecvHandle &&other) noexcept {
+    MoveFrom_(std::move(other));
+  }
+
+  QLTensorMPIRecvHandle &operator=(QLTensorMPIRecvHandle &&other) noexcept {
+    if (this != &other) {
+      CompleteBeforeRelease_();
+      MoveFrom_(std::move(other));
+    }
+    return *this;
+  }
+
+  ~QLTensorMPIRecvHandle() { CompleteBeforeRelease_(); }
+
+  /** @brief Test whether every raw-data receive has completed. */
+  bool Test() {
+    if (complete_) { return true; }
+    EnsureMPIActive_("QLTensorMPIRecvHandle::Test");
+
+    bool all_complete = true;
+    size_t offset = 0;
+    while (offset < requests_.size()) {
+      const size_t batch_size = std::min(
+          requests_.size() - offset,
+          static_cast<size_t>(std::numeric_limits<int>::max()));
+      int batch_complete = 0;
+      HANDLE_MPI_ERROR(::MPI_Testall(
+          static_cast<int>(batch_size),
+          requests_.data() + offset,
+          &batch_complete,
+          MPI_STATUSES_IGNORE));
+      all_complete = all_complete && (batch_complete != 0);
+      offset += batch_size;
+    }
+
+    if (all_complete) { MarkComplete_(); }
+    return complete_;
+  }
+
+  /** @brief Wait for every raw-data receive. Repeated calls are harmless. */
+  void Wait() {
+    if (complete_) { return; }
+    EnsureMPIActive_("QLTensorMPIRecvHandle::Wait");
+    WaitAll_();
+    MarkComplete_();
+  }
+
+  /** @brief Whether completion has already been observed by this handle. */
+  bool IsComplete() const noexcept { return complete_; }
+
+  /** @brief Status captured from the resolved tensor envelope receive. */
+  MPI_Status Status() const { return status_; }
+
+  /** @brief Total tensor wire bytes, including synchronous metadata. */
+  size_t PayloadBytes() const noexcept { return payload_bytes_; }
+
+  /** @brief Number of raw-data MPI receive requests created. */
+  size_t RequestCount() const noexcept { return request_count_; }
+
+  /** @brief Handle-owned request storage bytes; excludes tensor raw storage. */
+  size_t StagingBytes() const noexcept { return staging_bytes_; }
+
+ private:
+  friend class QLTensor<ElemT, QNT>;
+
+  QLTensorMPIRecvHandle(std::vector<MPI_Request> requests,
+                        const MPI_Status &status,
+                        const size_t payload_bytes,
+                        const size_t staging_bytes) noexcept
+      : requests_(std::move(requests)),
+        status_(status),
+        payload_bytes_(payload_bytes),
+        staging_bytes_(staging_bytes),
+        request_count_(requests_.size()),
+        complete_(requests_.empty()) {}
+
+  void MoveFrom_(QLTensorMPIRecvHandle &&other) noexcept {
+    requests_ = std::move(other.requests_);
+    status_ = other.status_;
+    payload_bytes_ = other.payload_bytes_;
+    staging_bytes_ = other.staging_bytes_;
+    request_count_ = other.request_count_;
+    complete_ = other.complete_;
+
+    other.status_ = MPI_Status{};
+    other.payload_bytes_ = 0;
+    other.staging_bytes_ = 0;
+    other.request_count_ = 0;
+    other.complete_ = true;
+  }
+
+  static void EnsureMPIActive_(const char *operation) {
+    int initialized = 0;
+    HANDLE_MPI_ERROR(::MPI_Initialized(&initialized));
+    int finalized = 0;
+    if (initialized) {
+      HANDLE_MPI_ERROR(::MPI_Finalized(&finalized));
+    }
+    if (!initialized || finalized) {
+      throw std::runtime_error(
+          std::string(operation) + " requires active MPI before MPI_Finalize");
+    }
+  }
+
+  void WaitAll_() noexcept {
+    size_t offset = 0;
+    while (offset < requests_.size()) {
+      const size_t batch_size = std::min(
+          requests_.size() - offset,
+          static_cast<size_t>(std::numeric_limits<int>::max()));
+      HANDLE_MPI_ERROR(::MPI_Waitall(
+          static_cast<int>(batch_size),
+          requests_.data() + offset,
+          MPI_STATUSES_IGNORE));
+      offset += batch_size;
+    }
+  }
+
+  void MarkComplete_() noexcept {
+    complete_ = true;
+    requests_.clear();
+  }
+
+  void CompleteBeforeRelease_() noexcept {
+    if (complete_) { return; }
+
+    int initialized = 0;
+    HANDLE_MPI_ERROR(::MPI_Initialized(&initialized));
+    if (!initialized) {
+      MarkComplete_();
+      return;
+    }
+    int finalized = 0;
+    HANDLE_MPI_ERROR(::MPI_Finalized(&finalized));
+    if (finalized) {
+      MarkComplete_();
+      return;
+    }
+
+    WaitAll_();
+    MarkComplete_();
+  }
+
+  std::vector<MPI_Request> requests_;
+  MPI_Status status_{};
+  size_t payload_bytes_ = 0;
+  size_t staging_bytes_ = 0;
+  size_t request_count_ = 0;
+  bool complete_ = true;
+};
 
 // Forward declaration for IndexFusionInfo (defined in ten_fuse_index.h)
 template<typename QNT>
@@ -544,6 +735,33 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
    */
   [[nodiscard]] hp_numeric::MPISendRequest MPI_Isend(
       int, int, const MPI_Comm &) const;
+
+  /**
+   * @brief Begin a lifetime-tracked nonblocking receive into this tensor.
+   *
+   * The tensor envelope and structural shell are received synchronously. The
+   * shell is deserialized to allocate the final CPU raw-data storage, and all
+   * chunked raw-data receives are posted directly into that storage before this
+   * function returns. The wire format matches both `MPI_Send()` and
+   * `MPI_Isend()`.
+   *
+   * @pre This tensor must be default-constructed. Until the returned handle
+   *      completes, it must remain alive at a stable address and must not be
+   *      moved, read, or mutated. The communicator must remain valid.
+   * @warning Destroying or move-assigning over an incomplete handle waits for
+   *          completion. See `QLTensorMPIRecvHandle` for finalization and fatal
+   *          exception-unwinding requirements.
+   * @note `MPI_ANY_SOURCE` and `MPI_ANY_TAG` are supported. The source and base
+   *       tag captured by the envelope receive are used for the shell and raw
+   *       payload and are available through `Status()`.
+   * @note With `USE_GPU`, this operation throws `std::runtime_error` before
+   *       consuming any MPI message.
+   * @throws std::invalid_argument if the destination is not default or the tag
+   *         is invalid, `std::out_of_range` if the derived tag range is invalid,
+   *         and `std::overflow_error` for impossible sizes.
+   */
+  [[nodiscard]] QLTensorMPIRecvHandle<ElemT, QNT> MPI_Irecv(
+      int, int, const MPI_Comm &);
 
   /** @brief Receive the full tensor through MPI into a default tensor. */
   MPI_Status MPI_Recv(int, int, const MPI_Comm &);
