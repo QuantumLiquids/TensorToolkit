@@ -17,6 +17,7 @@
 #include "qlten/framework/value_t.h"                                // CoorsT, ShapeT, QLTEN_Double, QLTEN_Complex
 #include "qlten/framework/bases/streamable.h"                       // Streamable
 #include "qlten/framework/bases/showable.h"                         // Showable
+#include "qlten/framework/hp_numeric/mpi_fun.h"                     // MPISendRequest
 #include "qlten/qltensor/index.h"                                   // IndexVec
 #include "qlten/qltensor/blk_spar_data_ten/blk_spar_data_ten.h"     // BlockSparseDataTensor
 #include "qlten/tensor_manipulation/index_lineage.h"                // IndexLineage
@@ -514,6 +515,36 @@ class QLTensor : public Showable, public Fermionicable<QNT> {
 
   /** @brief Send the full tensor through MPI. */
   void MPI_Send(int, int, const MPI_Comm &) const;
+
+  /**
+   * @brief Begin a lifetime-tracked nonblocking send of the complete tensor.
+   *
+   * The wire protocol is compatible with the blocking `MPI_Recv()`. Small
+   * control and shell buffers are owned by the returned request; CPU raw data
+   * is sent directly from this tensor's existing allocation without packing a
+   * second copy.
+   *
+   * @pre This tensor must remain alive and immutable until the returned request
+   *      completes or is destroyed.
+   * @warning Destroying an incomplete request waits for completion. Complete or
+   *          destroy all requests before `MPI_Finalize`.
+   * @warning On fatal exceptions where waiting is unsafe, keep in-flight handles
+   *          alive through the catch handler and call `MPI_Abort` before their
+   *          destruction; otherwise stack unwinding may block in the destructor.
+   * @note Multiple active sends to different destinations are supported.
+   *       Multiple tensors may also remain outstanding to the same destination
+   *       with the same base tag when all sends are posted serially by one MPI
+   *       thread and the receiver calls `MPI_Recv()` in the same tensor order.
+   *       Other concurrent tag ranges must not overlap accidentally.
+   * @note When built with `USE_GPU`, this operation is explicitly unsupported
+   *       and throws `std::runtime_error` before posting any MPI request.
+   * @return Move-only handle owning all MPI request and metadata lifetimes.
+   * @throws std::invalid_argument or std::out_of_range if the required MPI tag
+   *         range is invalid, and `std::overflow_error` for impossible sizes.
+   */
+  [[nodiscard]] hp_numeric::MPISendRequest MPI_Isend(
+      int, int, const MPI_Comm &) const;
+
   /** @brief Receive the full tensor through MPI into a default tensor. */
   MPI_Status MPI_Recv(int, int, const MPI_Comm &);
   /** @brief Broadcast the full tensor through MPI. */

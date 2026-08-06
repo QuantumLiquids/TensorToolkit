@@ -20,6 +20,8 @@
 #include <cstring>      // memcpy
 #include <cstdint>      // uint8_t, uint64_t
 #include <iomanip>      // setw, setfill
+#include <limits>       // numeric_limits
+#include <memory>       // make_shared
 #include <sstream>      // ostringstream
 #include <stdexcept>    // runtime_error
 #include <type_traits>  // is_same_v
@@ -1122,6 +1124,46 @@ inline int TensorDataTag(const int tag) {
   return 11 * tag + 1;
 }
 
+namespace detail {
+
+template<typename ElemT>
+struct TensorMPISendBuffers {
+  bool is_default = true;
+  size_t shell_size = 0;
+  std::string shell;
+  ElemT scalar_zero = ElemT(0);
+};
+
+inline size_t CheckedAddMPIBytes(const size_t lhs, const size_t rhs) {
+  if (rhs > std::numeric_limits<size_t>::max() - lhs) {
+    throw std::overflow_error("MPI tensor payload byte count overflow");
+  }
+  return lhs + rhs;
+}
+
+template<typename ElemT>
+size_t CheckedMPIDataBytes(const size_t element_count) {
+  if (element_count > std::numeric_limits<size_t>::max() / sizeof(ElemT)) {
+    throw std::overflow_error("MPI tensor raw-data byte count overflow");
+  }
+  return element_count * sizeof(ElemT);
+}
+
+inline int CheckedTensorDataTag(const int tag,
+                                const size_t raw_request_count,
+                                const MPI_Comm &comm) {
+  hp_numeric::ValidateMPITagRange(tag, 1, comm);
+  const uint64_t data_tag = 11ULL * static_cast<uint64_t>(tag) + 1ULL;
+  if (data_tag > static_cast<uint64_t>(std::numeric_limits<int>::max())) {
+    throw std::out_of_range("QLTensor MPI data tag does not fit in int");
+  }
+  const int checked_data_tag = static_cast<int>(data_tag);
+  hp_numeric::ValidateMPITagRange(checked_data_tag, raw_request_count, comm);
+  return checked_data_tag;
+}
+
+}  // namespace detail
+
 template<typename ElemT, typename QNT>
 void QLTensor<ElemT, QNT>::MPI_Send(int dest, int tag, const MPI_Comm &comm) const {
   const bool is_default = this->IsDefault();
@@ -1153,6 +1195,126 @@ void QLTensor<ElemT, QNT>::MPI_Send(int dest, int tag, const MPI_Comm &comm) con
   GetBlkSparDataTen().RawDataMPISend(comm, dest, TensorDataTag(tag));
 #ifdef QLTEN_MPI_TIMING_MODE
   send_raw_data_timer.PrintElapsed();
+#endif
+}
+
+template<typename ElemT, typename QNT>
+hp_numeric::MPISendRequest QLTensor<ElemT, QNT>::MPI_Isend(
+    const int dest,
+    const int tag,
+    const MPI_Comm &comm) const {
+#ifdef USE_GPU
+  (void) dest;
+  (void) tag;
+  (void) comm;
+  throw std::runtime_error(
+      "QLTensor::MPI_Isend is not implemented when USE_GPU is enabled");
+#else
+  using SendBuffers = detail::TensorMPISendBuffers<ElemT>;
+  auto buffers = std::make_shared<SendBuffers>();
+  buffers->is_default = IsDefault();
+
+  hp_numeric::ValidateMPITagRange(tag, 1, comm);
+  if (buffers->is_default) {
+    std::vector<MPI_Request> requests(1, MPI_REQUEST_NULL);
+    HANDLE_MPI_ERROR(::MPI_Isend(
+        &buffers->is_default,
+        1,
+        MPI_CXX_BOOL,
+        dest,
+        tag,
+        comm,
+        &requests.front()));
+    return hp_numeric::MPISendRequest(
+        std::move(requests), buffers, sizeof(bool), sizeof(bool));
+  }
+
+  const auto &raw_data = GetBlkSparDataTen();
+  const bool uses_scalar_scratch =
+      IsScalar() && raw_data.GetActualRawDataSize() == 0;
+  const size_t raw_element_count = uses_scalar_scratch
+      ? 1
+      : raw_data.GetActualRawDataSize();
+  const size_t raw_request_count =
+      hp_numeric::MPILargeMessageRequestCount<ElemT>(raw_element_count);
+  const int data_tag =
+      detail::CheckedTensorDataTag(tag, raw_request_count, comm);
+
+  buffers->shell = SerializeShell();
+  buffers->shell_size = buffers->shell.size();
+  if (buffers->shell_size >
+      static_cast<size_t>(std::numeric_limits<int>::max())) {
+    throw std::overflow_error(
+        "QLTensor MPI shell exceeds the MPI int count limit");
+  }
+
+  if (raw_request_count > std::numeric_limits<size_t>::max() - 3) {
+    throw std::overflow_error("QLTensor MPI request count overflow");
+  }
+  const size_t request_count = 3 + raw_request_count;
+
+  const size_t raw_bytes =
+      detail::CheckedMPIDataBytes<ElemT>(raw_element_count);
+  size_t payload_bytes = sizeof(bool);
+  payload_bytes = detail::CheckedAddMPIBytes(payload_bytes, sizeof(size_t));
+  payload_bytes =
+      detail::CheckedAddMPIBytes(payload_bytes, buffers->shell.size());
+  payload_bytes = detail::CheckedAddMPIBytes(payload_bytes, raw_bytes);
+
+  size_t staging_bytes = sizeof(bool) + sizeof(size_t);
+  staging_bytes =
+      detail::CheckedAddMPIBytes(staging_bytes, buffers->shell.size());
+  if (uses_scalar_scratch) {
+    staging_bytes = detail::CheckedAddMPIBytes(staging_bytes, sizeof(ElemT));
+  }
+  const size_t request_bytes =
+      detail::CheckedMPIDataBytes<MPI_Request>(request_count);
+  staging_bytes = detail::CheckedAddMPIBytes(staging_bytes, request_bytes);
+
+  std::vector<MPI_Request> requests;
+  requests.reserve(request_count);
+
+  requests.push_back(MPI_REQUEST_NULL);
+  HANDLE_MPI_ERROR(::MPI_Isend(
+      &buffers->is_default,
+      1,
+      MPI_CXX_BOOL,
+      dest,
+      tag,
+      comm,
+      &requests.back()));
+  requests.push_back(MPI_REQUEST_NULL);
+  HANDLE_MPI_ERROR(::MPI_Isend(
+      &buffers->shell_size,
+      1,
+      hp_numeric::GetMPIDataType<size_t>(),
+      dest,
+      tag,
+      comm,
+      &requests.back()));
+  requests.push_back(MPI_REQUEST_NULL);
+  HANDLE_MPI_ERROR(::MPI_Isend(
+      buffers->shell.data(),
+      static_cast<int>(buffers->shell_size),
+      MPI_CHAR,
+      dest,
+      tag,
+      comm,
+      &requests.back()));
+
+  const ElemT *raw_data_ptr = uses_scalar_scratch
+      ? &buffers->scalar_zero
+      : raw_data.GetActualRawDataPtr();
+  hp_numeric::detail::MPI_IsendChunksUnchecked(
+      raw_data_ptr,
+      raw_element_count,
+      dest,
+      data_tag,
+      comm,
+      requests);
+
+  return hp_numeric::MPISendRequest(
+      std::move(requests), buffers, payload_bytes, staging_bytes);
 #endif
 }
 

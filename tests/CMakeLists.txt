@@ -260,6 +260,13 @@ if (NOT QLTEN_USE_GPU)
             "" "" "" "2"
     )
 
+    add_mpi_unittest(test_ten_mpi_nonblocking
+            "test_tensor_mpi/test_ten_mpi_nonblocking.cc"
+            "" "" "" "3"
+    )
+    target_compile_definitions(test_ten_mpi_nonblocking
+            PRIVATE QLTEN_MPI_MAX_CHUNK_SIZE=1048576)
+
     add_mpi_unittest(test_ten_mpi_reduce_sum
             "test_tensor_mpi/test_ten_mpi_reduce_sum.cc"
             "" "" "" "3"
